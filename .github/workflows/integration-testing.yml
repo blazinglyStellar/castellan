@@ -22,7 +22,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: flowgate
+          POSTGRES_DB: castellan
         ports:
           - 5432:5432
         # Wait for postgres to be healthy before starting the job steps
@@ -52,6 +52,6 @@ jobs:
           DB_PORT: 5432
           DB_USER: postgres
           DB_PASSWORD: postgres
-          DB_NAME: flowgate
+          DB_NAME: castellan
         # Runs only tests matching build tags or naming conventions
         run: go test -v -tags=integration ./integration/...
