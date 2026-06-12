@@ -1,0 +1,55 @@
+# Version control
+.git/
+
+# Frontend (separate deployment)
+dashboard/
+
+# Secrets
+.env
+
+# Build artifacts
+tmp/
+main
+*templ.go
+
+# Test artifacts
+*.test
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Binary artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dev tooling
+.golangci.yml
+.goreleaser.yaml
+.air.toml
+.coderabbit.yml
+codecov.yml
+sqlc.yaml
+Makefile
+CONTRIBUTING.md
+AGENTS.md
+README.md
+LICENSE
+
+# Go workspace
+go.work
+go.work.sum
+
+# Docker compose (not for image)
+docker-compose.yml
