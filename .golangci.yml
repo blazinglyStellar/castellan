@@ -94,6 +94,7 @@ linters:
           - errcheck
           - gosec
           - noctx
+          - wrapcheck
       - path: cmd/api/main\.go
         text: Magic number
         linters: [ mnd ]
@@ -103,6 +104,9 @@ linters:
       - path: internal/server/providers\.go
         text: "Magic number: 8"
         linters: [ mnd ]
+      - path: internal/database/database\.go
+        text: error returned from external package is unwrapped
+        linters: [ wrapcheck ]
       - text: a blank import should be only in a main or test package
         linters: [ revive ]
   settings:
@@ -246,6 +250,8 @@ linters:
           severity: warning
         - name: receiver-naming
           severity: warning
+        - disabled: true
+          name: redundant-test-main-exit
         - name: redefines-builtin-id
           severity: error
         - name: string-of-int

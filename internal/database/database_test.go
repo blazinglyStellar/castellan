@@ -2,7 +2,9 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"os"
 	"testing"
 	"time"
 
@@ -27,7 +29,8 @@ func mustStartPostgresContainer() (func(context.Context, ...testcontainers.Termi
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
-				WithStartupTimeout(5*time.Second)),
+				WithStartupTimeout(5*time.Second),
+		),
 	)
 	if err != nil {
 		return nil, err
@@ -56,25 +59,36 @@ func mustStartPostgresContainer() (func(context.Context, ...testcontainers.Termi
 func TestMain(m *testing.M) {
 	teardown, err := mustStartPostgresContainer()
 	if err != nil {
-		log.Fatalf("could not start postgres container: %v", err)
+		fmt.Fprintf(os.Stderr, "could not start postgres container: %v\n", err)
+		os.Exit(1)
 	}
 
-	m.Run()
+	code := m.Run()
 
-	if teardown != nil && teardown(context.Background()) != nil {
-		log.Fatalf("could not teardown postgres container: %v", err)
+	if teardown != nil {
+		if err := teardown(context.Background()); err != nil {
+			log.Printf("could not teardown postgres container: %v", err)
+		}
 	}
+
+	os.Exit(code)
 }
 
 func TestNew(t *testing.T) {
-	srv := New()
+	srv, err := New()
+	if err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
 	if srv == nil {
 		t.Fatal("New() returned nil")
 	}
 }
 
 func TestHealth(t *testing.T) {
-	srv := New()
+	srv, err := New()
+	if err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
 
 	stats := srv.Health()
 
@@ -83,7 +97,7 @@ func TestHealth(t *testing.T) {
 	}
 
 	if _, ok := stats["error"]; ok {
-		t.Fatalf("expected error not to be present")
+		t.Fatal("expected error not to be present")
 	}
 
 	if stats["message"] != "It's healthy" {
@@ -92,9 +106,12 @@ func TestHealth(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
-	srv := New()
+	srv, err := New()
+	if err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
 
 	if srv.Close() != nil {
-		t.Fatalf("expected Close() to return nil")
+		t.Fatal("expected Close() to return nil")
 	}
 }
