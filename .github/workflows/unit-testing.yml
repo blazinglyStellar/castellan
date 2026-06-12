@@ -1,0 +1,45 @@
+name: Unit Testing
+
+on:
+  push:
+    branches: 
+        - main 
+        - master
+        - deploy
+  pull_request:
+
+env:
+  GO_VERSION: stable
+
+jobs:
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Clone the code into the runner
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Step 2: Install Go and manage automatic dependency caching
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }} # Dynamically uses the latest Go version
+          cache: true               # Speeds up subsequent runs by caching go modules
+
+      # Step 3: Ensure all dependencies are present and clean
+      - name: Install Dependencies
+        run: go mod download
+
+      # Step 4: Run tests with race detection and coverage mapping
+      - name: Run Tests
+        run: |
+          go test -v -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+
+      # Step 5: (Optional) Upload coverage report artifact
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage
+          path: coverage.out

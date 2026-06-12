@@ -1,0 +1,39 @@
+name: Run tests and upload coverage
+
+on: 
+  pull_request:
+  push:
+    branches:
+        - main
+        - master
+        - deploy
+
+env:
+  GO_VERSION: stable
+  
+jobs:
+  test:
+    name: Run tests and collect coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }} # Dynamically uses the latest Go version
+          cache: true               # Speeds up subsequent runs by caching go modules
+
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -race -count=1 -covermode=atomic ./... -coverprofile=coverage.txt
+
+      - name: Upload results to Codecov
+        uses: codecov/codecov-action@v5
+       

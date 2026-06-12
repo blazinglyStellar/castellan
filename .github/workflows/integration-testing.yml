@@ -1,0 +1,57 @@
+name: Integration Tests
+
+on:
+  schedule:
+    # Runs at 00:00 UTC every night (translate to your timezone)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allows you to trigger this manually from GitHub UI
+
+env:
+  GO_VERSION: stable
+  GOLANGCI_LINT_VERSION: v2.12
+
+jobs:
+  integration-test:
+    name: Run Integration Tests
+    runs-on: ubuntu-latest
+
+    # Spin up required infrastructure using Docker service containers
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: flowgate
+        ports:
+          - 5432:5432
+        # Wait for postgres to be healthy before starting the job steps
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install Dependencies
+        run: go mod download
+
+      - name: Run Integration Tests
+        # Pass database connection details via environment variables
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: flowgate
+        # Runs only tests matching build tags or naming conventions
+        run: go test -v -tags=integration ./integration/...
