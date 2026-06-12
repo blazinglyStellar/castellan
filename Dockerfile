@@ -5,6 +5,9 @@ FROM golang:1.26-alpine
 # Set destination for COPY
 WORKDIR /app
 
+# Upgrade system packages (e.g. openssl CVEs)
+RUN apk upgrade --no-cache
+
 # Download Go modules
 COPY go.mod go.sum ./
 RUN go mod download

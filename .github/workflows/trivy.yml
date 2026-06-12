@@ -9,7 +9,7 @@ on:
       - deploy
 
 env:
-  IMAGE_NAME: flowgate
+  IMAGE_NAME: castellan
 
 jobs:
   docker_build_trivy_scan:
