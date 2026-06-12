@@ -47,7 +47,7 @@ go build -o ./bin/castellan ./cmd/api/
 
 | Variable            | Default                                                    | Description                    |
 |---------------------|------------------------------------------------------------|--------------------------------|
-| `DATABASE_URL`      | `postgres://castellan:castellan@localhost:5432/castellan`     | PostgreSQL connection string   |
+| `DATABASE_URL`      | `postgres://postgres:postgres@localhost:5432/castellan`     | PostgreSQL connection string   |
 | `REDIS_URL`         | `redis://localhost:6379`                                   | Redis connection string        |
 | `PORT`              | `8080`                                                     | HTTP server port               |
 | `STELLAR_HORIZON`   | `https://horizon-testnet.stellar.org`                      | Stellar network endpoint       |
@@ -257,11 +257,11 @@ Migrations are managed with [goose](https://pressly.github.io/goose/) in the `mi
 goose -s -dir migrations create add_billing_cycle sql
 
 # Apply migrations
-DATABASE_URL="postgres://castellan:castellan@localhost:5432/castellan?sslmode=disable" \
+DATABASE_URL="postgres://postgres:postgres@localhost:5432/castellan?sslmode=disable" \
   goose -s -dir migrations postgres "$DATABASE_URL" up
 
 # Rollback last migration
-DATABASE_URL="postgres://castellan:castellan@localhost:5432/castellan?sslmode=disable" \
+DATABASE_URL="postgres://postgres:postgres@localhost:5432/castellan?sslmode=disable" \
   goose -s -dir migrations postgres "$DATABASE_URL" down
 ```
 
