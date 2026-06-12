@@ -1,0 +1,7 @@
+Castellan is a usage-based API monetization gateway that enables developers to charge for API access per request instead of relying on subscriptions or fixed-rate billing. It sits in front of existing APIs as a Go-based reverse proxy, handling authentication, request routing, metering, and billing. Each request is priced, validated against a prepaid balance, and recorded in an internal ledger, allowing precise tracking of API usage in real time.
+
+The project solves the limitations of traditional API monetization models, which are often too rigid, inefficient, or operationally complex. Subscriptions lead to overpayment or underutilization, while free tiers are difficult to sustain. Castellan replaces these with a proportional model where users pay exactly for what they consume, making small APIs economically viable and reducing friction for both providers and consumers.
+
+To ensure performance and scalability, Castellan does not execute blockchain transactions per request. Instead, it aggregates usage in an internal ledger and performs batched settlements using the Stellar network. This keeps the system fast while still enabling transparent, low-cost financial settlement.
+
+Beyond billing, Castellan establishes a foundation for machine-native payments, where APIs and eventually AI agents can interact economically without human intervention. Its long-term direction is to become a programmable payment layer for software systems, enabling automated, fine-grained commerce across digital services.

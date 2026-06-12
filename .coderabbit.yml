@@ -1,0 +1,9 @@
+reviews:
+  path_filters:
+    - "!dashboard/**"     # Exclude frontend JS from Go-focused reviews
+    - "!docs/**"          # Exclude docs
+  path_instructions:
+    - path: "**/*.go"
+      instructions: "Review for Go idioms, error handling, race conditions, and performance."
+chat:
+  auto_reply: true

@@ -1,0 +1,5 @@
+PORT=8080
+APP_ENV=local
+GOOSE_DRIVER="postgres"
+GOOSE_DBSTRING="postgresql://postgres:1234@localhost:5432/castellan"
+GOOSE_MIGRATION_DIR="./migrations"
