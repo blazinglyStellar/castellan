@@ -8,7 +8,6 @@ erDiagram
     users {
         uuid id PK
         text email UK
-        text role
         text deposit_memo UK
         text payout_stellar_address
         timestamptz created_at
