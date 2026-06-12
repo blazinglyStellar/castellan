@@ -5,9 +5,9 @@ before:
     - go mod tidy
 
 builds:
-  - id: flowgate
+  - id: castellan
     main: ./cmd/api
-    binary: flowgate
+    binary: castellan
     env:
       - CGO_ENABLED=0
     goos:
@@ -30,7 +30,7 @@ checksum:
 release:
   github:
     owner: mustapha-aminu-abubakar
-    name: flowgate
+    name: castellan
 
 changelog:
   sort: asc

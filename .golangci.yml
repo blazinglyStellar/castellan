@@ -3,7 +3,7 @@ formatters:
     - gofumpt
   settings:
     gofumpt:
-      module-path: flowgate
+      module-path: castellan
   exclusions:
     generated: lax
     paths:

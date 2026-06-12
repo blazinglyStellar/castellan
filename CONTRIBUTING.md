@@ -1,4 +1,4 @@
-# Contributing to FlowGate
+# Contributing to Castellan
 
 ## Table of Contents
 
@@ -36,18 +36,18 @@ cp .env.example .env
 # Edit .env with your database URL, Redis URL, and Stellar testnet keys
 
 # Run migrations
-DATABASE_URL="postgres://flowgate:flowgate@localhost:5432/flowgate?sslmode=disable" \
+DATABASE_URL="postgres://castellan:castellan@localhost:5432/castellan?sslmode=disable" \
   goose -s -dir migrations postgres "$DATABASE_URL" up
 
 # Build and run
-go build -o ./bin/flowgate ./cmd/api/
+go build -o ./bin/castellan ./cmd/api/
 ```
 
 ### Environment Variables
 
 | Variable            | Default                                                    | Description                    |
 |---------------------|------------------------------------------------------------|--------------------------------|
-| `DATABASE_URL`      | `postgres://flowgate:flowgate@localhost:5432/flowgate`     | PostgreSQL connection string   |
+| `DATABASE_URL`      | `postgres://castellan:castellan@localhost:5432/castellan`     | PostgreSQL connection string   |
 | `REDIS_URL`         | `redis://localhost:6379`                                   | Redis connection string        |
 | `PORT`              | `8080`                                                     | HTTP server port               |
 | `STELLAR_HORIZON`   | `https://horizon-testnet.stellar.org`                      | Stellar network endpoint       |
@@ -103,8 +103,8 @@ import (
 	"fmt"
 	"net/http"
 
-	// 2. Internal / project packages (module prefix: flowgate)
-	"flowgate/internal/server"
+	// 2. Internal / project packages (module prefix: castellan)
+	"castellan/internal/server"
 
 	// 3. Third-party dependencies
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -157,9 +157,9 @@ golangci-lint run ./internal/server/...
 
 #### 1. gofumpt — "File is not properly formatted"
 
-**Why it happens:** The module name `flowgate` is a single-level name (like `fmt`, `http`). When gofumpt runs inside golangci-lint, it cannot auto-detect the module path, so it treats `flowgate/internal/server` as a potential stdlib import.
+**Why it happens:** The module name `castellan` is a single-level name (like `fmt`, `http`). When gofumpt runs inside golangci-lint, it cannot auto-detect the module path, so it treats `castellan/internal/server` as a potential stdlib import.
 
-**Fix:** The `.golangci.yml` already sets `module-path: flowgate` for gofumpt. Ensure your local formatting matches. Run:
+**Fix:** The `.golangci.yml` already sets `module-path: castellan` for gofumpt. Ensure your local formatting matches. Run:
 
 ```sh
 gofumpt -w <file>
@@ -257,11 +257,11 @@ Migrations are managed with [goose](https://pressly.github.io/goose/) in the `mi
 goose -s -dir migrations create add_billing_cycle sql
 
 # Apply migrations
-DATABASE_URL="postgres://flowgate:flowgate@localhost:5432/flowgate?sslmode=disable" \
+DATABASE_URL="postgres://castellan:castellan@localhost:5432/castellan?sslmode=disable" \
   goose -s -dir migrations postgres "$DATABASE_URL" up
 
 # Rollback last migration
-DATABASE_URL="postgres://flowgate:flowgate@localhost:5432/flowgate?sslmode=disable" \
+DATABASE_URL="postgres://castellan:castellan@localhost:5432/castellan?sslmode=disable" \
   goose -s -dir migrations postgres "$DATABASE_URL" down
 ```
 
@@ -325,7 +325,7 @@ go build ./... && go test ./...
    ```
 4. Verify your changes compile correctly for the Docker build:
    ```sh
-   docker build -t flowgate:test .
+   docker build -t castellan:test .
    ```
 5. If you changed queries or schema, regenerate sqlc:
    ```sh
