@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+
+	"castellan/internal/server/middleware"
 )
 
 func (s *Server) RegisterRoutes() http.Handler {
@@ -13,7 +15,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 
 	mux.HandleFunc("/health", s.healthHandler)
 
-	return s.corsMiddleware(mux)
+	return s.corsMiddleware(middleware.MaxBodySize(middleware.MaxBodySizeFromEnv())(mux))
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
