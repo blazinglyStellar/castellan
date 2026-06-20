@@ -13,10 +13,15 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", s.HelloWorldHandler)
-
 	mux.HandleFunc("/health", s.healthHandler)
 
-	return s.corsMiddleware(middleware.Recovery(slog.Default())(mux))
+	handler := mux
+
+	// middleware chain
+	handler = middleware.Recovery(slog.Default())(handler)
+	handler = middleware.MaxBodySize(middleware.MaxBodySizeFromEnv())(handler)
+
+	return s.corsMiddleware(handler)
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
