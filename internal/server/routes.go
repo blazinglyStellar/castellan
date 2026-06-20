@@ -15,7 +15,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.HandleFunc("/", s.HelloWorldHandler)
 	mux.HandleFunc("/health", s.healthHandler)
 
-	handler := mux
+	var handler http.Handler = mux
 
 	// middleware chain
 	handler = middleware.Recovery(slog.Default())(handler)
