@@ -3,17 +3,25 @@ package server
 import (
 	"encoding/json"
 	"log"
+	"log/slog"
 	"net/http"
+
+	"castellan/internal/server/middleware"
 )
 
 func (s *Server) RegisterRoutes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", s.HelloWorldHandler)
-
 	mux.HandleFunc("/health", s.healthHandler)
 
-	return s.corsMiddleware(mux)
+	var handler http.Handler = mux
+
+	// middleware chain
+	handler = middleware.Recovery(slog.Default())(handler)
+	handler = middleware.MaxBodySize(middleware.MaxBodySizeFromEnv())(handler)
+
+	return s.corsMiddleware(handler)
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
