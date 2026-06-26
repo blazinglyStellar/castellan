@@ -20,6 +20,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	// middleware chain
 	handler = middleware.Recovery(slog.Default())(handler)
 	handler = middleware.MaxBodySize(middleware.MaxBodySizeFromEnv())(handler)
+	handler = middleware.RequestLogger(slog.Default())(handler)
 
 	return s.corsMiddleware(handler)
 }
