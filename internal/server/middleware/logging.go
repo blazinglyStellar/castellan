@@ -12,10 +12,6 @@ import (
 
 var errHijackerNotSupported = errors.New("hijacker not supported")
 
-type contextKey string
-
-const requestIDKey contextKey = "request_id"
-
 type responseWriter struct {
 	w          http.ResponseWriter
 	statusCode int
@@ -90,8 +86,8 @@ func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 
 			latency := time.Since(start).Milliseconds()
 
-			requestID, ok := r.Context().Value(requestIDKey).(string)
-			if !ok {
+			requestID := GetRequestID(r.Context())
+			if requestID == "" {
 				requestID = "unknown"
 			}
 

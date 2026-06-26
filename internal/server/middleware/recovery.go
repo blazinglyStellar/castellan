@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -17,23 +18,23 @@ func Recovery(logger *slog.Logger) func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			defer func() {
+			defer func(ctx context.Context) {
 				if recovered := recover(); recovered != nil {
 					logger.ErrorContext(
-						r.Context(),
+						ctx,
 						"handler panic recovered",
 						slog.Any("panic", recovered),
 						slog.String("stack", string(debug.Stack())),
 					)
 					if err := writeInternalServerError(w); err != nil {
 						logger.ErrorContext(
-							r.Context(),
+							ctx,
 							"write recovery response failed",
 							slog.Any("error", err),
 						)
 					}
 				}
-			}()
+			}(r.Context())
 
 			next.ServeHTTP(w, r)
 		})
