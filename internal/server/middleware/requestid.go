@@ -9,7 +9,7 @@ import (
 
 type requestIDKey struct{}
 
-var requestIDContextKey = requestIDKey{}
+var requestIDContextKey requestIDKey
 
 // RequestID is middleware that injects a request ID into the context and
 // response header. It reads X-Request-Id from the incoming request; if empty,
