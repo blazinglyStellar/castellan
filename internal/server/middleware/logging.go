@@ -3,6 +3,7 @@ package middleware
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -39,7 +40,11 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 		rw.statusCode = http.StatusOK
 		rw.wrote = true
 	}
-	return rw.w.Write(b)
+	n, err := rw.w.Write(b)
+	if err != nil {
+		return n, fmt.Errorf("write response: %w", err)
+	}
+	return n, nil
 }
 
 func (rw *responseWriter) Flush() {
@@ -53,7 +58,11 @@ func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !ok {
 		return nil, nil, errHijackerNotSupported
 	}
-	return h.Hijack()
+	conn, buf, err := h.Hijack()
+	if err != nil {
+		return nil, nil, fmt.Errorf("hijack response: %w", err)
+	}
+	return conn, buf, nil
 }
 
 func (rw *responseWriter) Push(target string, opts *http.PushOptions) error {
@@ -61,7 +70,10 @@ func (rw *responseWriter) Push(target string, opts *http.PushOptions) error {
 	if !ok {
 		return http.ErrNotSupported
 	}
-	return p.Push(target, opts)
+	if err := p.Push(target, opts); err != nil {
+		return fmt.Errorf("push response: %w", err)
+	}
+	return nil
 }
 
 func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
@@ -78,8 +90,8 @@ func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 
 			latency := time.Since(start).Milliseconds()
 
-			requestID, _ := r.Context().Value(requestIDKey).(string)
-			if requestID == "" {
+			requestID, ok := r.Context().Value(requestIDKey).(string)
+			if !ok {
 				requestID = "unknown"
 			}
 
