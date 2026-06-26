@@ -16,9 +16,9 @@ func TestRequestIDGeneratesUUID(t *testing.T) {
 
 	RequestID()(handler).ServeHTTP(recorder, request)
 
-	requestID := recorder.Header().Get("X-Request-ID")
+	requestID := recorder.Header().Get("X-Request-Id")
 	if requestID == "" {
-		t.Fatal("expected non-empty X-Request-ID header")
+		t.Fatal("expected non-empty X-Request-Id header")
 	}
 	if len(requestID) != 36 {
 		t.Fatalf("expected UUID v4 (36 chars); got %q (%d chars)", requestID, len(requestID))
@@ -32,12 +32,12 @@ func TestRequestIDPropagatesHeader(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
-	request.Header.Set("X-Request-ID", "my-custom-trace-123")
+	request.Header.Set("X-Request-Id", "my-custom-trace-123")
 
 	RequestID()(handler).ServeHTTP(recorder, request)
 
-	if got := recorder.Header().Get("X-Request-ID"); got != "my-custom-trace-123" {
-		t.Fatalf("expected X-Request-ID %q; got %q", "my-custom-trace-123", got)
+	if got := recorder.Header().Get("X-Request-Id"); got != "my-custom-trace-123" {
+		t.Fatalf("expected X-Request-Id %q; got %q", "my-custom-trace-123", got)
 	}
 }
 
@@ -51,8 +51,8 @@ func TestRequestIDSetsResponseHeader(t *testing.T) {
 
 	RequestID()(handler).ServeHTTP(recorder, request)
 
-	if got := recorder.Header().Get("X-Request-ID"); got == "" {
-		t.Fatal("expected non-empty X-Request-ID response header")
+	if got := recorder.Header().Get("X-Request-Id"); got == "" {
+		t.Fatal("expected non-empty X-Request-Id response header")
 	}
 }
 
