@@ -121,11 +121,11 @@ func (p *Proxy) director(outReq *http.Request) {
 		return
 	}
 
+	savedQuery := outReq.URL.RawQuery
 	outReq.URL = target
 	outReq.Host = target.Host
-
-	if query := outReq.URL.RawQuery; query != "" {
-		outReq.URL.RawQuery = query
+	if savedQuery != "" {
+		outReq.URL.RawQuery = savedQuery
 	}
 
 	outReq.Header.Set("X-Forwarded-For", outReq.RemoteAddr)

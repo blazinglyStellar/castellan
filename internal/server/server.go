@@ -35,7 +35,11 @@ func NewServer() (*http.Server, error) {
 	queries := repository.New(databaseService.Pool())
 	resolver, err := provider.NewDBResolver(queries)
 	if err != nil {
-		databaseService.Close()
+		if closeErr := databaseService.Close(); closeErr != nil {
+			slog.Warn("failed to close database after resolver error",
+				slog.String("error", closeErr.Error()),
+			)
+		}
 
 		return nil, fmt.Errorf("failed to create provider resolver: %w", err)
 	}

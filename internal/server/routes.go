@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"castellan/internal/proxy"
 	"castellan/internal/server/middleware"
 )
 
@@ -15,7 +14,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 
 	mux.HandleFunc("/", s.HelloWorldHandler)
 	mux.HandleFunc("/health", s.healthHandler)
-	mux.Handle("/v1/providers/", s.proxyMiddleware(s.proxy))
+	mux.Handle("/v1/providers/", s.proxy)
 
 	var handler http.Handler = mux
 
@@ -25,12 +24,6 @@ func (s *Server) RegisterRoutes() http.Handler {
 	handler = middleware.RequestID()(handler)
 
 	return s.corsMiddleware(handler)
-}
-
-func (s *Server) proxyMiddleware(next *proxy.Proxy) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r)
-	})
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {

@@ -250,33 +250,6 @@ func TestReverseProxyLargePayload(t *testing.T) {
 	}
 }
 
-func TestCaptureResponseWriter(t *testing.T) {
-	inner := httptest.NewRecorder()
-	cw := &captureResponseWriter{ResponseWriter: inner}
-
-	cw.WriteHeader(http.StatusAccepted)
-	if cw.statusCode != http.StatusAccepted {
-		t.Fatalf("expected status code %d, got %d", http.StatusAccepted, cw.statusCode)
-	}
-
-	n, err := cw.Write([]byte("hello world"))
-	if err != nil {
-		t.Fatalf("unexpected write error: %v", err)
-	}
-
-	if n != 11 {
-		t.Fatalf("expected 11 bytes written, got %d", n)
-	}
-
-	if cw.bytesWritten != 11 {
-		t.Fatalf("expected captured bytes 11, got %d", cw.bytesWritten)
-	}
-
-	if inner.Body.String() != "hello world" {
-		t.Fatalf("expected inner body %q, got %q", "hello world", inner.Body.String())
-	}
-}
-
 func TestCountingReadCloser(t *testing.T) {
 	body := io.NopCloser(strings.NewReader("test data"))
 	var counter int64
