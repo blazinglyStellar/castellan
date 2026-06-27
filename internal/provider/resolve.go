@@ -1,0 +1,40 @@
+package provider
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"castellan/internal/repository/db"
+
+	"github.com/google/uuid"
+)
+
+type DBResolver struct {
+	queries *repository.Queries
+}
+
+type Resolver interface {
+	ResolveBaseURL(ctx context.Context, id string) (string, error)
+}
+
+func NewDBResolver(queries *repository.Queries) (*DBResolver, error) {
+	if queries == nil {
+		return nil, errors.New("queries cannot be nil")
+	}
+	return &DBResolver{queries: queries}, nil
+}
+
+func (r *DBResolver) ResolveBaseURL(ctx context.Context, id string) (string, error) {
+	providerUUID, err := uuid.Parse(id)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse uuid: %s", err.Error())
+	}
+
+	baseURL, err := r.queries.GetProviderBaseURL(ctx, providerUUID)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve provider: %w", err)
+	}
+
+	return baseURL, nil
+}
