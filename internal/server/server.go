@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -11,26 +12,44 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 
 	"castellan/internal/database"
+	"castellan/internal/provider"
+	"castellan/internal/proxy"
+	"castellan/internal/repository/db"
 )
 
 type Server struct {
 	port int
 
-	db database.Service
+	db    database.Service
+	proxy *proxy.Proxy
 }
 
 func NewServer() (*http.Server, error) {
 	port, _ := strconv.Atoi(os.Getenv("PORT"))
 
-	db, err := database.New()
+	databaseService, err := database.New()
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	srv := &Server{
-		port: port,
+	queries := repository.New(databaseService.Pool())
+	resolver, err := provider.NewDBResolver(queries)
+	if err != nil {
+		if closeErr := databaseService.Close(); closeErr != nil {
+			slog.Warn("failed to close database after resolver error",
+				slog.String("error", closeErr.Error()),
+			)
+		}
 
-		db: db,
+		return nil, fmt.Errorf("failed to create provider resolver: %w", err)
+	}
+
+	pxy := proxy.NewReverseProxy(resolver, slog.Default())
+
+	srv := &Server{
+		port:  port,
+		db:    databaseService,
+		proxy: pxy,
 	}
 
 	httpServer := &http.Server{
