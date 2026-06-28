@@ -39,7 +39,7 @@ func TestReverseProxyForwardsRequest(t *testing.T) {
 	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/weather/current", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/weather/current", nil)
 
 	proxy.ServeHTTP(recorder, request)
 
@@ -68,7 +68,7 @@ func TestReverseProxyInjectsHeaders(t *testing.T) {
 	resolver := &mockResolver{baseURL: upstream.URL}
 	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/data", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/data", nil)
 	request.RemoteAddr = "192.168.1.1:12345"
 
 	ctx := middleware.RequestID()(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -103,7 +103,7 @@ func TestReverseProxyInjectsConsumerHeader(t *testing.T) {
 	resolver := &mockResolver{baseURL: upstream.URL}
 	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/data", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/data", nil)
 	ctx := gatewaycontext.SetConsumerInfo(request.Context(), gatewaycontext.ConsumerInfo{
 		ConsumerID: "consumer-42",
 	})
@@ -131,7 +131,7 @@ func TestReverseProxyNon2xxProxiedAsIs(t *testing.T) {
 	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/resource", nil)
 
 	proxy.ServeHTTP(recorder, request)
 
@@ -153,7 +153,7 @@ func TestReverseProxyResolverErrorReturns502(t *testing.T) {
 	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/resource", nil)
 
 	proxy.ServeHTTP(recorder, request)
 
@@ -189,7 +189,7 @@ func TestReverseProxyMetricsStoredInContext(t *testing.T) {
 	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/weather", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/weather", nil)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		proxy.ServeHTTP(w, r)
@@ -234,7 +234,7 @@ func TestReverseProxyLargePayload(t *testing.T) {
 	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/large", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/large", nil)
 
 	proxy.ServeHTTP(recorder, request)
 
@@ -281,13 +281,13 @@ func TestParseProviderPath(t *testing.T) {
 		wantRest       string
 		wantOK         bool
 	}{
-		{"/v1/providers/uuid-123/weather", "uuid-123", "/weather", true},
-		{"/v1/providers/uuid-123", "uuid-123", "/", true},
-		{"/v1/providers/uuid-123/", "uuid-123", "/", true},
-		{"/v1/providers/uuid-123/weather/current", "uuid-123", "/weather/current", true},
+		{"/api/gateway/uuid-123/weather", "uuid-123", "/weather", true},
+		{"/api/gateway/uuid-123", "uuid-123", "/", true},
+		{"/api/gateway/uuid-123/", "uuid-123", "/", true},
+		{"/api/gateway/uuid-123/weather/current", "uuid-123", "/weather/current", true},
 		{"/health", "", "", false},
 		{"/", "", "", false},
-		{"/v1/providers/", "", "", false},
+		{"/api/gateway/", "", "", false},
 	}
 
 	for _, tt := range tests {
@@ -340,7 +340,7 @@ func TestReverseProxyReadTimeout(t *testing.T) {
 	proxy := NewReverseProxy(&mockResolver{baseURL: upstream.URL}, slog.Default(), cfg)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/weather", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/weather", nil)
 
 	proxy.ServeHTTP(recorder, request)
 
@@ -460,7 +460,7 @@ func TestRetryRoundTripper_FlakyUpstreamFailsThenSucceeds(t *testing.T) {
 	proxy := NewReverseProxy(&mockResolver{baseURL: upstream.URL}, slog.Default(), cfg)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/resource", nil)
 
 	proxy.ServeHTTP(recorder, request)
 
@@ -499,7 +499,7 @@ func TestRetryRoundTripper_ExhaustionReturnsLastFailure(t *testing.T) {
 	proxy := NewReverseProxy(&mockResolver{baseURL: upstream.URL}, slog.Default(), cfg)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/resource", nil)
 
 	proxy.ServeHTTP(recorder, request)
 
@@ -539,7 +539,7 @@ func TestRetryRoundTripper_NoRetryOn4xx(t *testing.T) {
 	proxy := NewReverseProxy(&mockResolver{baseURL: upstream.URL}, slog.Default(), cfg)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/resource", nil)
 
 	proxy.ServeHTTP(recorder, request)
 
@@ -572,7 +572,7 @@ func TestRetryRoundTripper_NoRetryOnNonIdempotent(t *testing.T) {
 	proxy := NewReverseProxy(&mockResolver{baseURL: upstream.URL}, slog.Default(), cfg)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/v1/providers/uuid-123/resource", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/gateway/uuid-123/resource", nil)
 
 	proxy.ServeHTTP(recorder, request)
 
@@ -597,7 +597,7 @@ func TestRetryRoundTripper_ContextCancelledBeforeFirstAttempt(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/resource", nil)
 	request = request.WithContext(ctx)
 
 	recorder := httptest.NewRecorder()
@@ -650,7 +650,7 @@ func TestReverseProxyConnectTimeout(t *testing.T) {
 	proxy := NewReverseProxy(&mockResolver{baseURL: "http://192.0.2.1:9"}, slog.Default(), cfg)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/uuid-123/resource", nil)
 
 	proxy.ServeHTTP(recorder, request)
 

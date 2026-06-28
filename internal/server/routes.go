@@ -14,16 +14,25 @@ func (s *Server) RegisterRoutes() http.Handler {
 
 	mux.HandleFunc("/", s.HelloWorldHandler)
 	mux.HandleFunc("/health", s.healthHandler)
-	mux.Handle("/v1/providers/", middleware.UsageCapture(s.usageRepo, slog.Default())(middleware.BalanceCheck(s.balance)(s.proxy)))
+	s.GatewayRoutes(mux)
 
 	var handler http.Handler = mux
 
 	handler = middleware.Recovery(slog.Default())(handler)
-	handler = middleware.MaxBodySize(middleware.MaxBodySizeFromEnv())(handler)
 	handler = middleware.RequestLogger(slog.Default())(handler)
 	handler = middleware.RequestID()(handler)
 
 	return s.corsMiddleware(handler)
+}
+
+func (s *Server) GatewayRoutes(mux *http.ServeMux) {
+	handler := http.Handler(s.proxy)
+	handler = middleware.UsageCapture(s.usageRepo, slog.Default())(handler)
+	handler = middleware.Reservation(s.ledger)(handler)
+	handler = middleware.BalanceCheck(s.balance)(handler)
+	handler = middleware.MaxBodySize(middleware.MaxBodySizeFromEnv())(handler)
+
+	mux.Handle("POST /api/gateway/", handler)
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {

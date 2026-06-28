@@ -337,7 +337,7 @@ func (p *Proxy) errorHandler(w http.ResponseWriter, r *http.Request, err error) 
 }
 
 func parseProviderPath(path string) (providerID, rest string, ok bool) {
-	const prefix = "/v1/providers/"
+	const prefix = "/api/gateway/"
 	const splitParts = 2
 
 	if !strings.HasPrefix(path, prefix) {

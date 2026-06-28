@@ -16,6 +16,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"castellan/internal/database"
+	"castellan/internal/gateway"
 	"castellan/internal/provider"
 	"castellan/internal/proxy"
 	"castellan/internal/repository/db"
@@ -29,6 +30,7 @@ type Server struct {
 	proxy     *proxy.Proxy
 	balance   middleware.BalanceChecker
 	usageRepo middleware.UsageEventRepository
+	ledger    gateway.LedgerService
 }
 
 func NewServer() (*http.Server, error) {
@@ -80,6 +82,7 @@ func NewServer() (*http.Server, error) {
 		proxy:     pxy,
 		balance:   balancer,
 		usageRepo: usageRepo,
+		ledger:    gateway.NoopLedger{},
 	}
 
 	httpServer := &http.Server{
