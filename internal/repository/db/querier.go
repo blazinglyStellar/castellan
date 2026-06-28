@@ -8,9 +8,11 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	GetAccountBalance(ctx context.Context, ownerID uuid.UUID) (pgtype.Numeric, error)
 	GetProviderBaseURL(ctx context.Context, id uuid.UUID) (string, error)
 }
 
