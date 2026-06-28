@@ -16,16 +16,21 @@ import (
 
 const usageCaptureTimeout = 10 * time.Second
 
+// UsageEventRepository persists usage events after upstream requests complete.
 type UsageEventRepository interface {
 	CreateUsageEvent(ctx context.Context, arg repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error)
 }
 
+// UsageEventRepositoryFunc is an adapter that lets a function serve as a UsageEventRepository.
 type UsageEventRepositoryFunc func(ctx context.Context, arg repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error)
 
+// CreateUsageEvent delegates to the underlying function.
 func (f UsageEventRepositoryFunc) CreateUsageEvent(ctx context.Context, arg repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error) {
 	return f(ctx, arg)
 }
 
+// UsageCapture middleware persists usage event data after the upstream response.
+// Uses context.WithoutCancel so the write survives client disconnect.
 func UsageCapture(repo UsageEventRepository, logger *slog.Logger) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()

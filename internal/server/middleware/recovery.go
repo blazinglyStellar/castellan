@@ -11,6 +11,7 @@ import (
 
 const internalServerErrorMessage = "internal server error"
 
+// Recovery catches panics from downstream handlers, logs the stack trace, and returns 500.
 func Recovery(logger *slog.Logger) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()

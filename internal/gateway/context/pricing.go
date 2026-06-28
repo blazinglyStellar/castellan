@@ -14,7 +14,9 @@ type pricingInfoKey struct{}
 type Currency string
 
 const (
-	CurrencyXLM  Currency = "XLM"
+	// CurrencyXLM represents the Stellar lumen.
+	CurrencyXLM Currency = "XLM"
+	// CurrencyUSDC represents the Stellar USDC stablecoin.
 	CurrencyUSDC Currency = "USDC"
 )
 

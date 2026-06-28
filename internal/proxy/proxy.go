@@ -64,10 +64,13 @@ func (c *timeoutConn) Write(b []byte) (int, error) {
 	return n, nil
 }
 
+// ProviderResolver resolves an upstream base URL for a given provider ID.
 type ProviderResolver interface {
 	ResolveBaseURL(ctx context.Context, id string) (string, error)
 }
 
+// Proxy is a reverse proxy that resolves upstream URLs, applies timeouts,
+// and retries failed requests with jittered exponential backoff.
 type Proxy struct {
 	resolver    ProviderResolver
 	logger      *slog.Logger
@@ -76,6 +79,8 @@ type Proxy struct {
 	retryPolicy RetryPolicy
 }
 
+// NewReverseProxy creates a Proxy with a custom transport that enforces
+// connect/read/write timeouts and the given retry policy.
 func NewReverseProxy(resolver ProviderResolver, logger *slog.Logger, cfg Config) *Proxy {
 	dialer := &net.Dialer{Timeout: cfg.ConnectTimeout}
 
@@ -212,6 +217,7 @@ func (r *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	return lastResp, lastErr
 }
 
+// ServeHTTP forwards the request to the upstream provider and records upstream metrics on the context.
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var upstreamStatusCode int
 	var upstreamBytes int64

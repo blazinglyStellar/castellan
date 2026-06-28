@@ -72,6 +72,7 @@ func (rw *responseWriter) Push(target string, opts *http.PushOptions) error {
 	return nil
 }
 
+// RequestLogger logs every request on completion with method, path, status, latency, and request ID.
 func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()

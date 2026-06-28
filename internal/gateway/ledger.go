@@ -8,6 +8,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// LedgerService handles the reserve/commit/release lifecycle for consumer balances.
 type LedgerService interface {
 	// Reserve creates a temporary hold on the consumer's account for the given
 	// amount. The hold is identified by referenceID for later commit or release.
@@ -26,6 +27,7 @@ type LedgerServiceFunc struct {
 	ReleaseFunc func(context.Context, string) error
 }
 
+// Reserve delegates to ReserveFunc or no-ops when nil.
 func (f *LedgerServiceFunc) Reserve(ctx context.Context, consumerID uuid.UUID, amount decimal.Decimal, referenceID string) error {
 	if f.ReserveFunc == nil {
 		return nil
@@ -33,6 +35,7 @@ func (f *LedgerServiceFunc) Reserve(ctx context.Context, consumerID uuid.UUID, a
 	return f.ReserveFunc(ctx, consumerID, amount, referenceID)
 }
 
+// Commit delegates to CommitFunc or no-ops when nil.
 func (f *LedgerServiceFunc) Commit(ctx context.Context, referenceID string) error {
 	if f.CommitFunc == nil {
 		return nil
@@ -40,6 +43,7 @@ func (f *LedgerServiceFunc) Commit(ctx context.Context, referenceID string) erro
 	return f.CommitFunc(ctx, referenceID)
 }
 
+// Release delegates to ReleaseFunc or no-ops when nil.
 func (f *LedgerServiceFunc) Release(ctx context.Context, referenceID string) error {
 	if f.ReleaseFunc == nil {
 		return nil
@@ -47,16 +51,21 @@ func (f *LedgerServiceFunc) Release(ctx context.Context, referenceID string) err
 	return f.ReleaseFunc(ctx, referenceID)
 }
 
+// NoopLedger is a LedgerService that performs no operations. Used as a default
+// until a real ledger implementation is wired.
 type NoopLedger struct{}
 
+// Reserve performs a no-op reservation.
 func (NoopLedger) Reserve(_ context.Context, _ uuid.UUID, _ decimal.Decimal, _ string) error {
 	return nil
 }
 
+// Commit performs a no-op commit.
 func (NoopLedger) Commit(_ context.Context, _ string) error {
 	return nil
 }
 
+// Release performs a no-op release.
 func (NoopLedger) Release(_ context.Context, _ string) error {
 	return nil
 }
