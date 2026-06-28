@@ -12,8 +12,11 @@ import (
 )
 
 type Querier interface {
+	CreateUsageEvent(ctx context.Context, arg CreateUsageEventParams) (CreateUsageEventRow, error)
 	GetAccountBalance(ctx context.Context, ownerID uuid.UUID) (pgtype.Numeric, error)
 	GetProviderBaseURL(ctx context.Context, id uuid.UUID) (string, error)
+	GetUsageEventByRequestID(ctx context.Context, requestID string) (UsageEvent, error)
+	ListUsageEventsByConsumer(ctx context.Context, consumerID uuid.UUID) ([]UsageEvent, error)
 }
 
 var _ Querier = (*Queries)(nil)
