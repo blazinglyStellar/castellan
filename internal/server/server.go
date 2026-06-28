@@ -16,7 +16,6 @@ import (
 	"github.com/shopspring/decimal"
 
 	"castellan/internal/database"
-	"castellan/internal/gateway"
 	"castellan/internal/provider"
 	"castellan/internal/proxy"
 	"castellan/internal/repository/db"
@@ -26,10 +25,10 @@ import (
 type Server struct {
 	port int
 
-	db      database.Service
-	proxy   *proxy.Proxy
-	balance middleware.BalanceChecker
-	ledger  gateway.LedgerService
+	db        database.Service
+	proxy     *proxy.Proxy
+	balance   middleware.BalanceChecker
+	usageRepo middleware.UsageEventRepository
 }
 
 func NewServer() (*http.Server, error) {
@@ -69,14 +68,18 @@ func NewServer() (*http.Server, error) {
 		return decimal.NewFromFloat(f64.Float64), nil
 	})
 
+	usageRepo := middleware.UsageEventRepositoryFunc(func(ctx context.Context, arg repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error) {
+		return queries.CreateUsageEvent(ctx, arg)
+	})
+
 	pxy := proxy.NewReverseProxy(resolver, slog.Default())
 
 	srv := &Server{
-		port:    port,
-		db:      databaseService,
-		proxy:   pxy,
-		balance: balancer,
-		ledger:  gateway.NoopLedger{},
+		port:      port,
+		db:        databaseService,
+		proxy:     pxy,
+		balance:   balancer,
+		usageRepo: usageRepo,
 	}
 
 	httpServer := &http.Server{
