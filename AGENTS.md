@@ -18,7 +18,8 @@
 - `make build` — `go build -o main.exe cmd/api/main.go` (Windows `.exe`); Dockerfile builds Linux binary to `/bin/castellan`
 - `make run` — `go run cmd/api/main.go`
 - `make test` — `go test ./... -v`
-- `make itest` — `go test ./internal/database -v` (requires Docker, spins up testcontainers Postgres)
+- `make itest` — `go test -tags=integration ./internal/provider/... ./internal/database/... ./internal/gateway/... -v` (requires Docker, spins up testcontainers Postgres)
+- `make test` — `go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./... -v` (skips integration-tagged tests; use `make itest` for those)
 - `make watch` — air live-reload (auto-installs if missing, Windows PowerShell)
 - `make docker-run` / `make docker-down` — Docker Compose for DB infra
 - Full suite with race: `go test -race -count=1 ./...` (matches CI)
