@@ -14,7 +14,11 @@ func (s *Server) RegisterRoutes() http.Handler {
 
 	mux.HandleFunc("/", s.HelloWorldHandler)
 	mux.HandleFunc("/health", s.healthHandler)
-	mux.Handle("/v1/providers/", middleware.BalanceCheck(s.balance)(s.proxy))
+	mux.Handle("/v1/providers/",
+		middleware.BalanceCheck(s.balance)(
+			middleware.Reservation(s.ledger)(s.proxy),
+		),
+	)
 
 	var handler http.Handler = mux
 
