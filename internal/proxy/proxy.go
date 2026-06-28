@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -26,28 +28,81 @@ const (
 	defaultIdleTimeout  = 90 * time.Second
 )
 
-var (
-	errMissingProvider = errors.New("missing provider ID in path")
+var errMissingProvider = errors.New("missing provider ID in path")
 
-	defaultTransport = &http.Transport{
-		MaxIdleConns:    defaultMaxIdleConns,
-		IdleConnTimeout: defaultIdleTimeout,
+type timeoutConn struct {
+	net.Conn
+	readTimeout  time.Duration
+	writeTimeout time.Duration
+}
+
+func (c *timeoutConn) Read(b []byte) (int, error) {
+	if c.readTimeout > 0 {
+		if err := c.SetReadDeadline(time.Now().Add(c.readTimeout)); err != nil {
+			return 0, fmt.Errorf("set read deadline: %w", err)
+		}
 	}
-)
+	n, err := c.Conn.Read(b)
+	if err != nil {
+		return n, fmt.Errorf("read from upstream: %w", err)
+	}
+	return n, nil
+}
+
+func (c *timeoutConn) Write(b []byte) (int, error) {
+	if c.writeTimeout > 0 {
+		if err := c.SetWriteDeadline(time.Now().Add(c.writeTimeout)); err != nil {
+			return 0, fmt.Errorf("set write deadline: %w", err)
+		}
+	}
+	n, err := c.Conn.Write(b)
+	if err != nil {
+		return n, fmt.Errorf("write to upstream: %w", err)
+	}
+	return n, nil
+}
 
 type ProviderResolver interface {
 	ResolveBaseURL(ctx context.Context, id string) (string, error)
 }
 
 type Proxy struct {
-	resolver ProviderResolver
-	logger   *slog.Logger
+	resolver  ProviderResolver
+	logger    *slog.Logger
+	cfg       Config
+	transport *http.Transport
 }
 
-func NewReverseProxy(resolver ProviderResolver, logger *slog.Logger) *Proxy {
+func NewReverseProxy(resolver ProviderResolver, logger *slog.Logger, cfg Config) *Proxy {
+	dialer := &net.Dialer{Timeout: cfg.ConnectTimeout}
+
+	baseTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		baseTransport = &http.Transport{}
+	} else {
+		baseTransport = baseTransport.Clone()
+	}
+
+	baseTransport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := dialer.DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, fmt.Errorf("dial upstream: %w", err)
+		}
+		return &timeoutConn{
+			Conn:         conn,
+			readTimeout:  cfg.ReadTimeout,
+			writeTimeout: cfg.WriteTimeout,
+		}, nil
+	}
+	baseTransport.ResponseHeaderTimeout = cfg.ReadTimeout
+	baseTransport.MaxIdleConns = defaultMaxIdleConns
+	baseTransport.IdleConnTimeout = defaultIdleTimeout
+
 	return &Proxy{
-		resolver: resolver,
-		logger:   logger,
+		resolver:  resolver,
+		logger:    logger,
+		cfg:       cfg,
+		transport: baseTransport,
 	}
 }
 
@@ -72,7 +127,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			p.errorHandler(w, r, err)
 		},
-		Transport: defaultTransport,
+		Transport: p.transport,
 	}
 
 	rp.ServeHTTP(w, r)
@@ -144,6 +199,17 @@ func (p *Proxy) errorHandler(w http.ResponseWriter, r *http.Request, err error) 
 			slog.String("error", ctxErr.Error()),
 		)
 		writeJSON(r.Context(), w, http.StatusBadGateway, map[string]string{"error": "invalid provider"})
+
+		return
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		p.logger.ErrorContext(r.Context(),
+			"upstream request timed out",
+			slog.String("error", err.Error()),
+		)
+		writeJSON(r.Context(), w, http.StatusGatewayTimeout, map[string]string{"error": "upstream request timed out"})
 
 		return
 	}

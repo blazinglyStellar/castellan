@@ -35,7 +35,7 @@ func TestReverseProxyForwardsRequest(t *testing.T) {
 	defer upstream.Close()
 
 	resolver := &mockResolver{baseURL: upstream.URL}
-	proxy := NewReverseProxy(resolver, slog.Default())
+	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/weather/current", nil)
@@ -65,7 +65,7 @@ func TestReverseProxyInjectsHeaders(t *testing.T) {
 	defer upstream.Close()
 
 	resolver := &mockResolver{baseURL: upstream.URL}
-	proxy := NewReverseProxy(resolver, slog.Default())
+	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
 	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/data", nil)
 	request.RemoteAddr = "192.168.1.1:12345"
@@ -100,7 +100,7 @@ func TestReverseProxyInjectsConsumerHeader(t *testing.T) {
 	defer upstream.Close()
 
 	resolver := &mockResolver{baseURL: upstream.URL}
-	proxy := NewReverseProxy(resolver, slog.Default())
+	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
 	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/data", nil)
 	ctx := gatewaycontext.SetConsumerInfo(request.Context(), gatewaycontext.ConsumerInfo{
@@ -127,7 +127,7 @@ func TestReverseProxyNon2xxProxiedAsIs(t *testing.T) {
 	defer upstream.Close()
 
 	resolver := &mockResolver{baseURL: upstream.URL}
-	proxy := NewReverseProxy(resolver, slog.Default())
+	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
@@ -149,7 +149,7 @@ func TestReverseProxyNon2xxProxiedAsIs(t *testing.T) {
 
 func TestReverseProxyResolverErrorReturns502(t *testing.T) {
 	resolver := &mockResolver{err: errors.New("provider not found")}
-	proxy := NewReverseProxy(resolver, slog.Default())
+	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
@@ -185,7 +185,7 @@ func TestReverseProxyMetricsStoredInContext(t *testing.T) {
 	defer upstream.Close()
 
 	resolver := &mockResolver{baseURL: upstream.URL}
-	proxy := NewReverseProxy(resolver, slog.Default())
+	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/weather", nil)
@@ -230,7 +230,7 @@ func TestReverseProxyLargePayload(t *testing.T) {
 	defer upstream.Close()
 
 	resolver := &mockResolver{baseURL: upstream.URL}
-	proxy := NewReverseProxy(resolver, slog.Default())
+	proxy := NewReverseProxy(resolver, slog.Default(), DefaultConfig())
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/large", nil)
@@ -309,7 +309,7 @@ func TestParseProviderPath(t *testing.T) {
 }
 
 func TestReverseProxyMissingProviderPath(t *testing.T) {
-	proxy := NewReverseProxy(&mockResolver{}, slog.Default())
+	proxy := NewReverseProxy(&mockResolver{}, slog.Default(), DefaultConfig())
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/invalid/path", nil)
@@ -321,5 +321,71 @@ func TestReverseProxyMissingProviderPath(t *testing.T) {
 
 	if resp.StatusCode != http.StatusBadGateway {
 		t.Fatalf("expected status %d, got %d", http.StatusBadGateway, resp.StatusCode)
+	}
+}
+
+func TestReverseProxyReadTimeout(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := DefaultConfig()
+	cfg.ReadTimeout = 50 * time.Millisecond
+	cfg.WriteTimeout = 50 * time.Millisecond
+
+	proxy := NewReverseProxy(&mockResolver{baseURL: upstream.URL}, slog.Default(), cfg)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/weather", nil)
+
+	proxy.ServeHTTP(recorder, request)
+
+	resp := recorder.Result()
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("expected status %d, got %d", http.StatusGatewayTimeout, resp.StatusCode)
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("expected JSON response: %v", err)
+	}
+
+	if payload["error"] != "upstream request timed out" {
+		t.Fatalf("expected error 'upstream request timed out', got %q", payload["error"])
+	}
+}
+
+func TestReverseProxyConnectTimeout(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ConnectTimeout = 1 * time.Millisecond
+
+	proxy := NewReverseProxy(&mockResolver{baseURL: "http://192.0.2.1:9"}, slog.Default(), cfg)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
+
+	proxy.ServeHTTP(recorder, request)
+
+	resp := recorder.Result()
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("expected status %d, got %d", http.StatusGatewayTimeout, resp.StatusCode)
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("expected JSON response: %v", err)
+	}
+
+	if payload["error"] != "upstream request timed out" {
+		t.Fatalf("expected error 'upstream request timed out', got %q", payload["error"])
 	}
 }

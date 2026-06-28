@@ -72,7 +72,7 @@ func NewServer() (*http.Server, error) {
 		return queries.CreateUsageEvent(ctx, arg)
 	})
 
-	pxy := proxy.NewReverseProxy(resolver, slog.Default())
+	pxy := proxy.NewReverseProxy(resolver, slog.Default(), proxy.ConfigFromEnv())
 
 	srv := &Server{
 		port:      port,
