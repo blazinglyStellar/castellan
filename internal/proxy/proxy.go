@@ -1,10 +1,12 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -67,10 +69,11 @@ type ProviderResolver interface {
 }
 
 type Proxy struct {
-	resolver  ProviderResolver
-	logger    *slog.Logger
-	cfg       Config
-	transport *http.Transport
+	resolver    ProviderResolver
+	logger      *slog.Logger
+	cfg         Config
+	transport   *http.Transport
+	retryPolicy RetryPolicy
 }
 
 func NewReverseProxy(resolver ProviderResolver, logger *slog.Logger, cfg Config) *Proxy {
@@ -98,12 +101,113 @@ func NewReverseProxy(resolver ProviderResolver, logger *slog.Logger, cfg Config)
 	baseTransport.MaxIdleConns = defaultMaxIdleConns
 	baseTransport.IdleConnTimeout = defaultIdleTimeout
 
-	return &Proxy{
-		resolver:  resolver,
-		logger:    logger,
-		cfg:       cfg,
-		transport: baseTransport,
+	retryPolicy := DefaultRetryPolicy()
+	if cfg.RetryMaxRetries > 0 {
+		retryPolicy = RetryPolicy{
+			MaxRetries: cfg.RetryMaxRetries,
+			BaseDelay:  cfg.RetryBaseDelay,
+			MaxDelay:   cfg.RetryMaxDelay,
+		}
 	}
+
+	return &Proxy{
+		resolver:    resolver,
+		logger:      logger,
+		cfg:         cfg,
+		transport:   baseTransport,
+		retryPolicy: retryPolicy,
+	}
+}
+
+type retryRoundTripper struct {
+	inner  http.RoundTripper
+	policy RetryPolicy
+	logger *slog.Logger
+}
+
+func (r *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	var bodyBytes []byte
+
+	if req.Body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(req.Body)
+		if err != nil {
+			return nil, fmt.Errorf("cache request body for retry: %w", err)
+		}
+		req.Body.Close()
+		req.Body = nil
+	}
+
+	if bodyBytes != nil {
+		buf := bodyBytes
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(buf)), nil
+		}
+	}
+
+	var lastResp *http.Response
+	var lastErr error
+
+	for attempt := 0; attempt <= r.policy.MaxRetries; attempt++ {
+		if attempt > 0 {
+			delay := r.policy.Backoff(attempt - 1)
+
+			r.logger.WarnContext(
+				req.Context(),
+				"retrying upstream request",
+				slog.Int("attempt", attempt),
+				slog.String("method", req.Method),
+				slog.String("url", req.URL.String()),
+				slog.String("delay", delay.String()),
+			)
+
+			select {
+			case <-req.Context().Done():
+				return nil, fmt.Errorf("retry cancelled: %w", req.Context().Err())
+			case <-time.After(delay):
+			}
+
+			if req.GetBody != nil {
+				body, err := req.GetBody()
+				if err != nil {
+					return nil, fmt.Errorf("get request body for retry: %w", err)
+				}
+				req.Body = body
+			}
+		}
+
+		resp, err := r.inner.RoundTrip(req)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return resp, fmt.Errorf("retry aborted: %w", err)
+			}
+
+			if !isIdempotent(req.Method) || attempt >= r.policy.MaxRetries {
+				return resp, fmt.Errorf("upstream round trip: %w", err)
+			}
+
+			lastResp = resp
+			lastErr = err
+
+			continue
+		}
+
+		if !r.policy.ShouldRetry(resp.StatusCode, nil) {
+			return resp, nil
+		}
+
+		if !isIdempotent(req.Method) || attempt >= r.policy.MaxRetries {
+			return resp, nil
+		}
+
+		resp.Body.Close()
+		lastResp = resp
+		lastErr = nil
+
+		continue
+	}
+
+	return lastResp, lastErr
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +231,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			p.errorHandler(w, r, err)
 		},
-		Transport: p.transport,
+		Transport: &retryRoundTripper{
+			inner:  p.transport,
+			policy: p.retryPolicy,
+			logger: p.logger,
+		},
 	}
 
 	rp.ServeHTTP(w, r)
@@ -151,7 +259,8 @@ func (p *Proxy) director(outReq *http.Request) {
 
 	baseURL, err := p.resolver.ResolveBaseURL(outReq.Context(), providerID)
 	if err != nil {
-		p.logger.WarnContext(outReq.Context(),
+		p.logger.WarnContext(
+			outReq.Context(),
 			"provider resolution failed",
 			slog.String("provider_id", providerID),
 			slog.String("error", err.Error()),
@@ -164,7 +273,8 @@ func (p *Proxy) director(outReq *http.Request) {
 
 	target, err := url.Parse(baseURL + restPath)
 	if err != nil {
-		p.logger.WarnContext(outReq.Context(),
+		p.logger.WarnContext(
+			outReq.Context(),
 			"invalid target url",
 			slog.String("base_url", baseURL),
 			slog.String("rest_path", restPath),
@@ -194,7 +304,8 @@ func (p *Proxy) director(outReq *http.Request) {
 
 func (p *Proxy) errorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	if ctxErr, ok := r.Context().Value(keyDirectorErr).(error); ok {
-		p.logger.WarnContext(r.Context(),
+		p.logger.WarnContext(
+			r.Context(),
 			"provider resolution failed in director",
 			slog.String("error", ctxErr.Error()),
 		)
@@ -205,7 +316,8 @@ func (p *Proxy) errorHandler(w http.ResponseWriter, r *http.Request, err error) 
 
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		p.logger.ErrorContext(r.Context(),
+		p.logger.ErrorContext(
+			r.Context(),
 			"upstream request timed out",
 			slog.String("error", err.Error()),
 		)
@@ -214,7 +326,8 @@ func (p *Proxy) errorHandler(w http.ResponseWriter, r *http.Request, err error) 
 		return
 	}
 
-	p.logger.ErrorContext(r.Context(),
+	p.logger.ErrorContext(
+		r.Context(),
 		"upstream request failed",
 		slog.String("error", err.Error()),
 	)
@@ -251,7 +364,8 @@ func writeJSON(ctx context.Context, w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.ErrorContext(ctx,
+		slog.ErrorContext(
+			ctx,
 			"failed to encode error response",
 			slog.String("error", err.Error()),
 		)

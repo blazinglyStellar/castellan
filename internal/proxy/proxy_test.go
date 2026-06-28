@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -358,6 +359,287 @@ func TestReverseProxyReadTimeout(t *testing.T) {
 
 	if payload["error"] != "upstream request timed out" {
 		t.Fatalf("expected error 'upstream request timed out', got %q", payload["error"])
+	}
+}
+
+func TestRetryPolicy_ShouldRetry(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		statusCode int
+		err        error
+		want       bool
+	}{
+		{name: "200 OK", statusCode: http.StatusOK, want: false},
+		{name: "201 Created", statusCode: http.StatusCreated, want: false},
+		{name: "301 Moved", statusCode: http.StatusMovedPermanently, want: false},
+		{name: "400 Bad Request", statusCode: http.StatusBadRequest, want: false},
+		{name: "401 Unauthorized", statusCode: http.StatusUnauthorized, want: false},
+		{name: "404 Not Found", statusCode: http.StatusNotFound, want: false},
+		{name: "429 Too Many", statusCode: http.StatusTooManyRequests, want: false},
+		{name: "500 Internal", statusCode: http.StatusInternalServerError, want: true},
+		{name: "502 Bad Gateway", statusCode: http.StatusBadGateway, want: true},
+		{name: "503 Service Unavailable", statusCode: http.StatusServiceUnavailable, want: true},
+		{name: "504 Gateway Timeout", statusCode: http.StatusGatewayTimeout, want: true},
+		{name: "connection refused", err: errors.New("connection refused"), want: true},
+		{name: "dns lookup failed", err: errors.New("no such host"), want: true},
+		{name: "tls handshake", err: errors.New("tls: handshake failure"), want: true},
+	}
+
+	policy := DefaultRetryPolicy()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := policy.ShouldRetry(tt.statusCode, tt.err)
+
+			if got != tt.want {
+				t.Errorf("ShouldRetry(%d, %v) = %v, want %v", tt.statusCode, tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRetryPolicy_Backoff(t *testing.T) {
+	t.Parallel()
+
+	policy := RetryPolicy{
+		MaxRetries: 3,
+		BaseDelay:  100 * time.Millisecond,
+		MaxDelay:   2 * time.Second,
+	}
+
+	for attempt := range 10 {
+		t.Run(fmt.Sprintf("attempt_%d", attempt), func(t *testing.T) {
+			t.Parallel()
+
+			delay := policy.Backoff(attempt)
+
+			if delay < 0 {
+				t.Errorf("Backoff(%d) = %v, expected non-negative", attempt, delay)
+			}
+
+			if delay > policy.MaxDelay {
+				t.Errorf("Backoff(%d) = %v, expected <= %v", attempt, delay, policy.MaxDelay)
+			}
+
+			expectedMax := policy.BaseDelay * (1 << attempt)
+			if expectedMax > policy.MaxDelay {
+				expectedMax = policy.MaxDelay
+			}
+
+			if delay > expectedMax+expectedMax/2 {
+				t.Errorf("Backoff(%d) = %v, expected roughly <= %v", attempt, delay, expectedMax)
+			}
+		})
+	}
+}
+
+func TestRetryRoundTripper_FlakyUpstreamFailsThenSucceeds(t *testing.T) {
+	var callCount int
+	const failUntil = 2
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		if callCount <= failUntil {
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"error":"upstream down"}`))
+		} else {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		}
+	}))
+	defer upstream.Close()
+
+	cfg := DefaultConfig()
+	cfg.RetryBaseDelay = 1 * time.Millisecond
+	cfg.RetryMaxDelay = 5 * time.Millisecond
+
+	proxy := NewReverseProxy(&mockResolver{baseURL: upstream.URL}, slog.Default(), cfg)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
+
+	proxy.ServeHTTP(recorder, request)
+
+	resp := recorder.Result()
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status %d after retries, got %d", http.StatusOK, resp.StatusCode)
+	}
+
+	if !strings.Contains(string(body), "ok") {
+		t.Fatalf("expected success body, got %q", string(body))
+	}
+
+	if callCount != failUntil+1 {
+		t.Fatalf("expected %d total calls (2 failures + 1 success), got %d", failUntil+1, callCount)
+	}
+}
+
+func TestRetryRoundTripper_ExhaustionReturnsLastFailure(t *testing.T) {
+	var callCount int
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"always down"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := DefaultConfig()
+	cfg.RetryMaxRetries = 2
+	cfg.RetryBaseDelay = 1 * time.Millisecond
+	cfg.RetryMaxDelay = 5 * time.Millisecond
+
+	proxy := NewReverseProxy(&mockResolver{baseURL: upstream.URL}, slog.Default(), cfg)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
+
+	proxy.ServeHTTP(recorder, request)
+
+	resp := recorder.Result()
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d after exhaustion, got %d", http.StatusServiceUnavailable, resp.StatusCode)
+	}
+
+	if !strings.Contains(string(body), "always down") {
+		t.Fatalf("expected failure body, got %q", string(body))
+	}
+
+	expectedCalls := cfg.RetryMaxRetries + 1
+	if callCount != expectedCalls {
+		t.Fatalf("expected %d total calls (%d retries + 1 original), got %d",
+			expectedCalls, cfg.RetryMaxRetries, callCount)
+	}
+}
+
+func TestRetryRoundTripper_NoRetryOn4xx(t *testing.T) {
+	var callCount int
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"not found"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := DefaultConfig()
+	cfg.RetryBaseDelay = 1 * time.Millisecond
+	cfg.RetryMaxDelay = 5 * time.Millisecond
+
+	proxy := NewReverseProxy(&mockResolver{baseURL: upstream.URL}, slog.Default(), cfg)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
+
+	proxy.ServeHTTP(recorder, request)
+
+	resp := recorder.Result()
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d", http.StatusNotFound, resp.StatusCode)
+	}
+
+	if callCount != 1 {
+		t.Fatalf("expected 1 call (no retries on 4xx), got %d", callCount)
+	}
+}
+
+func TestRetryRoundTripper_NoRetryOnNonIdempotent(t *testing.T) {
+	var callCount int
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":"bad gateway"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := DefaultConfig()
+	cfg.RetryBaseDelay = 1 * time.Millisecond
+	cfg.RetryMaxDelay = 5 * time.Millisecond
+
+	proxy := NewReverseProxy(&mockResolver{baseURL: upstream.URL}, slog.Default(), cfg)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/providers/uuid-123/resource", nil)
+
+	proxy.ServeHTTP(recorder, request)
+
+	resp := recorder.Result()
+	resp.Body.Close()
+
+	if callCount != 1 {
+		t.Fatalf("expected 1 call (no retries on non-idempotent), got %d", callCount)
+	}
+}
+
+func TestRetryRoundTripper_ContextCancelledBeforeFirstAttempt(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cfg := DefaultConfig()
+
+	proxy := NewReverseProxy(&mockResolver{baseURL: upstream.URL}, slog.Default(), cfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/providers/uuid-123/resource", nil)
+	request = request.WithContext(ctx)
+
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, request)
+
+	resp := recorder.Result()
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("expected status %d on cancelled context, got %d", http.StatusBadGateway, resp.StatusCode)
+	}
+}
+
+func TestIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		method string
+		want   bool
+	}{
+		{http.MethodGet, true},
+		{http.MethodHead, true},
+		{http.MethodPut, true},
+		{http.MethodDelete, true},
+		{http.MethodOptions, true},
+		{http.MethodTrace, true},
+		{http.MethodPost, false},
+		{http.MethodPatch, false},
+		{http.MethodConnect, false},
+		{"INVALID", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method, func(t *testing.T) {
+			t.Parallel()
+
+			got := isIdempotent(tt.method)
+
+			if got != tt.want {
+				t.Errorf("isIdempotent(%q) = %v, want %v", tt.method, got, tt.want)
+			}
+		})
 	}
 }
 

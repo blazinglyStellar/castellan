@@ -94,6 +94,7 @@ linters:
           - errcheck
           - gosec
           - noctx
+          - revive
           - wrapcheck
       - path: cmd/api/main\.go
         text: Magic number
