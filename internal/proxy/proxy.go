@@ -134,6 +134,7 @@ func (r *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		if err != nil {
 			return nil, fmt.Errorf("cache request body for retry: %w", err)
 		}
+		// #nosec G104 - closing original body after buffering; error not actionable
 		req.Body.Close()
 		req.Body = nil
 	}
@@ -200,6 +201,7 @@ func (r *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 			return resp, nil
 		}
 
+		// #nosec G104 - closing discarded intermediate retry response; error not actionable
 		resp.Body.Close()
 		lastResp = resp
 		lastErr = nil

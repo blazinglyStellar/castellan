@@ -1,7 +1,8 @@
 package proxy
 
 import (
-	"math/rand"
+	"crypto/rand"
+	"math/big"
 	"net/http"
 	"time"
 )
@@ -54,8 +55,10 @@ func (p RetryPolicy) Backoff(attempt int) time.Duration {
 		exp *= backoffFactor
 	}
 
-	jitter := time.Duration(rand.Int63n(int64(exp))) / jitterDivisor //nolint:gosec // cryptographic randomness not needed for jitter
-	if rand.Intn(jitterCoinFlipMod) == 0 {                           //nolint:gosec // cryptographic randomness not needed for jitter
+	n, _ := rand.Int(rand.Reader, new(big.Int).SetInt64(int64(exp)))
+	jitter := time.Duration(n.Int64()) / jitterDivisor
+	n, _ = rand.Int(rand.Reader, new(big.Int).SetInt64(jitterCoinFlipMod))
+	if n.Int64() == 0 {
 		jitter = -jitter
 	}
 
