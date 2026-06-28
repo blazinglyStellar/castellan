@@ -9,6 +9,8 @@ import (
 	"castellan/internal/server/middleware"
 )
 
+// RegisterRoutes builds the top-level mux with health, hello, and gateway routes,
+// then wraps it with recovery, request logging, request ID, and CORS middleware.
 func (s *Server) RegisterRoutes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -25,6 +27,8 @@ func (s *Server) RegisterRoutes() http.Handler {
 	return s.corsMiddleware(handler)
 }
 
+// GatewayRoutes registers POST /api/gateway/ with the middleware chain:
+// MaxBodySize → BalanceCheck → Reservation → UsageCapture → Proxy.
 func (s *Server) GatewayRoutes(mux *http.ServeMux) {
 	handler := http.Handler(s.proxy)
 	handler = middleware.UsageCapture(s.usageRepo, slog.Default())(handler)
@@ -52,6 +56,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// HelloWorldHandler responds with {"message": "Hello World"} at GET /.
 func (s *Server) HelloWorldHandler(w http.ResponseWriter, _ *http.Request) {
 	resp := map[string]string{"message": "Hello World"}
 	jsonResp, err := json.Marshal(resp)

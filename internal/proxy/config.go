@@ -15,6 +15,7 @@ const (
 	defaultRetryMaxDelay   = 3 * time.Second
 )
 
+// Config holds timeouts and retry settings for the reverse proxy.
 type Config struct {
 	ConnectTimeout  time.Duration
 	ReadTimeout     time.Duration
@@ -24,6 +25,7 @@ type Config struct {
 	RetryMaxDelay   time.Duration
 }
 
+// DefaultConfig returns a Config with sensible defaults (5s connect, 30s read/write, 3 retries).
 func DefaultConfig() Config {
 	return Config{
 		ConnectTimeout:  defaultConnectTimeout,
@@ -35,6 +37,7 @@ func DefaultConfig() Config {
 	}
 }
 
+// ConfigFromEnv reads UPSTREAM_* and RETRY_* env vars, falling back to DefaultConfig.
 func ConfigFromEnv() Config {
 	cfg := DefaultConfig()
 

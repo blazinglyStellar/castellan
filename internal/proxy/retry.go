@@ -16,12 +16,14 @@ const (
 	jitterCoinFlipMod = 2
 )
 
+// RetryPolicy controls jittered exponential backoff for upstream retries.
 type RetryPolicy struct {
 	MaxRetries int
 	BaseDelay  time.Duration
 	MaxDelay   time.Duration
 }
 
+// DefaultRetryPolicy returns a policy with 3 retries, 200ms base, 3s max.
 func DefaultRetryPolicy() RetryPolicy {
 	return RetryPolicy{
 		MaxRetries: defaultMaxRetries,
@@ -30,6 +32,7 @@ func DefaultRetryPolicy() RetryPolicy {
 	}
 }
 
+// ShouldRetry returns true when the status is a 5xx or the error is non-nil.
 func (p RetryPolicy) ShouldRetry(statusCode int, err error) bool {
 	if err != nil {
 		return true
@@ -38,6 +41,7 @@ func (p RetryPolicy) ShouldRetry(statusCode int, err error) bool {
 	return statusCode >= 500 && statusCode < 600
 }
 
+// Backoff returns the delay before a retry attempt using exponential backoff with random jitter.
 func (p RetryPolicy) Backoff(attempt int) time.Duration {
 	if attempt < 0 {
 		attempt = 0

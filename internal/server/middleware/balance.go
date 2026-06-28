@@ -14,16 +14,21 @@ import (
 
 const balancePrecision = 2
 
+// BalanceChecker fetches an account balance for a given owner.
 type BalanceChecker interface {
 	GetAccountBalance(ctx context.Context, ownerID uuid.UUID) (decimal.Decimal, error)
 }
 
+// BalanceCheckerFunc is an adapter that lets a function serve as a BalanceChecker.
 type BalanceCheckerFunc func(ctx context.Context, ownerID uuid.UUID) (decimal.Decimal, error)
 
+// GetAccountBalance delegates to the underlying function.
 func (f BalanceCheckerFunc) GetAccountBalance(ctx context.Context, ownerID uuid.UUID) (decimal.Decimal, error) {
 	return f(ctx, ownerID)
 }
 
+// BalanceCheck middleware checks the consumer's balance against the endpoint price.
+// Returns 402 Payment Required when the balance is insufficient.
 func BalanceCheck(balancer BalanceChecker) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -23,6 +23,7 @@ import (
 	"castellan/internal/server/middleware"
 )
 
+// Server wires together database, resolver, proxy, ledger, and middleware dependencies.
 type Server struct {
 	port int
 
@@ -33,6 +34,8 @@ type Server struct {
 	ledger    gateway.LedgerService
 }
 
+// NewServer creates an http.Server with all dependencies wired: database pool,
+// sqlc queries, provider resolver, reverse proxy, and the full middleware chain.
 func NewServer() (*http.Server, error) {
 	port, _ := strconv.Atoi(os.Getenv("PORT"))
 

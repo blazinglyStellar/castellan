@@ -13,6 +13,7 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 )
 
+// Service defines the database operations exposed to the rest of the application.
 type Service interface {
 	Health() map[string]string
 
@@ -41,6 +42,7 @@ const (
 	connectTimeoutSecs = 5
 )
 
+// New creates or returns a singleton pgxpool connection from BLUEPRINT_DB_* env vars.
 func New() (Service, error) {
 	if dbInstance != nil {
 		return dbInstance, nil

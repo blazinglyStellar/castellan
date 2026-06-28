@@ -14,6 +14,7 @@ const (
 	maxBodySizeEnvKey             = "MAX_BODY_SIZE"
 )
 
+// MaxBodySizeFromEnv reads MAX_BODY_SIZE from the environment, defaulting to 10 MB.
 func MaxBodySizeFromEnv() int64 {
 	raw := os.Getenv(maxBodySizeEnvKey)
 	if raw == "" {
@@ -28,6 +29,7 @@ func MaxBodySizeFromEnv() int64 {
 	return maxBytes
 }
 
+// MaxBodySize middleware limits request body size. Returns 413 when Content-Length exceeds maxBytes.
 func MaxBodySize(maxBytes int64) func(http.Handler) http.Handler {
 	if maxBytes <= 0 {
 		maxBytes = defaultMaxBodySizeBytes

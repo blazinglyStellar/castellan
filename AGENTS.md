@@ -1,51 +1,86 @@
-# Castellan — Agent Instructions
+# Castellan
+
+Usage-based API monetization gateway (Stellar settlement, PostgreSQL ledger, Redis rate limiting planned but not wired).
 
 ## Structure
-- `cmd/api/main.go` — Go server entrypoint (net/http + ServeMux, no framework)
-- `dashboard/` — Next.js 15 (App Router, shadcn/ui, Tailwind)
-- `internal/database/` — pgx via `database/sql`, singleton, testcontainers for integration tests
-- `internal/server/` — routes, handlers, std lib mux
-- `internal/repository/` — **does not exist yet**; sqlc not run. Run `sqlc generate` to create it.
-- `migrations/` — goose SQL migrations (`000001_init.sql` exists, 10 tables, 10 enums)
 
-## Env
-- `.env` autoloaded by `godotenv/autoload` in both `server.go` and `database.go` — no manual loading
-- **Gotcha**: Go code reads `BLUEPRINT_DB_*` env vars (`BLUEPRINT_DB_DATABASE`, `BLUEPRINT_DB_USERNAME`, etc.) but `.env.example` uses `DB_*` prefix. If you add new env vars, update `.env.example` and `docker-compose.yml` to match the actual prefix the code reads.
-- `DATABASE_URL` / `GOOSE_DBSTRING` in `.env.example` are for goose CLI only — the app constructs its own connection string from `BLUEPRINT_DB_*`.
-- `PORT` for HTTP (default 8080)
+| Path | What |
+|---|---|
+| `cmd/api/main.go` | Go server entrypoint (std lib `net/http` + `ServeMux` — no Chi, no framework) |
+| `dashboard/` | Next.js 15 App Router, shadcn/ui, Tailwind |
+| `internal/server/` | `NewServer()`, `RegisterRoutes()`, middleware chain |
+| `internal/server/middleware/` | BalanceCheck → Reservation → UsageCapture → Proxy (pipeline order) |
+| `internal/proxy/` | `httputil.ReverseProxy` + jittered retry round tripper |
+| `internal/database/` | pgxpool singleton, `BLUEPRINT_DB_*` env vars |
+| `internal/repository/db/` | **sqlc-generated** (package `repository`), checked in |
+| `internal/repository/query/` | sqlc source `.sql` files |
+| `internal/provider/` | `DBResolver` — resolves upstream base URL |
+| `internal/gateway/` | `LedgerService` interface (only `NoopLedger{}` wired) |
+| `migrations/` | Goose SQL migrations (10 tables, 10 enums in `000001_init.sql`) |
+| `internal/gateway/context/` | Request-scoped context values (consumer, pricing, metrics) |
 
-## Backend Commands
-- `make build` — `go build -o main.exe cmd/api/main.go` (Windows `.exe`); Dockerfile builds Linux binary to `/bin/castellan`
-- `make run` — `go run cmd/api/main.go`
-- `make test` — `go test ./... -v`
-- `make itest` — `go test -tags=integration ./internal/provider/... ./internal/database/... ./internal/gateway/... -v` (requires Docker, spins up testcontainers Postgres)
-- `make test` — `go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./... -v` (skips integration-tagged tests; use `make itest` for those)
-- `make watch` — air live-reload (auto-installs if missing, Windows PowerShell)
-- `make docker-run` / `make docker-down` — Docker Compose for DB infra
-- Full suite with race: `go test -race -count=1 ./...` (matches CI)
+## Commands
 
-## Dashboard Commands
-- `npm run dev` — Next.js dev server (port 3000)
-- `npm run build` / `npm run lint`
+### Backend
+```
+make lint          — golangci-lint v2.12+ (config is v2 format)
+make test          — go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./... -v
+make itest         — go test -v -tags=integration ./internal/provider/... ./internal/database/... ./internal/gateway/...
+make build / run   — go build -o main.exe cmd/api/main.go / go run cmd/api/main.go
+make ci / ci-full  — lint → vet → test → security / +itest +trivy
+make docker-run    — docker compose up --build (psql only, no Redis)
+go test -race -count=1 ./...   — full suite matching CI
+```
 
-## Linting
-- `golangci-lint run ./...` — requires v2.12+ (config is v2 format; CI pins `GOLANGCI_LINT_VERSION: v2.12`)
-- gofumpt enforces 3-group import layout: stdlib / project (`castellan/...`) / third-party
-- sloglint `attr-only`: use `slog.String()`, `slog.Int()`, etc., never raw k/v pairs
-- sloglint `key-naming-case: snake`, `context: scope`, `msg-style: lowercased`
-- Reserved slog keys forbidden: `time`, `level`, `msg`, `source`
-- Context must propagate through call chain — `contextcheck` and revive `context-as-argument` are enforced
-- No `panic` outside `main` — return errors
-- Test files (`_test.go`) are exempted from `errcheck`, `gosec`, `noctx`
-- `cmd/api/main.go` exempted from `gosec` (hardcoded credentials) and `mnd` (magic numbers)
-- `internal/server/server.go` and `internal/server/providers.go` line `Magic number: 8` exempted from `mnd`
+### Dashboard
+```
+npm run dev        — Next.js on :3000
+npm run build/lint — production build / lint
+```
 
-## Database & Codegen
-- sqlc: schema from `migrations/`, queries from `internal/repository/query/`, output to `internal/repository/db/` (sqlc.yaml)
-- sqlc uses `pgx/v5`, generates `emit_interface: true`, `emit_json_tags: true`, UUID → `google/uuid`, numeric → `shopspring/decimal`
-- goose: `DATABASE_URL="postgres://castellan:castellan@localhost:5432/castellan?sslmode=disable" goose -s -dir migrations postgres "$DATABASE_URL" up`
-- Integration tests (database package) require Docker
+### Codegen
+```
+sqlc generate      — schema: migrations/ | queries: internal/repository/query/ | output: internal/repository/db/
+```
+sqlc: pgx/v5, emit_interface+json_tags, UUID→google/uuid, numeric→shopspring/decimal.
 
-## Stale References
-- `.github/workflows/integration-testing.yml` still uses `POSTGRES_DB: flowgate` and `DB_NAME: flowgate` — needs rename
-- `.github/workflows/trivy.yml` still uses `IMAGE_NAME: flowgate`
+### Migration
+```
+DATABASE_URL="postgres://castellan:castellan@localhost:5432/castellan?sslmode=disable" \
+  goose -s -dir migrations postgres "$DATABASE_URL" up
+```
+
+## Gateway Request Lifecycle
+
+```
+Request → RequestID → RequestLogger → Recovery → CORS
+  → MaxBodySize → BalanceCheck → Reservation → UsageCapture → Proxy
+```
+
+Middleware uses `func(http.Handler) http.Handler`. Function adapters (`BalanceCheckerFunc`, `UsageEventRepositoryFunc`) bridge interfaces. Post-response ledger ops use `context.WithoutCancel` to survive client disconnect.
+
+## Gotchas
+
+- **Env prefix mismatch (WILL FAIL at runtime).** Code reads `BLUEPRINT_DB_*` (`BLUEPRINT_DB_DATABASE`, etc.) but `.env.example` has `DB_*`. You must either rename the env vars in `.env` or update the code.
+- **`PORT` has no default fallback.** `strconv.Atoi(os.Getenv("PORT"))` — if unset/empty, Atoi returns 0 → random port. `.env.example` sets `PORT=8080` but the app doesn't default to it.
+- **CI integration-testing.yml is broken** in two ways: (1) runs `./integration/...` — that directory doesn't exist; Makefile's paths are correct. (2) passes `DB_*` env vars but code reads `BLUEPRINT_DB_*`. Both must be fixed for CI to pass.
+- **`internal/database/database_test.go`** uses testcontainers but has NO `//go:build integration` tag, unlike every other testcontainers test. `make test` will try Docker.
+- **NoopLedger** — real `LedgerService` not implemented. Only `NoopLedger{}` wired in `server.go` (line 85).
+- **No auth middleware** — API key auth documented but not wired. Integration tests inject mock auth.
+- **No Redis** — docker-compose has no Redis service; no rate-limit code exists.
+- **sqlc filename typo:** `internal/repository/db/getAccountBalaance.sql.go` (double 'a'). Function `GetAccountBalance` is correct.
+- **Integration tests embed SQL inline** — they don't apply the real migration file.
+
+## Linting (non-default rules)
+
+- gofumpt: 3-group imports: stdlib / `castellan/...` / third-party
+- sloglint: `attr-only` (use `slog.String()`, never raw pairs), `key-naming-case: snake`, `context: scope`, `msg-style: lowercased`
+- Reserved slog keys: `time`, `level`, `msg`, `source` — forbidden
+- `contextcheck` + revive `context-as-argument`: context must propagate
+- No `panic` outside `main`
+- Test files exempt: `errcheck`, `gosec`, `noctx`, `revive`, `wrapcheck`
+
+## Stale in docs but not code
+
+- README mentions "Chi router" — code uses std lib `ServeMux` (Go 1.22+ pattern matching)
+- `.github/workflows/` have already been renamed from `flowgate` to `castellan`; docs saying otherwise are outdated

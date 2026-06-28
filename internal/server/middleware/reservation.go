@@ -13,6 +13,8 @@ import (
 
 const errKey = "error"
 
+// Reservation middleware reserves funds before the upstream call, then commits on 2xx
+// or releases on non-2xx. Post-response ledger ops use context.WithoutCancel.
 func Reservation(ledger gateway.LedgerService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
