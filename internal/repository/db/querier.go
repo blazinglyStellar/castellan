@@ -16,6 +16,7 @@ type Querier interface {
 	DeleteKey(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	GetAccountBalance(ctx context.Context, ownerID uuid.UUID) (pgtype.Numeric, error)
 	GetKeyByHash(ctx context.Context, keyHash string) (ApiKey, error)
+	GetKeyByID(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	GetKeyWithUserAndAccount(ctx context.Context, keyHash string) (GetKeyWithUserAndAccountRow, error)
 	GetProviderBaseURL(ctx context.Context, id uuid.UUID) (string, error)
 	GetUsageEventByRequestID(ctx context.Context, requestID string) (UsageEvent, error)

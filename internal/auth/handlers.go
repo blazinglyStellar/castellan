@@ -26,6 +26,14 @@ type createKeyResponse struct {
 	ExpiresAt *time.Time `json:"expires_at"`
 }
 
+type revokeKeyResponse struct {
+	ID        uuid.UUID  `json:"id"`
+	Label     string     `json:"label"`
+	Status    string     `json:"status"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at"`
+}
+
 type ListKeysItem struct {
 	ID        uuid.UUID               `json:"id"`
 	Label     pgtype.Text             `json:"label"`
@@ -116,6 +124,87 @@ func (h *KeyHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, keys)
+}
+
+func (h *KeyHandler) RevokeKey(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+
+	userID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid consumer identity"})
+		return
+	}
+
+	keyID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid key id"})
+		return
+	}
+
+	key, err := h.service.RevokeKey(r.Context(), keyID, userID)
+	if err != nil {
+		if err.Error() == "key already revoked" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "key already revoked"})
+			return
+		}
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "key not found"})
+		return
+	}
+
+	resp := revokeKeyResponse{
+		ID:        key.ID,
+		Label:     key.Label.String,
+		Status:    string(key.Status),
+		CreatedAt: key.CreatedAt,
+	}
+	if key.ExpiresAt.Valid {
+		resp.ExpiresAt = &key.ExpiresAt.Time
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *KeyHandler) RotateKey(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+
+	userID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid consumer identity"})
+		return
+	}
+
+	keyID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid key id"})
+		return
+	}
+
+	rawKey, newKey, err := h.service.RotateKey(r.Context(), keyID, userID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "key not found"})
+		return
+	}
+
+	resp := createKeyResponse{
+		Key:       rawKey,
+		ID:        newKey.ID,
+		Label:     newKey.Label.String,
+		Status:    string(newKey.Status),
+		CreatedAt: newKey.CreatedAt,
+	}
+	if newKey.ExpiresAt.Valid {
+		resp.ExpiresAt = &newKey.ExpiresAt.Time
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

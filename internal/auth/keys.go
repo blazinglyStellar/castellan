@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -79,6 +80,65 @@ func (s *KeyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]ListKeys
 	}
 
 	return items, nil
+}
+
+// GetKeyByID fetches a key by ID and verifies it belongs to the given user.
+func (s *KeyService) GetKeyByID(ctx context.Context, keyID, userID uuid.UUID) (repository.ApiKey, error) {
+	key, err := s.queries.GetKeyByID(ctx, keyID)
+	if err != nil {
+		return repository.ApiKey{}, fmt.Errorf("key not found: %w", err)
+	}
+	if key.UserID != userID {
+		return repository.ApiKey{}, fmt.Errorf("key not found: %w", err)
+	}
+	return key, nil
+}
+
+// RevokeKey sets the key's status to revoked. Returns error if already revoked.
+func (s *KeyService) RevokeKey(ctx context.Context, keyID, userID uuid.UUID) (repository.ApiKey, error) {
+	key, err := s.GetKeyByID(ctx, keyID, userID)
+	if err != nil {
+		return repository.ApiKey{}, err
+	}
+	if key.Status == repository.ApiKeyStatusRevoked {
+		return repository.ApiKey{}, errors.New("key already revoked")
+	}
+	updated, err := s.queries.UpdateKeyStatus(ctx, repository.UpdateKeyStatusParams{
+		ID:     keyID,
+		Status: repository.ApiKeyStatusRevoked,
+	})
+	if err != nil {
+		return repository.ApiKey{}, fmt.Errorf("update key status: %w", err)
+	}
+	return updated, nil
+}
+
+// RotateKey revokes the old key and creates a new one with the same label and
+// expiration. Returns the new raw key and its ApiKey record.
+func (s *KeyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (rawKey string, newKey repository.ApiKey, err error) {
+	key, err := s.GetKeyByID(ctx, keyID, userID)
+	if err != nil {
+		return "", repository.ApiKey{}, err
+	}
+
+	if _, err := s.queries.UpdateKeyStatus(ctx, repository.UpdateKeyStatusParams{
+		ID:     keyID,
+		Status: repository.ApiKeyStatusRevoked,
+	}); err != nil {
+		return "", repository.ApiKey{}, fmt.Errorf("revoke old key: %w", err)
+	}
+
+	var expiresAt *time.Time
+	if key.ExpiresAt.Valid {
+		expiresAt = &key.ExpiresAt.Time
+	}
+
+	rawKey, newKey, err = s.GenerateKey(ctx, userID, key.Label.String, expiresAt)
+	if err != nil {
+		return "", repository.ApiKey{}, fmt.Errorf("generate replacement key: %w", err)
+	}
+
+	return rawKey, newKey, nil
 }
 
 // HashKey returns the SHA-256 hex digest of the given key.

@@ -56,6 +56,28 @@ func (q *Queries) GetKeyByHash(ctx context.Context, keyHash string) (ApiKey, err
 	return i, err
 }
 
+const getKeyByID = `-- name: GetKeyByID :one
+SELECT id, user_id, key_hash, label, status, created_at, expires_at
+FROM api_keys
+WHERE id = $1
+LIMIT 1
+`
+
+func (q *Queries) GetKeyByID(ctx context.Context, id uuid.UUID) (ApiKey, error) {
+	row := q.db.QueryRow(ctx, getKeyByID, id)
+	var i ApiKey
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.KeyHash,
+		&i.Label,
+		&i.Status,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const getKeyWithUserAndAccount = `-- name: GetKeyWithUserAndAccount :one
 SELECT
     k.id AS api_key_id,

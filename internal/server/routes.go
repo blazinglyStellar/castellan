@@ -18,6 +18,8 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.HandleFunc("/health", s.healthHandler)
 	mux.Handle("GET /api/v1/keys", http.HandlerFunc(s.keyHandler.ListKeys))
 	mux.Handle("POST /api/v1/keys", http.HandlerFunc(s.keyHandler.CreateKey))
+	mux.Handle("POST /api/v1/keys/{id}/revoke", http.HandlerFunc(s.keyHandler.RevokeKey))
+	mux.Handle("POST /api/v1/keys/{id}/rotate", http.HandlerFunc(s.keyHandler.RotateKey))
 	s.GatewayRoutes(mux)
 
 	var handler http.Handler = mux

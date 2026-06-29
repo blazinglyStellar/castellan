@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,34 @@ type mockQuerier struct {
 
 	mu         sync.Mutex
 	keysByUser map[uuid.UUID][]repository.ApiKey
+}
+
+func (m *mockQuerier) GetKeyByID(ctx context.Context, id uuid.UUID) (repository.ApiKey, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, keys := range m.keysByUser {
+		for _, k := range keys {
+			if k.ID == id {
+				return k, nil
+			}
+		}
+	}
+	return repository.ApiKey{}, errors.New("key not found")
+}
+
+func (m *mockQuerier) UpdateKeyStatus(ctx context.Context, arg repository.UpdateKeyStatusParams) (repository.ApiKey, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for userID, keys := range m.keysByUser {
+		for i, k := range keys {
+			if k.ID == arg.ID {
+				k.Status = arg.Status
+				m.keysByUser[userID][i] = k
+				return k, nil
+			}
+		}
+	}
+	return repository.ApiKey{}, errors.New("key not found")
 }
 
 func (m *mockQuerier) InsertKey(ctx context.Context, arg repository.InsertKeyParams) (repository.ApiKey, error) {
@@ -144,6 +173,178 @@ func TestListKeysService_Empty(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Errorf("expected 0 keys, got %d", len(items))
+	}
+}
+
+func TestRevokeKey_Success(t *testing.T) {
+	userID := uuid.New()
+	keyID := uuid.New()
+	now := time.Now().UTC()
+	mq := &mockQuerier{
+		keysByUser: map[uuid.UUID][]repository.ApiKey{
+			userID: {
+				{
+					ID:        keyID,
+					UserID:    userID,
+					KeyHash:   "hash",
+					Label:     pgtype.Text{String: "test", Valid: true},
+					Status:    repository.ApiKeyStatusActive,
+					CreatedAt: now,
+				},
+			},
+		},
+	}
+	s := NewKeyService(mq)
+	key, err := s.RevokeKey(context.Background(), keyID, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key.Status != repository.ApiKeyStatusRevoked {
+		t.Errorf("expected revoked, got %s", key.Status)
+	}
+}
+
+func TestRevokeKey_AlreadyRevoked(t *testing.T) {
+	userID := uuid.New()
+	keyID := uuid.New()
+	mq := &mockQuerier{
+		keysByUser: map[uuid.UUID][]repository.ApiKey{
+			userID: {
+				{
+					ID:     keyID,
+					UserID: userID,
+					Status: repository.ApiKeyStatusRevoked,
+				},
+			},
+		},
+	}
+	s := NewKeyService(mq)
+	_, err := s.RevokeKey(context.Background(), keyID, userID)
+	if err == nil {
+		t.Fatal("expected error for already revoked key")
+	}
+}
+
+func TestRevokeKey_NotFound(t *testing.T) {
+	s := NewKeyService(&mockQuerier{})
+	_, err := s.RevokeKey(context.Background(), uuid.New(), uuid.New())
+	if err == nil {
+		t.Fatal("expected error for non-existent key")
+	}
+}
+
+func TestRevokeKey_NotOwner(t *testing.T) {
+	ownerID := uuid.New()
+	otherUser := uuid.New()
+	keyID := uuid.New()
+	mq := &mockQuerier{
+		keysByUser: map[uuid.UUID][]repository.ApiKey{
+			ownerID: {
+				{
+					ID:     keyID,
+					UserID: ownerID,
+					Status: repository.ApiKeyStatusActive,
+				},
+			},
+		},
+	}
+	s := NewKeyService(mq)
+	_, err := s.RevokeKey(context.Background(), keyID, otherUser)
+	if err == nil {
+		t.Fatal("expected error for non-owner")
+	}
+}
+
+func TestRotateKey_Success(t *testing.T) {
+	userID := uuid.New()
+	keyID := uuid.New()
+	now := time.Now().UTC()
+	future := now.Add(30 * 24 * time.Hour)
+	mq := &mockQuerier{
+		keysByUser: map[uuid.UUID][]repository.ApiKey{
+			userID: {
+				{
+					ID:        keyID,
+					UserID:    userID,
+					KeyHash:   "old-hash",
+					Label:     pgtype.Text{String: "Production key", Valid: true},
+					Status:    repository.ApiKeyStatusActive,
+					CreatedAt: now,
+					ExpiresAt: pgtype.Timestamptz{Time: future, Valid: true},
+				},
+			},
+		},
+	}
+	s := NewKeyService(mq)
+	rawKey, newKey, err := s.RotateKey(context.Background(), keyID, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(rawKey, "ca_") {
+		t.Errorf("expected raw key to start with ca_, got %q", rawKey)
+	}
+	if newKey.Status != repository.ApiKeyStatusActive {
+		t.Errorf("expected new key status active, got %s", newKey.Status)
+	}
+	if newKey.Label.String != "Production key" {
+		t.Errorf("expected label 'Production key', got %q", newKey.Label.String)
+	}
+}
+
+func TestRotateKey_HashesDiffer(t *testing.T) {
+	userID := uuid.New()
+	keyID := uuid.New()
+	mq := &mockQuerier{
+		keysByUser: map[uuid.UUID][]repository.ApiKey{
+			userID: {
+				{
+					ID:        keyID,
+					UserID:    userID,
+					KeyHash:   "old-hash",
+					Label:     pgtype.Text{String: "test", Valid: true},
+					Status:    repository.ApiKeyStatusActive,
+					CreatedAt: time.Now().UTC(),
+				},
+			},
+		},
+	}
+	s := NewKeyService(mq)
+	_, newKey, err := s.RotateKey(context.Background(), keyID, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newKey.KeyHash == "old-hash" {
+		t.Error("old and new key hashes should differ")
+	}
+}
+
+func TestRotateKey_NotFound(t *testing.T) {
+	s := NewKeyService(&mockQuerier{})
+	_, _, err := s.RotateKey(context.Background(), uuid.New(), uuid.New())
+	if err == nil {
+		t.Fatal("expected error for non-existent key")
+	}
+}
+
+func TestRotateKey_NotOwner(t *testing.T) {
+	ownerID := uuid.New()
+	otherUser := uuid.New()
+	keyID := uuid.New()
+	mq := &mockQuerier{
+		keysByUser: map[uuid.UUID][]repository.ApiKey{
+			ownerID: {
+				{
+					ID:     keyID,
+					UserID: ownerID,
+					Status: repository.ApiKeyStatusActive,
+				},
+			},
+		},
+	}
+	s := NewKeyService(mq)
+	_, _, err := s.RotateKey(context.Background(), keyID, otherUser)
+	if err == nil {
+		t.Fatal("expected error for non-owner")
 	}
 }
 

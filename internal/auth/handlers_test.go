@@ -246,3 +246,184 @@ func TestListKeys_Unauthenticated(t *testing.T) {
 		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func revokeRequest(t *testing.T, keyID uuid.UUID, body string) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/keys/"+keyID.String()+"/revoke", strings.NewReader(body))
+	req.SetPathValue("id", keyID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      uuid.New().String(),
+			IsAuthenticated: true,
+		}),
+	)
+	return req
+}
+
+func TestRevokeKeyHandler_Success(t *testing.T) {
+	userID := uuid.New()
+	keyID := uuid.New()
+	now := time.Now().UTC()
+	mq := &mockQuerier{
+		keysByUser: map[uuid.UUID][]repository.ApiKey{
+			userID: {
+				{
+					ID:        keyID,
+					UserID:    userID,
+					KeyHash:   "hash",
+					Label:     pgtype.Text{String: "Production key", Valid: true},
+					Status:    repository.ApiKeyStatusActive,
+					CreatedAt: now,
+				},
+			},
+		},
+	}
+	h := NewKeyHandler(NewKeyService(mq))
+	rec := httptest.NewRecorder()
+	req := revokeRequest(t, keyID, "")
+	// Override consumer to match the key's user
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      userID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+	h.RevokeKey(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp revokeKeyResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Status != "revoked" {
+		t.Errorf("expected status 'revoked', got %q", resp.Status)
+	}
+	if resp.Label != "Production key" {
+		t.Errorf("expected label 'Production key', got %q", resp.Label)
+	}
+}
+
+func TestRevokeKeyHandler_AlreadyRevoked(t *testing.T) {
+	userID := uuid.New()
+	keyID := uuid.New()
+	mq := &mockQuerier{
+		keysByUser: map[uuid.UUID][]repository.ApiKey{
+			userID: {
+				{
+					ID:     keyID,
+					UserID: userID,
+					Status: repository.ApiKeyStatusRevoked,
+				},
+			},
+		},
+	}
+	h := NewKeyHandler(NewKeyService(mq))
+	rec := httptest.NewRecorder()
+	req := authenticatedRequestWithUserID(t, userID)
+	req.SetPathValue("id", keyID.String())
+	h.RevokeKey(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRevokeKeyHandler_NotFound(t *testing.T) {
+	h := NewKeyHandler(NewKeyService(&mockQuerier{}))
+	rec := httptest.NewRecorder()
+	req := authenticatedRequestWithUserID(t, uuid.New())
+	req.SetPathValue("id", uuid.New().String())
+	h.RevokeKey(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRevokeKeyHandler_Unauthenticated(t *testing.T) {
+	h := NewKeyHandler(NewKeyService(&mockQuerier{}))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/keys/some-id/revoke", nil)
+	req.SetPathValue("id", "some-id")
+	h.RevokeKey(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRotateKeyHandler_Success(t *testing.T) {
+	userID := uuid.New()
+	keyID := uuid.New()
+	now := time.Now().UTC()
+	mq := &mockQuerier{
+		keysByUser: map[uuid.UUID][]repository.ApiKey{
+			userID: {
+				{
+					ID:        keyID,
+					UserID:    userID,
+					KeyHash:   "old-hash",
+					Label:     pgtype.Text{String: "Production key", Valid: true},
+					Status:    repository.ApiKeyStatusActive,
+					CreatedAt: now,
+				},
+			},
+		},
+	}
+	h := NewKeyHandler(NewKeyService(mq))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/keys/"+keyID.String()+"/rotate", nil)
+	req.SetPathValue("id", keyID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      userID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+	h.RotateKey(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp createKeyResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if !strings.HasPrefix(resp.Key, "ca_") {
+		t.Errorf("expected key to start with ca_, got %q", resp.Key)
+	}
+	if resp.Status != "active" {
+		t.Errorf("expected status 'active', got %q", resp.Status)
+	}
+	if resp.Label != "Production key" {
+		t.Errorf("expected label 'Production key', got %q", resp.Label)
+	}
+}
+
+func TestRotateKeyHandler_NotFound(t *testing.T) {
+	h := NewKeyHandler(NewKeyService(&mockQuerier{}))
+	rec := httptest.NewRecorder()
+	req := authenticatedRequestWithUserID(t, uuid.New())
+	req.SetPathValue("id", uuid.New().String())
+	h.RotateKey(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRotateKeyHandler_Unauthenticated(t *testing.T) {
+	h := NewKeyHandler(NewKeyService(&mockQuerier{}))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/keys/some-id/rotate", nil)
+	req.SetPathValue("id", "some-id")
+	h.RotateKey(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}

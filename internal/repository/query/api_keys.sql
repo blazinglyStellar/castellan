@@ -26,6 +26,12 @@ DELETE FROM api_keys
 WHERE id = $1
 RETURNING *;
 
+-- name: GetKeyByID :one
+SELECT id, user_id, key_hash, label, status, created_at, expires_at
+FROM api_keys
+WHERE id = $1
+LIMIT 1;
+
 -- name: GetKeyWithUserAndAccount :one
 SELECT
     k.id AS api_key_id,
