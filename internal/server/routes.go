@@ -39,6 +39,7 @@ func (s *Server) GatewayRoutes(mux *http.ServeMux) {
 	handler = middleware.Reservation(s.ledger)(handler)
 	handler = middleware.BalanceCheck(s.balance)(handler)
 	handler = middleware.MaxBodySize(middleware.MaxBodySizeFromEnv())(handler)
+	handler = middleware.AuthCheck(s.keyValidator)(handler)
 
 	mux.Handle("POST /api/gateway/", handler)
 }
