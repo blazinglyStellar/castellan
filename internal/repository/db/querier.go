@@ -19,12 +19,16 @@ type Querier interface {
 	GetKeyByID(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	GetKeyWithUserAndAccount(ctx context.Context, keyHash string) (GetKeyWithUserAndAccountRow, error)
 	GetProviderBaseURL(ctx context.Context, id uuid.UUID) (string, error)
+	GetSessionTokenByHash(ctx context.Context, tokenHash string) (SessionToken, error)
 	GetUsageEventByRequestID(ctx context.Context, requestID string) (UsageEvent, error)
 	InsertKey(ctx context.Context, arg InsertKeyParams) (ApiKey, error)
+	InsertSessionToken(ctx context.Context, arg InsertSessionTokenParams) (SessionToken, error)
 	ListKeysByUser(ctx context.Context, userID uuid.UUID) ([]ApiKey, error)
+	ListSessionTokensByUser(ctx context.Context, userID uuid.UUID) ([]SessionToken, error)
 	ListUsageEventsByConsumer(ctx context.Context, consumerID uuid.UUID) ([]UsageEvent, error)
 	RevokeKey(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	UpdateKeyStatus(ctx context.Context, arg UpdateKeyStatusParams) (ApiKey, error)
+	UpdateSessionTokenStatus(ctx context.Context, arg UpdateSessionTokenStatusParams) (SessionToken, error)
 }
 
 var _ Querier = (*Queries)(nil)
