@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const errKey = "error"
+
 type createKeyRequest struct {
 	Label     string     `json:"label"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
@@ -53,24 +55,24 @@ func NewKeyHandler(service *KeyService) *KeyHandler {
 func (h *KeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
 		return
 	}
 
 	userID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
 		return
 	}
 
 	var req createKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid request body"})
 		return
 	}
 
 	if req.Label == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "label is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "label is required"})
 		return
 	}
 
@@ -80,13 +82,13 @@ func (h *KeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.ExpiresAt.Before(time.Now()) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "expires_at must be in the future"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "expires_at must be in the future"})
 		return
 	}
 
 	rawKey, apiKey, err := h.service.GenerateKey(r.Context(), userID, req.Label, req.ExpiresAt)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create API key"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to create API key"})
 		return
 	}
 
@@ -107,19 +109,19 @@ func (h *KeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 func (h *KeyHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
 		return
 	}
 
 	userID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
 		return
 	}
 
 	keys, err := h.service.ListKeys(r.Context(), userID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to list API keys"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to list API keys"})
 		return
 	}
 
@@ -129,29 +131,29 @@ func (h *KeyHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
 func (h *KeyHandler) RevokeKey(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
 		return
 	}
 
 	userID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
 		return
 	}
 
 	keyID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid key id"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid key id"})
 		return
 	}
 
 	key, err := h.service.RevokeKey(r.Context(), keyID, userID)
 	if err != nil {
 		if err.Error() == "key already revoked" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "key already revoked"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "key already revoked"})
 			return
 		}
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "key not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{errKey: "key not found"})
 		return
 	}
 
@@ -171,29 +173,29 @@ func (h *KeyHandler) RevokeKey(w http.ResponseWriter, r *http.Request) {
 func (h *KeyHandler) RotateKey(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
 		return
 	}
 
 	userID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
 		return
 	}
 
 	keyID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid key id"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid key id"})
 		return
 	}
 
 	rawKey, newKey, err := h.service.RotateKey(r.Context(), keyID, userID)
 	if err != nil {
 		if err.Error() == "key is not active" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "key is not active"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "key is not active"})
 			return
 		}
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "key not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{errKey: "key not found"})
 		return
 	}
 
