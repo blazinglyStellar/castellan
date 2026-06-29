@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -208,6 +209,152 @@ func (h *KeyHandler) RotateKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if newKey.ExpiresAt.Valid {
 		resp.ExpiresAt = &newKey.ExpiresAt.Time
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// --- Session handler ---
+
+type createSessionRequest struct {
+	Label string  `json:"label"`
+	Scope *string `json:"scope,omitempty"`
+	TTL   string  `json:"ttl,omitempty"`
+}
+
+type createSessionResponse struct {
+	Token     string    `json:"token"`
+	ID        uuid.UUID `json:"id"`
+	Label     string    `json:"label"`
+	Scope     *string   `json:"scope"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type revokeSessionResponse struct {
+	ID     uuid.UUID `json:"id"`
+	Label  string    `json:"label"`
+	Status string    `json:"status"`
+}
+
+type SessionHandler struct {
+	service *SessionService
+}
+
+func NewSessionHandler(service *SessionService) *SessionHandler {
+	return &SessionHandler{service: service}
+}
+
+func (h *SessionHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		return
+	}
+
+	userID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		return
+	}
+
+	var req createSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid request body"})
+		return
+	}
+
+	if req.Label == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "label is required"})
+		return
+	}
+
+	duration := time.Hour
+	if req.TTL != "" {
+		duration, err = time.ParseDuration(req.TTL)
+		if err != nil || duration <= 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid ttl"})
+			return
+		}
+	}
+
+	rawToken, token, err := h.service.GenerateSessionToken(r.Context(), userID, req.Label, req.Scope, duration)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to create session token"})
+		return
+	}
+
+	var scopePtr *string
+	if token.Scope.Valid {
+		s := token.Scope.String
+		scopePtr = &s
+	}
+
+	resp := createSessionResponse{
+		Token:     rawToken,
+		ID:        token.ID,
+		Label:     token.Label.String,
+		Scope:     scopePtr,
+		ExpiresAt: token.ExpiresAt,
+	}
+
+	writeJSON(w, http.StatusCreated, resp)
+}
+
+func (h *SessionHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		return
+	}
+
+	userID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		return
+	}
+
+	sessions, err := h.service.ListSessions(r.Context(), userID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to list sessions"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, sessions)
+}
+
+func (h *SessionHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		return
+	}
+
+	userID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		return
+	}
+
+	sessionID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid session id"})
+		return
+	}
+
+	token, err := h.service.RevokeSessionToken(r.Context(), sessionID, userID)
+	if err != nil {
+		if errors.Is(err, ErrSessionTokenNotActive) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusNotFound, map[string]string{errKey: err.Error()})
+		return
+	}
+
+	resp := revokeSessionResponse{
+		ID:     token.ID,
+		Label:  token.Label.String,
+		Status: string(token.Status),
 	}
 
 	writeJSON(w, http.StatusOK, resp)
