@@ -13,6 +13,7 @@ import (
 	"castellan/internal/repository/db"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -94,38 +95,33 @@ func (s *KeyService) GetKeyByID(ctx context.Context, keyID, userID uuid.UUID) (r
 	return key, nil
 }
 
-// RevokeKey sets the key's status to revoked. Returns error if already revoked.
+// RevokeKey sets the key's status to revoked using an atomic SQL guard
+// (only updates if status is not already revoked). Returns error if already revoked.
 func (s *KeyService) RevokeKey(ctx context.Context, keyID, userID uuid.UUID) (repository.ApiKey, error) {
-	key, err := s.GetKeyByID(ctx, keyID, userID)
-	if err != nil {
+	if _, err := s.GetKeyByID(ctx, keyID, userID); err != nil {
 		return repository.ApiKey{}, err
 	}
-	if key.Status == repository.ApiKeyStatusRevoked {
-		return repository.ApiKey{}, errors.New("key already revoked")
-	}
-	updated, err := s.queries.UpdateKeyStatus(ctx, repository.UpdateKeyStatusParams{
-		ID:     keyID,
-		Status: repository.ApiKeyStatusRevoked,
-	})
+
+	updated, err := s.queries.RevokeKey(ctx, keyID)
 	if err != nil {
-		return repository.ApiKey{}, fmt.Errorf("update key status: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return repository.ApiKey{}, errors.New("key already revoked")
+		}
+		return repository.ApiKey{}, fmt.Errorf("revoke key: %w", err)
 	}
 	return updated, nil
 }
 
-// RotateKey revokes the old key and creates a new one with the same label and
-// expiration. Returns the new raw key and its ApiKey record.
+// RotateKey creates a replacement key with the same label and expiration, then
+// revokes the old key. Generation happens first so the old key is untouched if
+// creation fails. Returns error if the key is not active.
 func (s *KeyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (rawKey string, newKey repository.ApiKey, err error) {
 	key, err := s.GetKeyByID(ctx, keyID, userID)
 	if err != nil {
 		return "", repository.ApiKey{}, err
 	}
-
-	if _, err := s.queries.UpdateKeyStatus(ctx, repository.UpdateKeyStatusParams{
-		ID:     keyID,
-		Status: repository.ApiKeyStatusRevoked,
-	}); err != nil {
-		return "", repository.ApiKey{}, fmt.Errorf("revoke old key: %w", err)
+	if key.Status != repository.ApiKeyStatusActive {
+		return "", repository.ApiKey{}, errors.New("key is not active")
 	}
 
 	var expiresAt *time.Time
@@ -136,6 +132,10 @@ func (s *KeyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (ra
 	rawKey, newKey, err = s.GenerateKey(ctx, userID, key.Label.String, expiresAt)
 	if err != nil {
 		return "", repository.ApiKey{}, fmt.Errorf("generate replacement key: %w", err)
+	}
+
+	if _, err := s.queries.RevokeKey(ctx, keyID); err != nil {
+		return "", repository.ApiKey{}, fmt.Errorf("revoke old key: %w", err)
 	}
 
 	return rawKey, newKey, nil

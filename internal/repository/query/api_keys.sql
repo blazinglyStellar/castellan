@@ -26,6 +26,12 @@ DELETE FROM api_keys
 WHERE id = $1
 RETURNING *;
 
+-- name: RevokeKey :one
+UPDATE api_keys
+SET status = 'revoked'
+WHERE id = $1 AND status != 'revoked'
+RETURNING *;
+
 -- name: GetKeyByID :one
 SELECT id, user_id, key_hash, label, status, created_at, expires_at
 FROM api_keys

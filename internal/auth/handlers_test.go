@@ -416,6 +416,31 @@ func TestRotateKeyHandler_NotFound(t *testing.T) {
 	}
 }
 
+func TestRotateKeyHandler_KeyNotActive(t *testing.T) {
+	userID := uuid.New()
+	keyID := uuid.New()
+	mq := &mockQuerier{
+		keysByUser: map[uuid.UUID][]repository.ApiKey{
+			userID: {
+				{
+					ID:     keyID,
+					UserID: userID,
+					Status: repository.ApiKeyStatusRevoked,
+				},
+			},
+		},
+	}
+	h := NewKeyHandler(NewKeyService(mq))
+	rec := httptest.NewRecorder()
+	req := authenticatedRequestWithUserID(t, userID)
+	req.SetPathValue("id", keyID.String())
+	h.RotateKey(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRotateKeyHandler_Unauthenticated(t *testing.T) {
 	h := NewKeyHandler(NewKeyService(&mockQuerier{}))
 	rec := httptest.NewRecorder()

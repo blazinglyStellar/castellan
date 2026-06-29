@@ -189,6 +189,10 @@ func (h *KeyHandler) RotateKey(w http.ResponseWriter, r *http.Request) {
 
 	rawKey, newKey, err := h.service.RotateKey(r.Context(), keyID, userID)
 	if err != nil {
+		if err.Error() == "key is not active" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "key is not active"})
+			return
+		}
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "key not found"})
 		return
 	}

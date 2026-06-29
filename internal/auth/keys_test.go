@@ -13,6 +13,7 @@ import (
 	"castellan/internal/repository/db"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -36,6 +37,24 @@ func (m *mockQuerier) GetKeyByID(ctx context.Context, id uuid.UUID) (repository.
 		}
 	}
 	return repository.ApiKey{}, errors.New("key not found")
+}
+
+func (m *mockQuerier) RevokeKey(ctx context.Context, id uuid.UUID) (repository.ApiKey, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for userID, keys := range m.keysByUser {
+		for i, k := range keys {
+			if k.ID == id {
+				if k.Status == repository.ApiKeyStatusRevoked {
+					return repository.ApiKey{}, pgx.ErrNoRows
+				}
+				k.Status = repository.ApiKeyStatusRevoked
+				m.keysByUser[userID][i] = k
+				return k, nil
+			}
+		}
+	}
+	return repository.ApiKey{}, pgx.ErrNoRows
 }
 
 func (m *mockQuerier) UpdateKeyStatus(ctx context.Context, arg repository.UpdateKeyStatusParams) (repository.ApiKey, error) {

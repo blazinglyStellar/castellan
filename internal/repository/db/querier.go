@@ -23,6 +23,7 @@ type Querier interface {
 	InsertKey(ctx context.Context, arg InsertKeyParams) (ApiKey, error)
 	ListKeysByUser(ctx context.Context, userID uuid.UUID) ([]ApiKey, error)
 	ListUsageEventsByConsumer(ctx context.Context, consumerID uuid.UUID) ([]UsageEvent, error)
+	RevokeKey(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	UpdateKeyStatus(ctx context.Context, arg UpdateKeyStatusParams) (ApiKey, error)
 }
 

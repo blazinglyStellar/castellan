@@ -203,6 +203,28 @@ func (q *Queries) ListKeysByUser(ctx context.Context, userID uuid.UUID) ([]ApiKe
 	return items, nil
 }
 
+const revokeKey = `-- name: RevokeKey :one
+UPDATE api_keys
+SET status = 'revoked'
+WHERE id = $1 AND status != 'revoked'
+RETURNING id, user_id, key_hash, label, status, created_at, expires_at
+`
+
+func (q *Queries) RevokeKey(ctx context.Context, id uuid.UUID) (ApiKey, error) {
+	row := q.db.QueryRow(ctx, revokeKey, id)
+	var i ApiKey
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.KeyHash,
+		&i.Label,
+		&i.Status,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const updateKeyStatus = `-- name: UpdateKeyStatus :one
 UPDATE api_keys
 SET status = $2
