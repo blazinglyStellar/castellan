@@ -29,11 +29,21 @@ func (m *mockKeyValidator) ValidateKey(_ context.Context, _ string) (repository.
 	return m.key, m.err
 }
 
+type mockSessionValidator struct {
+	token *repository.SessionToken
+	err   error
+}
+
+func (m *mockSessionValidator) ValidateSession(_ context.Context, _ string) (*repository.SessionToken, error) {
+	return m.token, m.err
+}
+
 type authRejectTestCase struct {
-	rawKey     string
-	mock       *mockKeyValidator
-	wantStatus int
-	wantError  string
+	rawKey      string
+	mock        *mockKeyValidator
+	mockSession *mockSessionValidator
+	wantStatus  int
+	wantError   string
 }
 
 func runRejectedTest(t *testing.T, tt authRejectTestCase) {
@@ -48,7 +58,7 @@ func runRejectedTest(t *testing.T, tt authRejectTestCase) {
 	request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
 	request.Header.Set("Authorization", "Bearer "+tt.rawKey)
 
-	AuthCheck(tt.mock)(handler).ServeHTTP(recorder, request)
+	AuthCheck(tt.mock, tt.mockSession)(handler).ServeHTTP(recorder, request)
 
 	if recorder.Code != tt.wantStatus {
 		t.Fatalf("expected status %d; got %d", tt.wantStatus, recorder.Code)
@@ -77,7 +87,7 @@ func TestAuthCheckMissingHeader(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
 
 	mock := &mockKeyValidator{}
-	AuthCheck(mock)(handler).ServeHTTP(recorder, request)
+	AuthCheck(mock, nil)(handler).ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status %d; got %d", http.StatusUnauthorized, recorder.Code)
@@ -118,7 +128,7 @@ func TestAuthCheckMalformedHeader(t *testing.T) {
 			request.Header.Set("Authorization", tt.header)
 
 			mock := &mockKeyValidator{}
-			AuthCheck(mock)(handler).ServeHTTP(recorder, request)
+			AuthCheck(mock, nil)(handler).ServeHTTP(recorder, request)
 
 			if recorder.Code != http.StatusUnauthorized {
 				t.Fatalf("expected status %d; got %d", http.StatusUnauthorized, recorder.Code)
@@ -216,7 +226,7 @@ func TestAuthCheckValidKey(t *testing.T) {
 			CreatedAt: time.Now().UTC(),
 		},
 	}
-	AuthCheck(mock)(handler).ServeHTTP(recorder, request)
+	AuthCheck(mock, nil)(handler).ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d; got %d", http.StatusOK, recorder.Code)
@@ -224,6 +234,88 @@ func TestAuthCheckValidKey(t *testing.T) {
 	if !called {
 		t.Fatal("expected downstream handler to be called")
 	}
+}
+
+func TestAuthCheckValidSessionToken(t *testing.T) {
+	userID := uuid.New()
+	tokenID := uuid.New()
+
+	called := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+
+		consumer := gatewaycontext.GetConsumerInfo(r.Context())
+		if !consumer.IsAuthenticated {
+			t.Error("expected IsAuthenticated to be true")
+		}
+		if consumer.ConsumerID != userID.String() {
+			t.Errorf("expected ConsumerID %q; got %q", userID.String(), consumer.ConsumerID)
+		}
+		if consumer.APIKeyID != tokenID.String() {
+			t.Errorf("expected APIKeyID %q; got %q", tokenID.String(), consumer.APIKeyID)
+		}
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
+	request.Header.Set("Authorization", "Bearer st_valid-session-token")
+
+	mock := &mockKeyValidator{}
+	mockSession := &mockSessionValidator{
+		token: &repository.SessionToken{
+			ID:        tokenID,
+			UserID:    userID,
+			TokenHash: auth.HashToken("st_valid-session-token"),
+			Status:    repository.SessionTokenStatusActive,
+			ExpiresAt: time.Now().UTC().Add(time.Hour),
+			CreatedAt: time.Now().UTC(),
+		},
+	}
+	AuthCheck(mock, mockSession)(handler).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d; got %d", http.StatusOK, recorder.Code)
+	}
+	if !called {
+		t.Fatal("expected downstream handler to be called")
+	}
+}
+
+func TestAuthCheckRevokedSessionToken(t *testing.T) {
+	runRejectedTest(t, authRejectTestCase{
+		rawKey: "st_revoked-session-token",
+		mock:   &mockKeyValidator{},
+		mockSession: &mockSessionValidator{
+			err: auth.ErrSessionTokenNotActive,
+		},
+		wantStatus: http.StatusUnauthorized,
+		wantError:  "session token revoked",
+	})
+}
+
+func TestAuthCheckExpiredSessionToken(t *testing.T) {
+	runRejectedTest(t, authRejectTestCase{
+		rawKey: "st_expired-session-token",
+		mock:   &mockKeyValidator{},
+		mockSession: &mockSessionValidator{
+			err: auth.ErrSessionTokenExpired,
+		},
+		wantStatus: http.StatusUnauthorized,
+		wantError:  "session token expired",
+	})
+}
+
+func TestAuthCheckUnknownSessionToken(t *testing.T) {
+	runRejectedTest(t, authRejectTestCase{
+		rawKey: "st_unknown-session-token",
+		mock:   &mockKeyValidator{},
+		mockSession: &mockSessionValidator{
+			err: auth.ErrSessionTokenNotFound,
+		},
+		wantStatus: http.StatusUnauthorized,
+		wantError:  "invalid session token",
+	})
 }
 
 func TestAuthCheckRawKeyNotLogged(t *testing.T) {
@@ -251,7 +343,7 @@ func TestAuthCheckRawKeyNotLogged(t *testing.T) {
 			CreatedAt: time.Now().UTC(),
 		},
 	}
-	AuthCheck(mock)(handler).ServeHTTP(recorder, request)
+	AuthCheck(mock, nil)(handler).ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d; got %d", http.StatusOK, recorder.Code)

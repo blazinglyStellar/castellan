@@ -31,6 +31,7 @@ type ListSessionsItem struct {
 var (
 	ErrSessionTokenNotFound  = errors.New("session token not found")
 	ErrSessionTokenNotActive = errors.New("session token is not active")
+	ErrSessionTokenExpired   = errors.New("session token has expired")
 )
 
 const tokenBytes = 32
@@ -98,17 +99,17 @@ func (s *SessionService) ValidateSessionToken(
 	token, err := s.queries.GetSessionTokenByHash(ctx, tokenHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errors.New("session token not found")
+			return nil, ErrSessionTokenNotFound
 		}
 		return nil, fmt.Errorf("lookup session token: %w", err)
 	}
 
 	if token.Status != repository.SessionTokenStatusActive {
-		return nil, errors.New("session token is not active")
+		return nil, ErrSessionTokenNotActive
 	}
 
-	if token.ExpiresAt.Before(time.Now()) {
-		return nil, errors.New("session token has expired")
+	if !token.ExpiresAt.After(time.Now()) {
+		return nil, ErrSessionTokenExpired
 	}
 
 	return &token, nil

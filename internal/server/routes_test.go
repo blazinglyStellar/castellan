@@ -31,6 +31,17 @@ func (m *testKeyValidator) ValidateKey(_ context.Context, _ string) (repository.
 
 var _ middleware.KeyValidator = (*testKeyValidator)(nil)
 
+type testSessionValidator struct {
+	token *repository.SessionToken
+	err   error
+}
+
+func (m *testSessionValidator) ValidateSession(_ context.Context, _ string) (*repository.SessionToken, error) {
+	return m.token, m.err
+}
+
+var _ middleware.SessionValidator = (*testSessionValidator)(nil)
+
 type mockResolver struct {
 	baseURL string
 	err     error
@@ -200,7 +211,8 @@ func newTestServer(upstreamURL string, balance decimal.Decimal) *Server {
 		usageRepo: middleware.UsageEventRepositoryFunc(func(_ context.Context, _ repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error) {
 			return repository.CreateUsageEventRow{}, nil
 		}),
-		ledger:       gateway.NoopLedger{},
-		keyValidator: keyValidator,
+		ledger:           gateway.NoopLedger{},
+		keyValidator:     keyValidator,
+		sessionValidator: &testSessionValidator{},
 	}
 }
