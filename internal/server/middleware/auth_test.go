@@ -319,10 +319,14 @@ func TestAuthCheckUnknownSessionToken(t *testing.T) {
 }
 
 func TestAuthCheckRawKeyNotLogged(t *testing.T) {
+	// NOTE: this test mutates the global slog default logger to capture output.
+	// It must not run in parallel with TestAuthCheckRawSessionTokenNotLogged or
+	// any other test that calls slog.SetDefault, to avoid data races.
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	original := slog.Default()
 	slog.SetDefault(logger)
-	defer slog.SetDefault(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	t.Cleanup(func() { slog.SetDefault(original) })
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -350,10 +354,57 @@ func TestAuthCheckRawKeyNotLogged(t *testing.T) {
 	}
 
 	logOutput := buf.String()
-	t.Logf("log output: %s", logOutput)
 
 	if strings.Contains(logOutput, rawKey) {
 		t.Fatal("raw key must not appear in log output")
+	}
+
+	if !strings.Contains(logOutput, userID.String()) {
+		t.Fatal("expected consumer_id in log output")
+	}
+}
+
+func TestAuthCheckRawSessionTokenNotLogged(t *testing.T) {
+	// NOTE: this test mutates the global slog default logger to capture output.
+	// It must not run in parallel with TestAuthCheckRawKeyNotLogged or any other
+	// test that calls slog.SetDefault, to avoid data races.
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	original := slog.Default()
+	slog.SetDefault(logger)
+	t.Cleanup(func() { slog.SetDefault(original) })
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	rawToken := "st_super-secret-session-token-that-must-not-appear-in-logs"
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
+	request.Header.Set("Authorization", "Bearer "+rawToken)
+
+	userID := uuid.New()
+	tokenID := uuid.New()
+	mockSession := &mockSessionValidator{
+		token: &repository.SessionToken{
+			ID:        tokenID,
+			UserID:    userID,
+			TokenHash: auth.HashToken(rawToken),
+			Status:    repository.SessionTokenStatusActive,
+			ExpiresAt: time.Now().UTC().Add(time.Hour),
+			CreatedAt: time.Now().UTC(),
+		},
+	}
+	AuthCheck(&mockKeyValidator{}, mockSession)(handler).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d; got %d", http.StatusOK, recorder.Code)
+	}
+
+	logOutput := buf.String()
+
+	if strings.Contains(logOutput, rawToken) {
+		t.Fatal("raw session token must not appear in log output")
 	}
 
 	if !strings.Contains(logOutput, userID.String()) {
