@@ -129,6 +129,97 @@ Cobra-command background worker running on a configurable interval (default ~5 m
 
 ---
 
+## Authentication
+
+Castellan uses two credential types, both carried in the `Authorization`
+header as a Bearer token. The auth middleware
+(`internal/server/middleware/auth.go:48`) accepts either form and routes
+the credential to the appropriate validator.
+
+### Credential types
+
+**API key (permanent, machine-to-machine).** Best for backend
+integrations, CI jobs, and any non-interactive caller. Keys do not
+expire on their own — they remain valid until explicitly revoked or
+rotated. A revoked key fails-closed immediately.
+
+```bash
+# Replace {provider_uuid} with the provider's ID and {upstream_path}
+# with the route registered on that provider (e.g. /weather/current).
+curl -X POST http://localhost:8080/api/gateway/{provider_uuid}/{upstream_path} \
+  -H "Authorization: Bearer ca_REPLACE_ME" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Session token (temporary, scoped).** Best for the dashboard, CLI
+tools, and any short-lived caller. Each token is created with an
+explicit TTL and an optional `scope` (e.g. `read:*`). When `expires_at`
+passes the token is rejected even if its status is still `active`.
+
+```bash
+# Replace {provider_uuid} with the provider's ID and {upstream_path}
+# with the route registered on that provider (e.g. /weather/current).
+curl -X POST http://localhost:8080/api/gateway/{provider_uuid}/{upstream_path} \
+  -H "Authorization: Bearer st_REPLACE_ME" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+### Credential management endpoints
+
+| Credential | Action | Method + Path                        |
+|------------|--------|--------------------------------------|
+| API key    | list   | `GET    /api/v1/keys`                |
+| API key    | create | `POST   /api/v1/keys`                |
+| API key    | revoke | `POST   /api/v1/keys/{id}/revoke`    |
+| API key    | rotate | `POST   /api/v1/keys/{id}/rotate`    |
+| Session    | list   | `GET    /api/v1/sessions`            |
+| Session    | create | `POST   /api/v1/sessions`            |
+| Session    | revoke | `POST   /api/v1/sessions/{id}/revoke`|
+
+Successful `POST` responses include the raw credential exactly once —
+copy it immediately; it cannot be retrieved later.
+
+### Key lifecycle
+
+1. **Generate.** `POST /api/v1/keys` returns `{"key": "ca_..."}`. Store
+   the raw value immediately; the server only persists the SHA-256
+   hash.
+2. **Use.** Send `Authorization: Bearer ca_...` on every gateway
+   request.
+3. **Revoke or rotate.**
+   - `POST /api/v1/keys/{id}/revoke` invalidates the key immediately.
+   - `POST /api/v1/keys/{id}/rotate` atomically issues a replacement
+     and revokes the old one in a single flow. Generation runs first,
+     so a failure during the old-key revoke step does not strand
+     credentials.
+
+Session tokens follow the same shape: generate → use → revoke, except
+they additionally carry `expires_at` and `scope`.
+
+### Security notes
+
+- Raw keys and session tokens are returned **once** at creation. The
+  server stores only the SHA-256 hex digest in the `api_keys.key_hash`
+  and `session_tokens.token_hash` columns; the raw value is not
+  retained anywhere in the system.
+- Hashing uses SHA-256 (hex-encoded), not reversible encryption. There
+  is no recover-lost-key path — rotating is the only option.
+- The auth middleware fail-closes on revoked, expired, or unknown
+  credentials (`internal/server/middleware/auth.go:48`).
+- The request logger rewrites `Authorization` (and `Proxy-Authorization`,
+  `Cookie`, `X-Api-Key`, `X-Auth-Token`) to `[REDACTED]` before it leaves
+  the process — `internal/server/middleware/logging.go:99`.
+- Default values for these knobs live in `.env.example`
+  (`API_KEY_PREFIX`, `API_KEY_BYTES`, `SESSION_TOKEN_PREFIX`,
+  `SESSION_TOKEN_DEFAULT_TTL`). They are documented defaults only —
+  the Go code currently uses compile-time constants in
+  `internal/auth/{keys,sessions}.go`. Wiring the env vars into the
+  auth service is tracked as a follow-up.
+
+---
+
 ## Features (Backlog)
 
 | # | Epic | Description |
