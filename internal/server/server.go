@@ -28,13 +28,14 @@ import (
 type Server struct {
 	port int
 
-	db           database.Service
-	proxy        *proxy.Proxy
-	balance      middleware.BalanceChecker
-	usageRepo    middleware.UsageEventRepository
-	ledger       gateway.LedgerService
-	keyHandler   *auth.KeyHandler
-	keyValidator middleware.KeyValidator
+	db             database.Service
+	proxy          *proxy.Proxy
+	balance        middleware.BalanceChecker
+	usageRepo      middleware.UsageEventRepository
+	ledger         gateway.LedgerService
+	keyHandler     *auth.KeyHandler
+	keyValidator   middleware.KeyValidator
+	sessionHandler *auth.SessionHandler
 }
 
 // NewServer creates an http.Server with all dependencies wired: database pool,
@@ -89,15 +90,18 @@ func NewServer() (*http.Server, error) {
 		return queries.GetKeyByHash(ctx, keyHash)
 	})
 
+	sessionSvc := auth.NewSessionService(queries)
+
 	srv := &Server{
-		port:         port,
-		db:           databaseService,
-		proxy:        pxy,
-		balance:      balancer,
-		usageRepo:    usageRepo,
-		ledger:       gateway.NoopLedger{},
-		keyHandler:   auth.NewKeyHandler(keySvc),
-		keyValidator: keyValidator,
+		port:           port,
+		db:             databaseService,
+		proxy:          pxy,
+		balance:        balancer,
+		usageRepo:      usageRepo,
+		ledger:         gateway.NoopLedger{},
+		keyHandler:     auth.NewKeyHandler(keySvc),
+		keyValidator:   keyValidator,
+		sessionHandler: auth.NewSessionHandler(sessionSvc),
 	}
 
 	httpServer := &http.Server{
