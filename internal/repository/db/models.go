@@ -360,6 +360,49 @@ func (ns NullProviderStatus) Value() (driver.Value, error) {
 	return string(ns.ProviderStatus), nil
 }
 
+type SessionTokenStatus string
+
+const (
+	SessionTokenStatusActive  SessionTokenStatus = "active"
+	SessionTokenStatusRevoked SessionTokenStatus = "revoked"
+	SessionTokenStatusExpired SessionTokenStatus = "expired"
+)
+
+func (e *SessionTokenStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SessionTokenStatus(s)
+	case string:
+		*e = SessionTokenStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SessionTokenStatus: %T", src)
+	}
+	return nil
+}
+
+type NullSessionTokenStatus struct {
+	SessionTokenStatus SessionTokenStatus `json:"session_token_status"`
+	Valid              bool               `json:"valid"` // Valid is true if SessionTokenStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSessionTokenStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.SessionTokenStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SessionTokenStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSessionTokenStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SessionTokenStatus), nil
+}
+
 type SettlementEntryStatus string
 
 const (
@@ -515,6 +558,17 @@ type Provider struct {
 	Status    ProviderStatus `json:"status"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
+}
+
+type SessionToken struct {
+	ID        uuid.UUID          `json:"id"`
+	UserID    uuid.UUID          `json:"user_id"`
+	TokenHash string             `json:"token_hash"`
+	Label     pgtype.Text        `json:"label"`
+	Scope     pgtype.Text        `json:"scope"`
+	Status    SessionTokenStatus `json:"status"`
+	ExpiresAt time.Time          `json:"expires_at"`
+	CreatedAt time.Time          `json:"created_at"`
 }
 
 type SettlementBatch struct {

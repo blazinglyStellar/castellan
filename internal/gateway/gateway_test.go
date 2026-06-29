@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"castellan/internal/auth"
 	"castellan/internal/gateway"
 	gatewaycontext "castellan/internal/gateway/context"
 	"castellan/internal/provider"
@@ -197,6 +198,8 @@ CREATE TABLE usage_events (
 );
 `
 
+const testRawKey = "ca_test-key-for-integration"
+
 type seedData struct {
 	UserID     uuid.UUID
 	APIKeyID   uuid.UUID
@@ -216,7 +219,7 @@ func seedGatewayTestData(ctx context.Context, t *testing.T, baseURL, balance, pr
 	}
 
 	apiKeyID := uuid.New()
-	keyHash := "test-api-key-123"
+	keyHash := auth.HashKey(testRawKey)
 	_, err = testPG.Exec(ctx,
 		`INSERT INTO api_keys (id, user_id, key_hash, status) VALUES ($1, $2, $3, 'active')`,
 		apiKeyID, userID, keyHash)
@@ -290,27 +293,6 @@ func (m *mockLedgerService) Release(_ context.Context, referenceID string) error
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, ledgerCall{Method: "Release", ReferenceID: referenceID})
 	return nil
-}
-
-func authMiddleware(validKeyHash string, consumerID uuid.UUID) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			key := r.Header.Get("X-API-Key")
-			if key == "" || key != validKeyHash {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnauthorized)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid api key"})
-				return
-			}
-
-			ctx := gatewaycontext.SetConsumerInfo(r.Context(), gatewaycontext.ConsumerInfo{
-				ConsumerID:      consumerID.String(),
-				APIKeyID:        "",
-				IsAuthenticated: true,
-			})
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
 }
 
 func pricingMiddleware(conn *pgx.Conn) func(http.Handler) http.Handler {
@@ -402,8 +384,6 @@ func buildGatewayHandler(
 	conn *pgx.Conn,
 	ledger gateway.LedgerService,
 	proxyCfg proxy.Config,
-	validKeyHash string,
-	consumerID uuid.UUID,
 ) http.Handler {
 	resolver, err := provider.NewDBResolver(testQueries)
 	if err != nil {
@@ -437,7 +417,7 @@ func buildGatewayHandler(
 	h = middleware.BalanceCheck(balanceChecker)(h)
 	h = middleware.MaxBodySize(10 * 1024 * 1024)(h)
 	h = pricingMiddleware(conn)(h)
-	h = authMiddleware(validKeyHash, consumerID)(h)
+	h = middleware.AuthCheck(middleware.KeyValidatorFunc(testQueries.GetKeyByHash))(h)
 
 	return h
 }
@@ -453,13 +433,13 @@ func TestGatewayLifecycle(t *testing.T) {
 	seed := seedGatewayTestData(ctx, t, mockUpstream.URL, "1000.00", "5.00")
 
 	ledger := newLedgerTracker()
-	handler := buildGatewayHandler(testPG, ledger, proxy.DefaultConfig(), "test-api-key-123", seed.UserID)
+	handler := buildGatewayHandler(testPG, ledger, proxy.DefaultConfig())
 
 	body := strings.NewReader(`{"prompt":"hello"}`)
 	req := httptest.NewRequest(http.MethodPost,
 		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
 		body)
-	req.Header.Set("X-API-Key", "test-api-key-123")
+	req.Header.Set("Authorization", "Bearer "+testRawKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -510,7 +490,7 @@ func TestGatewayAuthFailure(t *testing.T) {
 	seed := seedGatewayTestData(ctx, t, "http://0.0.0.0:1", "0", "5.00")
 
 	tracker := newLedgerTracker()
-	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig(), "test-api-key-123", seed.UserID)
+	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
 
 	req := httptest.NewRequest(http.MethodPost,
 		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
@@ -528,8 +508,8 @@ func TestGatewayAuthFailure(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("expected valid JSON error response: %v", err)
 	}
-	if body["error"] != "invalid api key" {
-		t.Fatalf("expected error 'invalid api key'; got %q", body["error"])
+	if body["error"] != "missing authorization header" {
+		t.Fatalf("expected error 'missing authorization header'; got %q", body["error"])
 	}
 
 	events, err := testQueries.ListUsageEventsByConsumer(ctx, seed.UserID)
@@ -556,12 +536,12 @@ func TestGatewayInsufficientBalance(t *testing.T) {
 	seed := seedGatewayTestData(ctx, t, mockUpstream.URL, "0.01", "5.00")
 
 	ledger := newLedgerTracker()
-	handler := buildGatewayHandler(testPG, ledger, proxy.DefaultConfig(), "test-api-key-123", seed.UserID)
+	handler := buildGatewayHandler(testPG, ledger, proxy.DefaultConfig())
 
 	req := httptest.NewRequest(http.MethodPost,
 		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
 		strings.NewReader(`{"prompt":"hello"}`))
-	req.Header.Set("X-API-Key", "test-api-key-123")
+	req.Header.Set("Authorization", "Bearer "+testRawKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -613,12 +593,12 @@ func TestGatewayUpstreamTimeout(t *testing.T) {
 	}
 
 	ledger := newLedgerTracker()
-	handler := buildGatewayHandler(testPG, ledger, proxyCfg, "test-api-key-123", seed.UserID)
+	handler := buildGatewayHandler(testPG, ledger, proxyCfg)
 
 	req := httptest.NewRequest(http.MethodPost,
 		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
 		strings.NewReader(`{"prompt":"hello"}`))
-	req.Header.Set("X-API-Key", "test-api-key-123")
+	req.Header.Set("Authorization", "Bearer "+testRawKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -644,5 +624,100 @@ func TestGatewayUpstreamTimeout(t *testing.T) {
 	}
 	if ledger.Calls[1].Method != "Release" {
 		t.Fatalf("expected second ledger call to be Release; got %s", ledger.Calls[1].Method)
+	}
+}
+
+func TestGatewayMissingAuthHeader(t *testing.T) {
+	seed := seedGatewayTestData(context.Background(), t, "http://0.0.0.0:1", "0", "5.00")
+
+	tracker := newLedgerTracker()
+	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
+
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		strings.NewReader(`{"prompt":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected valid JSON error response: %v", err)
+	}
+	if body["error"] != "missing authorization header" {
+		t.Fatalf("expected error 'missing authorization header'; got %q", body["error"])
+	}
+
+	if len(tracker.Calls) != 0 {
+		t.Fatalf("expected 0 ledger calls on missing auth; got %d", len(tracker.Calls))
+	}
+}
+
+func TestGatewayInvalidBearerToken(t *testing.T) {
+	seed := seedGatewayTestData(context.Background(), t, "http://0.0.0.0:1", "0", "5.00")
+
+	tracker := newLedgerTracker()
+	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
+
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		strings.NewReader(`{"prompt":"hello"}`))
+	req.Header.Set("Authorization", "Bearer ca_nonexistent-key")
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected valid JSON error response: %v", err)
+	}
+	if body["error"] != "invalid api key" {
+		t.Fatalf("expected error 'invalid api key'; got %q", body["error"])
+	}
+
+	if len(tracker.Calls) != 0 {
+		t.Fatalf("expected 0 ledger calls on invalid token; got %d", len(tracker.Calls))
+	}
+}
+
+func TestGatewayWrongBearerPrefix(t *testing.T) {
+	seed := seedGatewayTestData(context.Background(), t, "http://0.0.0.0:1", "0", "5.00")
+
+	tracker := newLedgerTracker()
+	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
+
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		strings.NewReader(`{"prompt":"hello"}`))
+	req.Header.Set("Authorization", "Bearer xyz_wrong-prefix")
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected valid JSON error response: %v", err)
+	}
+	if body["error"] != "invalid api key" {
+		t.Fatalf("expected error 'invalid api key'; got %q", body["error"])
+	}
+
+	if len(tracker.Calls) != 0 {
+		t.Fatalf("expected 0 ledger calls on wrong prefix; got %d", len(tracker.Calls))
 	}
 }
