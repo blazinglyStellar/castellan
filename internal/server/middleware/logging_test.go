@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -103,5 +104,38 @@ func TestRequestLoggerPassesThrough(t *testing.T) {
 
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("expected status %d; got %d", http.StatusNoContent, recorder.Code)
+	}
+}
+
+func TestRequestLoggerRedactsAuthorizationHeader(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	rawKey := "ca_super-secret-api-key-must-not-appear-in-logs"
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
+	request.Header.Set("Authorization", "Bearer "+rawKey)
+
+	RequestLogger(logger)(handler).ServeHTTP(recorder, request)
+
+	logOutput := buf.String()
+
+	if strings.Contains(logOutput, rawKey) {
+		t.Fatal("raw api key must not appear in request log output")
+	}
+	if strings.Contains(logOutput, "Bearer "+rawKey) {
+		t.Fatal("raw authorization header value must not appear in request log output")
+	}
+
+	var entry map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("expected valid JSON log entry: %v", err)
+	}
+	if entry["authorization"] != "[REDACTED]" {
+		t.Fatalf("expected authorization field to be \"[REDACTED]\"; got %v", entry["authorization"])
 	}
 }

@@ -196,6 +196,22 @@ CREATE TABLE usage_events (
     status        usage_status NOT NULL DEFAULT 'pending',
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TYPE session_token_status AS ENUM ('active', 'revoked', 'expired');
+
+CREATE TABLE session_tokens (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash  TEXT NOT NULL UNIQUE,
+    label       TEXT,
+    scope       TEXT,
+    status      session_token_status NOT NULL DEFAULT 'active',
+    expires_at  TIMESTAMPTZ NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_session_tokens_user ON session_tokens (user_id);
+CREATE INDEX idx_session_tokens_status ON session_tokens (status);
 `
 
 const testRawKey = "ca_test-key-for-integration"
@@ -411,13 +427,18 @@ func buildGatewayHandler(
 
 	pxy := proxy.NewReverseProxy(resolver, slog.Default(), proxyCfg)
 
+	sessionSvc := auth.NewSessionService(testQueries)
+
 	var h http.Handler = pxy
 	h = middleware.UsageCapture(usageRepo, nil)(h)
 	h = middleware.Reservation(ledger)(h)
 	h = middleware.BalanceCheck(balanceChecker)(h)
 	h = middleware.MaxBodySize(10 * 1024 * 1024)(h)
 	h = pricingMiddleware(conn)(h)
-	h = middleware.AuthCheck(middleware.KeyValidatorFunc(testQueries.GetKeyByHash))(h)
+	h = middleware.AuthCheck(
+		middleware.KeyValidatorFunc(testQueries.GetKeyByHash),
+		middleware.SessionValidatorFunc(sessionSvc.ValidateSessionToken),
+	)(h)
 
 	return h
 }
@@ -719,5 +740,261 @@ func TestGatewayWrongBearerPrefix(t *testing.T) {
 
 	if len(tracker.Calls) != 0 {
 		t.Fatalf("expected 0 ledger calls on wrong prefix; got %d", len(tracker.Calls))
+	}
+}
+
+// seedSessionToken creates a fresh session token for the given user and returns
+// the raw st_ token string. duration controls how long until it expires.
+func seedSessionToken(ctx context.Context, t *testing.T, userID uuid.UUID, duration time.Duration) string {
+	t.Helper()
+
+	svc := auth.NewSessionService(testQueries)
+	rawToken, _, err := svc.GenerateSessionToken(ctx, userID, "test-session", nil, duration)
+	if err != nil {
+		t.Fatalf("seed session token: %v", err)
+	}
+
+	return rawToken
+}
+
+func TestGatewayAPIKeyRevoked(t *testing.T) {
+	ctx := context.Background()
+	seed := seedGatewayTestData(ctx, t, "http://0.0.0.0:1", "1000.00", "5.00")
+
+	// Give this test an isolated key hash so no other seeded row (which all share
+	// the testRawKey hash) can satisfy the lookup after this key is revoked.
+	revokedRawKey := "ca_revoked-key-" + seed.APIKeyID.String()
+	_, err := testPG.Exec(ctx,
+		`UPDATE api_keys SET key_hash = $1, status = 'revoked' WHERE id = $2`,
+		auth.HashKey(revokedRawKey), seed.APIKeyID)
+	if err != nil {
+		t.Fatalf("revoke api key: %v", err)
+	}
+
+	tracker := newLedgerTracker()
+	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
+
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		strings.NewReader(`{"prompt":"hello"}`))
+	req.Header.Set("Authorization", "Bearer "+revokedRawKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected valid JSON error response: %v", err)
+	}
+	if body["error"] != "api key revoked" {
+		t.Fatalf("expected error 'api key revoked'; got %q", body["error"])
+	}
+
+	if len(tracker.Calls) != 0 {
+		t.Fatalf("expected 0 ledger calls on revoked key; got %d", len(tracker.Calls))
+	}
+
+	events, err := testQueries.ListUsageEventsByConsumer(ctx, seed.UserID)
+	if err != nil {
+		t.Fatalf("failed to query usage events: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected 0 usage events for revoked key; got %d", len(events))
+	}
+}
+
+func TestGatewayAPIKeyExpired(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a fresh user so the expired key has a unique hash.
+	userID := uuid.New()
+	email := fmt.Sprintf("expired-%s@example.com", userID.String())
+	_, err := testPG.Exec(ctx, `INSERT INTO users (id, email) VALUES ($1, $2)`, userID, email)
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	accountID := uuid.New()
+	_, err = testPG.Exec(ctx,
+		`INSERT INTO accounts (id, owner_id, balance) VALUES ($1, $2, $3)`,
+		accountID, userID, "1000.00")
+	if err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+
+	providerID := uuid.New()
+	_, err = testPG.Exec(ctx,
+		`INSERT INTO providers (id, owner_id, name, base_url, status) VALUES ($1, $2, $3, $4, 'active')`,
+		providerID, userID, "expired-key-provider", "http://0.0.0.0:1")
+	if err != nil {
+		t.Fatalf("seed provider: %v", err)
+	}
+
+	_, err = testPG.Exec(ctx,
+		`INSERT INTO api_endpoints (id, provider_id, route, method, price_amount, currency, status) VALUES ($1, $2, $3, $4, $5, 'XLM', 'active')`,
+		uuid.New(), providerID, "/v1/chat", "POST", "5.00")
+	if err != nil {
+		t.Fatalf("seed endpoint: %v", err)
+	}
+
+	// Insert an API key that is already past its expiry.
+	expiredRawKey := "ca_expired-key-lifecycle-test"
+	keyHash := auth.HashKey(expiredRawKey)
+	_, err = testPG.Exec(ctx,
+		`INSERT INTO api_keys (id, user_id, key_hash, status, expires_at) VALUES ($1, $2, $3, 'active', NOW() - INTERVAL '1 hour')`,
+		uuid.New(), userID, keyHash)
+	if err != nil {
+		t.Fatalf("seed expired api key: %v", err)
+	}
+
+	tracker := newLedgerTracker()
+	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
+
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/api/gateway/%s/v1/chat", providerID.String()),
+		strings.NewReader(`{"prompt":"hello"}`))
+	req.Header.Set("Authorization", "Bearer "+expiredRawKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected valid JSON error response: %v", err)
+	}
+	if body["error"] != "api key expired" {
+		t.Fatalf("expected error 'api key expired'; got %q", body["error"])
+	}
+
+	if len(tracker.Calls) != 0 {
+		t.Fatalf("expected 0 ledger calls on expired key; got %d", len(tracker.Calls))
+	}
+
+	events, err := testQueries.ListUsageEventsByConsumer(ctx, userID)
+	if err != nil {
+		t.Fatalf("failed to query usage events: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected 0 usage events for expired key; got %d", len(events))
+	}
+}
+
+func TestGatewaySessionTokenValid(t *testing.T) {
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"message":"ok"}`))
+	}))
+	defer mockUpstream.Close()
+
+	ctx := context.Background()
+	seed := seedGatewayTestData(ctx, t, mockUpstream.URL, "1000.00", "5.00")
+	rawToken := seedSessionToken(ctx, t, seed.UserID, 1*time.Hour)
+
+	ledger := newLedgerTracker()
+	handler := buildGatewayHandler(testPG, ledger, proxy.DefaultConfig())
+
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		strings.NewReader(`{"prompt":"hello"}`))
+	req.Header.Set("Authorization", "Bearer "+rawToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var respBody map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &respBody); err != nil {
+		t.Fatalf("expected valid JSON response: %v", err)
+	}
+	if respBody["message"] != "ok" {
+		t.Fatalf("expected upstream response message 'ok'; got %q", respBody["message"])
+	}
+
+	if len(ledger.Calls) != 2 {
+		t.Fatalf("expected 2 ledger calls; got %d: %+v", len(ledger.Calls), ledger.Calls)
+	}
+	if ledger.Calls[0].Method != "Reserve" {
+		t.Fatalf("expected first ledger call to be Reserve; got %s", ledger.Calls[0].Method)
+	}
+	if ledger.Calls[1].Method != "Commit" {
+		t.Fatalf("expected second ledger call to be Commit; got %s", ledger.Calls[1].Method)
+	}
+
+	events, err := testQueries.ListUsageEventsByConsumer(ctx, seed.UserID)
+	if err != nil {
+		t.Fatalf("failed to query usage events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 usage event; got %d", len(events))
+	}
+	if events[0].ConsumerID != seed.UserID {
+		t.Fatalf("expected consumer_id %s; got %s", seed.UserID, events[0].ConsumerID)
+	}
+}
+
+func TestGatewaySessionTokenRevoked(t *testing.T) {
+	ctx := context.Background()
+	seed := seedGatewayTestData(ctx, t, "http://0.0.0.0:1", "1000.00", "5.00")
+	rawToken := seedSessionToken(ctx, t, seed.UserID, 1*time.Hour)
+
+	// Look up the token record so we can revoke it by ID.
+	tokenHash := auth.HashToken(rawToken)
+	tokenRecord, err := testQueries.GetSessionTokenByHash(ctx, tokenHash)
+	if err != nil {
+		t.Fatalf("get session token by hash: %v", err)
+	}
+
+	if _, err := testQueries.RevokeSessionToken(ctx, tokenRecord.ID); err != nil {
+		t.Fatalf("revoke session token: %v", err)
+	}
+
+	tracker := newLedgerTracker()
+	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
+
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		strings.NewReader(`{"prompt":"hello"}`))
+	req.Header.Set("Authorization", "Bearer "+rawToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected valid JSON error response: %v", err)
+	}
+	if body["error"] != "session token revoked" {
+		t.Fatalf("expected error 'session token revoked'; got %q", body["error"])
+	}
+
+	if len(tracker.Calls) != 0 {
+		t.Fatalf("expected 0 ledger calls on revoked session; got %d", len(tracker.Calls))
+	}
+
+	events, err := testQueries.ListUsageEventsByConsumer(ctx, seed.UserID)
+	if err != nil {
+		t.Fatalf("failed to query usage events: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected 0 usage events for revoked session; got %d", len(events))
 	}
 }

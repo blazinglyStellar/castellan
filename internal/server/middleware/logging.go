@@ -72,7 +72,34 @@ func (rw *responseWriter) Push(target string, opts *http.PushOptions) error {
 	return nil
 }
 
-// RequestLogger logs every request on completion with method, path, status, latency, and request ID.
+// sensitiveHeaders lists request headers whose values may carry credentials
+// and must be redacted before logging.
+var sensitiveHeaders = []string{
+	"Authorization",
+	"Proxy-Authorization",
+	"Cookie",
+	"X-Api-Key",
+	"X-Auth-Token",
+}
+
+// redactHeaders returns a clone of h with credential-bearing header values
+// replaced by "[REDACTED]" so that API keys and session tokens never appear in
+// log output.
+func redactHeaders(h http.Header) http.Header {
+	out := h.Clone()
+	for _, name := range sensitiveHeaders {
+		if out.Get(name) != "" {
+			out.Set(name, "[REDACTED]")
+		}
+	}
+	return out
+}
+
+// RequestLogger logs every request on completion with method, path, status,
+// latency, and request ID. Credential-bearing headers (Authorization, Cookie,
+// Proxy-Authorization, X-Api-Key, X-Auth-Token) are replaced with "[REDACTED]"
+// so that API keys and session tokens never appear in log output. A sanitized
+// authorization attr is appended only when the header is present on the request.
 func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
@@ -92,15 +119,19 @@ func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 				requestID = "unknown"
 			}
 
-			logger.InfoContext(
-				r.Context(),
-				"request completed",
+			safe := redactHeaders(r.Header)
+
+			attrs := []slog.Attr{
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.Int("status", rw.statusCode),
 				slog.Float64("latency_ms", float64(latency)),
 				slog.String("request_id", requestID),
-			)
+			}
+			if safe.Get("Authorization") != "" {
+				attrs = append(attrs, slog.String("authorization", safe.Get("Authorization")))
+			}
+			logger.LogAttrs(r.Context(), slog.LevelInfo, "request completed", attrs...)
 		})
 	}
 }
