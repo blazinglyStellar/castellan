@@ -10,13 +10,20 @@ import (
 	"time"
 
 	gatewaycontext "castellan/internal/gateway/context"
+	"castellan/internal/repository/db"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-func authenticatedRequest(t *testing.T, body string) *http.Request {
+func authenticatedRequest(t *testing.T, method, body string) *http.Request {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/keys", strings.NewReader(body))
+	var req *http.Request
+	if method == http.MethodGet {
+		req = httptest.NewRequest(method, "/api/v1/keys", nil)
+	} else {
+		req = httptest.NewRequest(method, "/api/v1/keys", strings.NewReader(body))
+	}
 	req = req.WithContext(
 		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
 			ConsumerID:      uuid.New().String(),
@@ -27,10 +34,23 @@ func authenticatedRequest(t *testing.T, body string) *http.Request {
 	return req
 }
 
+func authenticatedRequestWithUserID(t *testing.T, userID uuid.UUID) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/keys", nil)
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      userID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	return req
+}
+
 func TestCreateKey_Success(t *testing.T) {
 	h := NewKeyHandler(NewKeyService(&mockQuerier{}))
 	rec := httptest.NewRecorder()
-	h.CreateKey(rec, authenticatedRequest(t, `{"label":"Production key"}`))
+	h.CreateKey(rec, authenticatedRequest(t, http.MethodPost, `{"label":"Production key"}`))
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d. Body: %s", rec.Code, rec.Body.String())
@@ -67,7 +87,7 @@ func TestCreateKey_Success(t *testing.T) {
 func TestCreateKey_DefaultExpiryIs30Days(t *testing.T) {
 	h := NewKeyHandler(NewKeyService(&mockQuerier{}))
 	rec := httptest.NewRecorder()
-	h.CreateKey(rec, authenticatedRequest(t, `{"label":"test"}`))
+	h.CreateKey(rec, authenticatedRequest(t, http.MethodPost, `{"label":"test"}`))
 
 	var resp createKeyResponse
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
@@ -127,7 +147,7 @@ func TestCreateKey_ValidationErrors(t *testing.T) {
 					}),
 				)
 			} else {
-				req = authenticatedRequest(t, tt.body)
+				req = authenticatedRequest(t, http.MethodPost, tt.body)
 			}
 
 			h.CreateKey(rec, req)
@@ -152,6 +172,75 @@ func TestCreateKey_Unauthenticated(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/keys", strings.NewReader(`{"label":"test"}`))
 	h.CreateKey(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestListKeys_Success(t *testing.T) {
+	userID := uuid.New()
+	now := time.Now().UTC()
+	mq := &mockQuerier{
+		keysByUser: map[uuid.UUID][]repository.ApiKey{
+			userID: {
+				{
+					ID:        uuid.New(),
+					UserID:    userID,
+					KeyHash:   "secret",
+					Label:     pgtype.Text{String: "Production", Valid: true},
+					Status:    repository.ApiKeyStatusActive,
+					CreatedAt: now,
+				},
+			},
+		},
+	}
+	h := NewKeyHandler(NewKeyService(mq))
+	rec := httptest.NewRecorder()
+	h.ListKeys(rec, authenticatedRequestWithUserID(t, userID))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var items []ListKeysItem
+	if err := json.NewDecoder(rec.Body).Decode(&items); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 key, got %d", len(items))
+	}
+	if items[0].Label.String != "Production" {
+		t.Errorf("expected label 'Production', got %q", items[0].Label.String)
+	}
+}
+
+func TestListKeys_Empty(t *testing.T) {
+	h := NewKeyHandler(NewKeyService(&mockQuerier{}))
+	rec := httptest.NewRecorder()
+	h.ListKeys(rec, authenticatedRequest(t, http.MethodGet, ""))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var items []ListKeysItem
+	if err := json.NewDecoder(rec.Body).Decode(&items); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if items == nil {
+		t.Fatal("expected empty slice, got nil")
+	}
+	if len(items) != 0 {
+		t.Errorf("expected 0 keys, got %d", len(items))
+	}
+}
+
+func TestListKeys_Unauthenticated(t *testing.T) {
+	h := NewKeyHandler(NewKeyService(&mockQuerier{}))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/keys", nil)
+	h.ListKeys(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
