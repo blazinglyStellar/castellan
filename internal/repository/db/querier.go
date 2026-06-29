@@ -16,12 +16,14 @@ type Querier interface {
 	DeleteKey(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	GetAccountBalance(ctx context.Context, ownerID uuid.UUID) (pgtype.Numeric, error)
 	GetKeyByHash(ctx context.Context, keyHash string) (ApiKey, error)
+	GetKeyByID(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	GetKeyWithUserAndAccount(ctx context.Context, keyHash string) (GetKeyWithUserAndAccountRow, error)
 	GetProviderBaseURL(ctx context.Context, id uuid.UUID) (string, error)
 	GetUsageEventByRequestID(ctx context.Context, requestID string) (UsageEvent, error)
 	InsertKey(ctx context.Context, arg InsertKeyParams) (ApiKey, error)
 	ListKeysByUser(ctx context.Context, userID uuid.UUID) ([]ApiKey, error)
 	ListUsageEventsByConsumer(ctx context.Context, consumerID uuid.UUID) ([]UsageEvent, error)
+	RevokeKey(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	UpdateKeyStatus(ctx context.Context, arg UpdateKeyStatusParams) (ApiKey, error)
 }
 
