@@ -17,6 +17,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// keyBytes is the random-bytes length used to derive new API keys.
+// API_KEY_BYTES env var (see .env.example) is the planned override;
+// hard-coded for now (GH #55).
 const keyBytes = 32
 
 // KeyService generates, hashes, and persists API keys.

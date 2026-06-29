@@ -34,6 +34,9 @@ var (
 	ErrSessionTokenExpired   = errors.New("session token has expired")
 )
 
+// tokenBytes is the random-bytes length used to derive new session tokens.
+// SESSION_TOKEN_PREFIX and SESSION_TOKEN_DEFAULT_TTL env vars (see
+// .env.example) are the planned overrides; hard-coded for now (GH #55).
 const tokenBytes = 32
 
 // SessionService generates, validates, and revokes session tokens.
