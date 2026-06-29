@@ -6,8 +6,10 @@ import (
 	"time"
 
 	gatewaycontext "castellan/internal/gateway/context"
+	"castellan/internal/repository/db"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type createKeyRequest struct {
@@ -22,6 +24,14 @@ type createKeyResponse struct {
 	Status    string     `json:"status"`
 	CreatedAt time.Time  `json:"created_at"`
 	ExpiresAt *time.Time `json:"expires_at"`
+}
+
+type ListKeysItem struct {
+	ID        uuid.UUID               `json:"id"`
+	Label     pgtype.Text             `json:"label"`
+	Status    repository.ApiKeyStatus `json:"status"`
+	CreatedAt time.Time               `json:"created_at"`
+	ExpiresAt pgtype.Timestamptz      `json:"expires_at"`
 }
 
 type KeyHandler struct {
@@ -84,6 +94,28 @@ func (h *KeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+func (h *KeyHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+
+	userID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid consumer identity"})
+		return
+	}
+
+	keys, err := h.service.ListKeys(r.Context(), userID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to list API keys"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, keys)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

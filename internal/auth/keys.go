@@ -59,6 +59,28 @@ func (s *KeyService) GenerateKey(ctx context.Context, userID uuid.UUID, label st
 	return rawKey, key, nil
 }
 
+// ListKeys returns all API keys for the given user.
+// Only metadata is returned — key hashes are never exposed.
+func (s *KeyService) ListKeys(ctx context.Context, userID uuid.UUID) ([]ListKeysItem, error) {
+	keys, err := s.queries.ListKeysByUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list keys: %w", err)
+	}
+
+	items := make([]ListKeysItem, 0, len(keys))
+	for _, k := range keys {
+		items = append(items, ListKeysItem{
+			ID:        k.ID,
+			Label:     k.Label,
+			Status:    k.Status,
+			CreatedAt: k.CreatedAt,
+			ExpiresAt: k.ExpiresAt,
+		})
+	}
+
+	return items, nil
+}
+
 // HashKey returns the SHA-256 hex digest of the given key.
 func HashKey(rawKey string) string {
 	hash := sha256.Sum256([]byte(rawKey))
