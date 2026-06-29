@@ -28,14 +28,15 @@ import (
 type Server struct {
 	port int
 
-	db             database.Service
-	proxy          *proxy.Proxy
-	balance        middleware.BalanceChecker
-	usageRepo      middleware.UsageEventRepository
-	ledger         gateway.LedgerService
-	keyHandler     *auth.KeyHandler
-	keyValidator   middleware.KeyValidator
-	sessionHandler *auth.SessionHandler
+	db               database.Service
+	proxy            *proxy.Proxy
+	balance          middleware.BalanceChecker
+	usageRepo        middleware.UsageEventRepository
+	ledger           gateway.LedgerService
+	keyHandler       *auth.KeyHandler
+	keyValidator     middleware.KeyValidator
+	sessionValidator middleware.SessionValidator
+	sessionHandler   *auth.SessionHandler
 }
 
 // NewServer creates an http.Server with all dependencies wired: database pool,
@@ -92,16 +93,21 @@ func NewServer() (*http.Server, error) {
 
 	sessionSvc := auth.NewSessionService(queries)
 
+	sessionValidator := middleware.SessionValidatorFunc(func(ctx context.Context, rawToken string) (*repository.SessionToken, error) {
+		return sessionSvc.ValidateSessionToken(ctx, rawToken)
+	})
+
 	srv := &Server{
-		port:           port,
-		db:             databaseService,
-		proxy:          pxy,
-		balance:        balancer,
-		usageRepo:      usageRepo,
-		ledger:         gateway.NoopLedger{},
-		keyHandler:     auth.NewKeyHandler(keySvc),
-		keyValidator:   keyValidator,
-		sessionHandler: auth.NewSessionHandler(sessionSvc),
+		port:             port,
+		db:               databaseService,
+		proxy:            pxy,
+		balance:          balancer,
+		usageRepo:        usageRepo,
+		ledger:           gateway.NoopLedger{},
+		keyHandler:       auth.NewKeyHandler(keySvc),
+		keyValidator:     keyValidator,
+		sessionValidator: sessionValidator,
+		sessionHandler:   auth.NewSessionHandler(sessionSvc),
 	}
 
 	httpServer := &http.Server{
