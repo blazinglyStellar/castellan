@@ -1,0 +1,93 @@
+package auth
+
+import (
+	"encoding/json"
+	"net/http"
+	"time"
+
+	gatewaycontext "castellan/internal/gateway/context"
+
+	"github.com/google/uuid"
+)
+
+type createKeyRequest struct {
+	Label     string     `json:"label"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+type createKeyResponse struct {
+	Key       string     `json:"key"`
+	ID        uuid.UUID  `json:"id"`
+	Label     string     `json:"label"`
+	Status    string     `json:"status"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at"`
+}
+
+type KeyHandler struct {
+	service *KeyService
+}
+
+func NewKeyHandler(service *KeyService) *KeyHandler {
+	return &KeyHandler{service: service}
+}
+
+func (h *KeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+
+	userID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid consumer identity"})
+		return
+	}
+
+	var req createKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if req.Label == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "label is required"})
+		return
+	}
+
+	if req.ExpiresAt == nil {
+		defaultExpiry := time.Now().UTC().Add(30 * 24 * time.Hour)
+		req.ExpiresAt = &defaultExpiry
+	}
+
+	if req.ExpiresAt.Before(time.Now()) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "expires_at must be in the future"})
+		return
+	}
+
+	rawKey, apiKey, err := h.service.GenerateKey(r.Context(), userID, req.Label, req.ExpiresAt)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create API key"})
+		return
+	}
+
+	resp := createKeyResponse{
+		Key:       rawKey,
+		ID:        apiKey.ID,
+		Label:     apiKey.Label.String,
+		Status:    string(apiKey.Status),
+		CreatedAt: apiKey.CreatedAt,
+	}
+	if apiKey.ExpiresAt.Valid {
+		resp.ExpiresAt = &apiKey.ExpiresAt.Time
+	}
+
+	writeJSON(w, http.StatusCreated, resp)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v) //nolint:errchkjson,errcheck
+}

@@ -28,14 +28,15 @@ func NewKeyService(queries repository.Querier) *KeyService {
 }
 
 // GenerateKey creates a new API key (ca_ prefix, 32 random bytes, base64),
-// persists only its SHA-256 hash, and returns the raw key.
-func (s *KeyService) GenerateKey(ctx context.Context, userID uuid.UUID, label string, expiresAt *time.Time) (rawKey string, err error) {
-	key := make([]byte, keyBytes)
-	if _, err := rand.Read(key); err != nil {
-		return "", fmt.Errorf("generate random bytes: %w", err)
+// persists only its SHA-256 hash, and returns the raw key along with the
+// persisted ApiKey record (which includes the id, status, and timestamps).
+func (s *KeyService) GenerateKey(ctx context.Context, userID uuid.UUID, label string, expiresAt *time.Time) (rawKey string, key repository.ApiKey, err error) {
+	raw := make([]byte, keyBytes)
+	if _, err := rand.Read(raw); err != nil {
+		return "", repository.ApiKey{}, fmt.Errorf("generate random bytes: %w", err)
 	}
 
-	rawKey = "ca_" + base64.RawURLEncoding.EncodeToString(key)
+	rawKey = "ca_" + base64.RawURLEncoding.EncodeToString(raw)
 	keyHash := HashKey(rawKey)
 
 	params := repository.InsertKeyParams{
@@ -50,11 +51,12 @@ func (s *KeyService) GenerateKey(ctx context.Context, userID uuid.UUID, label st
 		params.ExpiresAt = pgtype.Timestamptz{Time: *expiresAt, Valid: true}
 	}
 
-	if _, err := s.queries.InsertKey(ctx, params); err != nil {
-		return "", fmt.Errorf("persist key hash: %w", err)
+	key, err = s.queries.InsertKey(ctx, params)
+	if err != nil {
+		return "", repository.ApiKey{}, fmt.Errorf("persist key hash: %w", err)
 	}
 
-	return rawKey, nil
+	return rawKey, key, nil
 }
 
 // HashKey returns the SHA-256 hex digest of the given key.
