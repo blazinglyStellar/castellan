@@ -17,14 +17,18 @@ import (
 
 const keyBytes = 32
 
+// KeyService generates, hashes, and persists API keys.
 type KeyService struct {
 	queries repository.Querier
 }
 
+// NewKeyService returns a KeyService backed by the given repository.
 func NewKeyService(queries repository.Querier) *KeyService {
 	return &KeyService{queries: queries}
 }
 
+// GenerateKey creates a new API key (ca_ prefix, 32 random bytes, base64),
+// persists only its SHA-256 hash, and returns the raw key.
 func (s *KeyService) GenerateKey(ctx context.Context, userID uuid.UUID, label string, expiresAt *time.Time) (rawKey string, err error) {
 	key := make([]byte, keyBytes)
 	if _, err := rand.Read(key); err != nil {
@@ -53,6 +57,7 @@ func (s *KeyService) GenerateKey(ctx context.Context, userID uuid.UUID, label st
 	return rawKey, nil
 }
 
+// HashKey returns the SHA-256 hex digest of the given key.
 func HashKey(rawKey string) string {
 	hash := sha256.Sum256([]byte(rawKey))
 	return hex.EncodeToString(hash[:])
