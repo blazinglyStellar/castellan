@@ -112,6 +112,29 @@ func (q *Queries) ListSessionTokensByUser(ctx context.Context, userID uuid.UUID)
 	return items, nil
 }
 
+const revokeSessionToken = `-- name: RevokeSessionToken :one
+UPDATE session_tokens
+SET status = 'revoked'
+WHERE id = $1 AND status = 'active'
+RETURNING id, user_id, token_hash, label, scope, status, expires_at, created_at
+`
+
+func (q *Queries) RevokeSessionToken(ctx context.Context, id uuid.UUID) (SessionToken, error) {
+	row := q.db.QueryRow(ctx, revokeSessionToken, id)
+	var i SessionToken
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.Label,
+		&i.Scope,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const updateSessionTokenStatus = `-- name: UpdateSessionTokenStatus :one
 UPDATE session_tokens
 SET status = $2

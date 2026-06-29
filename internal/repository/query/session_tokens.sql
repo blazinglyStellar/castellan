@@ -20,3 +20,9 @@ UPDATE session_tokens
 SET status = $2
 WHERE id = $1
 RETURNING *;
+
+-- name: RevokeSessionToken :one
+UPDATE session_tokens
+SET status = 'revoked'
+WHERE id = $1 AND status = 'active'
+RETURNING *;
