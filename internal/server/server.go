@@ -15,6 +15,7 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/shopspring/decimal"
 
+	"castellan/internal/auth"
 	"castellan/internal/database"
 	"castellan/internal/gateway"
 	"castellan/internal/provider"
@@ -27,11 +28,12 @@ import (
 type Server struct {
 	port int
 
-	db        database.Service
-	proxy     *proxy.Proxy
-	balance   middleware.BalanceChecker
-	usageRepo middleware.UsageEventRepository
-	ledger    gateway.LedgerService
+	db         database.Service
+	proxy      *proxy.Proxy
+	balance    middleware.BalanceChecker
+	usageRepo  middleware.UsageEventRepository
+	ledger     gateway.LedgerService
+	keyHandler *auth.KeyHandler
 }
 
 // NewServer creates an http.Server with all dependencies wired: database pool,
@@ -79,13 +81,16 @@ func NewServer() (*http.Server, error) {
 
 	pxy := proxy.NewReverseProxy(resolver, slog.Default(), proxy.ConfigFromEnv())
 
+	keySvc := auth.NewKeyService(queries)
+
 	srv := &Server{
-		port:      port,
-		db:        databaseService,
-		proxy:     pxy,
-		balance:   balancer,
-		usageRepo: usageRepo,
-		ledger:    gateway.NoopLedger{},
+		port:       port,
+		db:         databaseService,
+		proxy:      pxy,
+		balance:    balancer,
+		usageRepo:  usageRepo,
+		ledger:     gateway.NoopLedger{},
+		keyHandler: auth.NewKeyHandler(keySvc),
 	}
 
 	httpServer := &http.Server{

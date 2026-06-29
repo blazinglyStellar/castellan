@@ -26,22 +26,24 @@ func (m *mockQuerier) InsertKey(ctx context.Context, arg repository.InsertKeyPar
 		ID:        uuid.New(),
 		UserID:    arg.UserID,
 		KeyHash:   arg.KeyHash,
+		Label:     arg.Label,
 		Status:    repository.ApiKeyStatusActive,
 		CreatedAt: time.Now().UTC(),
+		ExpiresAt: arg.ExpiresAt,
 	}, nil
 }
 
 func TestGenerateKey_Format(t *testing.T) {
 	s := NewKeyService(&mockQuerier{})
-	key, err := s.GenerateKey(context.Background(), uuid.New(), "test", nil)
+	rawKey, _, err := s.GenerateKey(context.Background(), uuid.New(), "test", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(key, "ca_") {
-		t.Errorf("key should start with ca_, got %q", key)
+	if !strings.HasPrefix(rawKey, "ca_") {
+		t.Errorf("key should start with ca_, got %q", rawKey)
 	}
-	if len(key) < 40 {
-		t.Errorf("key length should be >= 40, got %d", len(key))
+	if len(rawKey) < 40 {
+		t.Errorf("key length should be >= 40, got %d", len(rawKey))
 	}
 }
 
@@ -49,11 +51,11 @@ func TestGenerateKey_Uniqueness(t *testing.T) {
 	s := NewKeyService(&mockQuerier{})
 	ctx := context.Background()
 	uid := uuid.New()
-	k1, err := s.GenerateKey(ctx, uid, "key-1", nil)
+	k1, _, err := s.GenerateKey(ctx, uid, "key-1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	k2, err := s.GenerateKey(ctx, uid, "key-2", nil)
+	k2, _, err := s.GenerateKey(ctx, uid, "key-2", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +81,7 @@ func TestHashKey_Deterministic(t *testing.T) {
 func TestGenerateKey_PersistsHash(t *testing.T) {
 	mq := &mockQuerier{}
 	s := NewKeyService(mq)
-	key, err := s.GenerateKey(context.Background(), uuid.New(), "test", nil)
+	key, _, err := s.GenerateKey(context.Background(), uuid.New(), "test", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
