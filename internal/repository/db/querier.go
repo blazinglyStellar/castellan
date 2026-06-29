@@ -27,6 +27,7 @@ type Querier interface {
 	ListSessionTokensByUser(ctx context.Context, userID uuid.UUID) ([]SessionToken, error)
 	ListUsageEventsByConsumer(ctx context.Context, consumerID uuid.UUID) ([]UsageEvent, error)
 	RevokeKey(ctx context.Context, id uuid.UUID) (ApiKey, error)
+	RevokeSessionToken(ctx context.Context, id uuid.UUID) (SessionToken, error)
 	UpdateKeyStatus(ctx context.Context, arg UpdateKeyStatusParams) (ApiKey, error)
 	UpdateSessionTokenStatus(ctx context.Context, arg UpdateSessionTokenStatusParams) (SessionToken, error)
 }
