@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"castellan/internal/auth"
 	"castellan/internal/gateway"
 	gatewaycontext "castellan/internal/gateway/context"
 	"castellan/internal/proxy"
@@ -17,6 +19,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
+
+type testKeyValidator struct {
+	key repository.ApiKey
+	err error
+}
+
+func (m *testKeyValidator) ValidateKey(_ context.Context, _ string) (repository.ApiKey, error) {
+	return m.key, m.err
+}
+
+var _ middleware.KeyValidator = (*testKeyValidator)(nil)
 
 type mockResolver struct {
 	baseURL string
@@ -61,6 +74,7 @@ func TestGatewayChain_Success(t *testing.T) {
 	handler := s.RegisterRoutes()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req.Header.Set("Authorization", "Bearer ca_test-key")
 	req = req.WithContext(
 		gatewaycontext.SetPricingInfo(
 			gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
@@ -94,6 +108,7 @@ func TestGatewayChain_InsufficientBalance(t *testing.T) {
 	handler := s.RegisterRoutes()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req.Header.Set("Authorization", "Bearer ca_test-key")
 	req = req.WithContext(
 		gatewaycontext.SetPricingInfo(
 			gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
@@ -127,6 +142,7 @@ func TestGatewayChain_MissingConsumerContext(t *testing.T) {
 	handler := s.RegisterRoutes()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req.Header.Set("Authorization", "Bearer ca_test-key")
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -147,6 +163,7 @@ func TestGatewayChain_MissingPricingContext(t *testing.T) {
 	handler := s.RegisterRoutes()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req.Header.Set("Authorization", "Bearer ca_test-key")
 	req = req.WithContext(
 		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
 			ConsumerID: uuid.NewString(),
@@ -165,6 +182,16 @@ func newTestServer(upstreamURL string, balance decimal.Decimal) *Server {
 	resolver := &mockResolver{baseURL: upstreamURL}
 	pxy := proxy.NewReverseProxy(resolver, slog.Default(), proxy.DefaultConfig())
 
+	keyValidator := &testKeyValidator{
+		key: repository.ApiKey{
+			ID:        uuid.New(),
+			UserID:    uuid.New(),
+			KeyHash:   auth.HashKey("ca_test-key"),
+			Status:    repository.ApiKeyStatusActive,
+			CreatedAt: time.Now().UTC(),
+		},
+	}
+
 	return &Server{
 		proxy: pxy,
 		balance: middleware.BalanceCheckerFunc(func(_ context.Context, _ uuid.UUID) (decimal.Decimal, error) {
@@ -173,6 +200,7 @@ func newTestServer(upstreamURL string, balance decimal.Decimal) *Server {
 		usageRepo: middleware.UsageEventRepositoryFunc(func(_ context.Context, _ repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error) {
 			return repository.CreateUsageEventRow{}, nil
 		}),
-		ledger: gateway.NoopLedger{},
+		ledger:       gateway.NoopLedger{},
+		keyValidator: keyValidator,
 	}
 }

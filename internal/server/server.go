@@ -28,12 +28,13 @@ import (
 type Server struct {
 	port int
 
-	db         database.Service
-	proxy      *proxy.Proxy
-	balance    middleware.BalanceChecker
-	usageRepo  middleware.UsageEventRepository
-	ledger     gateway.LedgerService
-	keyHandler *auth.KeyHandler
+	db           database.Service
+	proxy        *proxy.Proxy
+	balance      middleware.BalanceChecker
+	usageRepo    middleware.UsageEventRepository
+	ledger       gateway.LedgerService
+	keyHandler   *auth.KeyHandler
+	keyValidator middleware.KeyValidator
 }
 
 // NewServer creates an http.Server with all dependencies wired: database pool,
@@ -50,7 +51,8 @@ func NewServer() (*http.Server, error) {
 	resolver, err := provider.NewDBResolver(queries)
 	if err != nil {
 		if closeErr := databaseService.Close(); closeErr != nil {
-			slog.Warn("failed to close database after resolver error",
+			slog.Warn(
+				"failed to close database after resolver error",
 				slog.String("error", closeErr.Error()),
 			)
 		}
@@ -83,14 +85,19 @@ func NewServer() (*http.Server, error) {
 
 	keySvc := auth.NewKeyService(queries)
 
+	keyValidator := middleware.KeyValidatorFunc(func(ctx context.Context, keyHash string) (repository.ApiKey, error) {
+		return queries.GetKeyByHash(ctx, keyHash)
+	})
+
 	srv := &Server{
-		port:       port,
-		db:         databaseService,
-		proxy:      pxy,
-		balance:    balancer,
-		usageRepo:  usageRepo,
-		ledger:     gateway.NoopLedger{},
-		keyHandler: auth.NewKeyHandler(keySvc),
+		port:         port,
+		db:           databaseService,
+		proxy:        pxy,
+		balance:      balancer,
+		usageRepo:    usageRepo,
+		ledger:       gateway.NoopLedger{},
+		keyHandler:   auth.NewKeyHandler(keySvc),
+		keyValidator: keyValidator,
 	}
 
 	httpServer := &http.Server{
