@@ -25,6 +25,10 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.Handle("POST /api/v1/sessions/{id}/revoke", http.HandlerFunc(s.sessionHandler.RevokeSession))
 	mux.Handle("POST /api/v1/providers", http.HandlerFunc(s.providerHandler.CreateProvider))
 	mux.Handle("GET /api/v1/providers", http.HandlerFunc(s.providerHandler.ListProviders))
+	mux.Handle("GET /api/v1/providers/{id}", http.HandlerFunc(s.providerHandler.GetProvider))
+	mux.Handle("PATCH /api/v1/providers/{id}", http.HandlerFunc(s.providerHandler.UpdateProvider))
+	mux.Handle("PATCH /api/v1/providers/{id}/status", http.HandlerFunc(s.providerHandler.UpdateProviderStatus))
+	mux.Handle("DELETE /api/v1/providers/{id}", http.HandlerFunc(s.providerHandler.DeleteProvider))
 	s.GatewayRoutes(mux)
 
 	var handler http.Handler = mux
