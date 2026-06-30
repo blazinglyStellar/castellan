@@ -23,6 +23,8 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.Handle("POST /api/v1/sessions", http.HandlerFunc(s.sessionHandler.CreateSession))
 	mux.Handle("GET /api/v1/sessions", http.HandlerFunc(s.sessionHandler.ListSessions))
 	mux.Handle("POST /api/v1/sessions/{id}/revoke", http.HandlerFunc(s.sessionHandler.RevokeSession))
+	mux.Handle("POST /api/v1/providers", http.HandlerFunc(s.providerHandler.CreateProvider))
+	mux.Handle("GET /api/v1/providers", http.HandlerFunc(s.providerHandler.ListProviders))
 	s.GatewayRoutes(mux)
 
 	var handler http.Handler = mux
