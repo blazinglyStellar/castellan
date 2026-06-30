@@ -31,6 +31,11 @@ run:
 docker-run:
 	@docker compose up --build
 
+# Seed the database with sample data
+seed:
+	@echo "Seeding database..."
+	@go run cmd/seed/main.go
+
 # Shutdown DB container
 docker-down:
 	@docker compose down
