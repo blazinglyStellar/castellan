@@ -107,6 +107,17 @@ func (m *mockQuerier) DeleteProvider(ctx context.Context, id uuid.UUID) (reposit
 	return p, nil
 }
 
+func (m *mockQuerier) GetEndpointByProviderRouteMethod(ctx context.Context, arg repository.GetEndpointByProviderRouteMethodParams) (repository.ApiEndpoint, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range m.endpoints {
+		if e.ProviderID == arg.ProviderID && e.Route == arg.Route && e.Method == arg.Method {
+			return e, nil
+		}
+	}
+	return repository.ApiEndpoint{}, errors.New("not found")
+}
+
 func (m *mockQuerier) CreateEndpoint(ctx context.Context, arg repository.CreateEndpointParams) (repository.ApiEndpoint, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -141,9 +152,21 @@ func (m *mockQuerier) ListEndpointsByProvider(ctx context.Context, arg repositor
 	defer m.mu.Unlock()
 	var result []repository.ApiEndpoint
 	for _, e := range m.endpoints {
-		if e.ProviderID == arg.ProviderID {
-			result = append(result, e)
+		if e.ProviderID != arg.ProviderID {
+			continue
 		}
+		if arg.Status != nil {
+			if statusPtr, ok := arg.Status.(*repository.EndpointStatus); ok {
+				if string(e.Status) != string(*statusPtr) {
+					continue
+				}
+			} else if statusStr, ok := arg.Status.(string); ok {
+				if string(e.Status) != statusStr {
+					continue
+				}
+			}
+		}
+		result = append(result, e)
 	}
 	return result, nil
 }
@@ -862,7 +885,7 @@ func TestListEndpoints(t *testing.T) {
 		Status:    repository.EndpointStatusActive,
 	})
 
-	endpoints, err := es.ListEndpoints(context.Background(), provider.ID, ownerID)
+	endpoints, err := es.ListEndpoints(context.Background(), provider.ID, ownerID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

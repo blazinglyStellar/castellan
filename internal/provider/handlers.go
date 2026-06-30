@@ -2,13 +2,17 @@ package provider
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	"castellan/internal/repository/db"
 
 	gatewaycontext "castellan/internal/gateway/context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
 
 const errKey = "error"
@@ -210,6 +214,148 @@ func (h *Handler) DeleteProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type createEndpointRequest struct {
+	Route       string          `json:"route"`
+	Method      string          `json:"method"`
+	PriceAmount decimal.Decimal `json:"price_amount"`
+	Currency    string          `json:"currency,omitempty"`
+	RateLimit   *int32          `json:"rate_limit,omitempty"`
+}
+
+type EndpointHandler struct {
+	service *EndpointService
+}
+
+func NewEndpointHandler(service *EndpointService) *EndpointHandler {
+	return &EndpointHandler{service: service}
+}
+
+func (h *EndpointHandler) CreateEndpoint(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+
+		return
+	}
+
+	ownerID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+
+		return
+	}
+
+	providerID, err := uuid.Parse(r.PathValue("providerId"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid provider id"})
+
+		return
+	}
+
+	var req createEndpointRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid request body"})
+
+		return
+	}
+
+	currency := repository.CurrencyXLM
+	if req.Currency != "" {
+		currency = repository.Currency(req.Currency)
+	}
+
+	var rateLimit pgtype.Int4
+	if req.RateLimit != nil {
+		rateLimit = pgtype.Int4{Int32: *req.RateLimit, Valid: true}
+	}
+
+	priceNum := pgtype.Numeric{}
+	if err := priceNum.Scan(req.PriceAmount.String()); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid price_amount"})
+
+		return
+	}
+
+	input := CreateEndpointInput{
+		OwnerID:     ownerID,
+		ProviderID:  providerID,
+		Route:       req.Route,
+		Method:      strings.ToUpper(req.Method),
+		PriceAmount: priceNum,
+		Currency:    currency,
+		RateLimit:   rateLimit,
+		Status:      repository.EndpointStatusDraft,
+	}
+
+	endpoint, err := h.service.CreateEndpoint(r.Context(), input)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrDuplicateEndpoint):
+			writeJSON(w, http.StatusConflict, map[string]string{errKey: err.Error()})
+		case errors.Is(err, ErrEndpointNotFound):
+			writeJSON(w, http.StatusNotFound, map[string]string{errKey: "provider not found"})
+		default:
+			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: err.Error()})
+		}
+
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, endpoint)
+}
+
+func (h *EndpointHandler) ListEndpoints(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+
+		return
+	}
+
+	ownerID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+
+		return
+	}
+
+	providerID, err := uuid.Parse(r.PathValue("providerId"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid provider id"})
+
+		return
+	}
+
+	var statusFilter *repository.EndpointStatus
+	if statusParam := r.URL.Query().Get("status"); statusParam != "" {
+		s := repository.EndpointStatus(statusParam)
+		if err := validateEndpointStatus(s); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: err.Error()})
+
+			return
+		}
+		statusFilter = &s
+	}
+
+	endpoints, err := h.service.ListEndpoints(r.Context(), providerID, ownerID, statusFilter)
+	if err != nil {
+		if errors.Is(err, ErrEndpointNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{errKey: "provider not found"})
+
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: err.Error()})
+
+		return
+	}
+
+	if endpoints == nil {
+		endpoints = []repository.ApiEndpoint{}
+	}
+
+	writeJSON(w, http.StatusOK, endpoints)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
