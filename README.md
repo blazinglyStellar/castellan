@@ -220,6 +220,91 @@ they additionally carry `expires_at` and `scope`.
 
 ---
 
+## Provider Management API
+
+Providers represent upstream API services. Each provider is owned by a
+single user and has a base URL that the gateway proxies requests to.
+
+### Provider endpoints
+
+| Action | Method + Path |
+|--------|---------------|
+| Create | `POST   /api/v1/providers` |
+| List   | `GET    /api/v1/providers` |
+| Get    | `GET    /api/v1/providers/{id}` |
+| Update | `PATCH  /api/v1/providers/{id}` |
+| Status | `PATCH  /api/v1/providers/{id}/status` |
+| Delete | `DELETE /api/v1/providers/{id}` |
+
+### Provider lifecycle
+
+1. **Register.** `POST /api/v1/providers` with `{"name", "base_url"}`.
+   Returns the new provider with `status: "active"`.
+2. **Configure endpoints.** See Endpoint Management API below.
+3. **Manage status.** `PATCH /api/v1/providers/{id}/status` with
+   `{"status": "inactive"}` pauses all endpoint routing.
+
+### Ownership model
+
+Providers are scoped to the authenticated user. List/create operations
+only return or create providers owned by the requesting user. The
+ownership check is enforced server-side using the resolved consumer
+identity.
+
+Deleting a provider **cascades** to all its endpoints (foreign key
+`ON DELETE CASCADE` on `api_endpoints.provider_id`).
+
+---
+
+## Endpoint Management API
+
+Endpoints define per-route pricing within a provider. Each endpoint
+maps a `(route, method)` pair to a `price_amount` and `currency`.
+
+### Uniqueness constraint
+
+Each `(provider_id, route, method)` combination must be unique. An
+attempt to create a duplicate returns `409 Conflict`.
+
+### Endpoint endpoints
+
+| Action | Method + Path |
+|--------|---------------|
+| Create | `POST   /api/v1/providers/{providerId}/endpoints` |
+| List   | `GET    /api/v1/providers/{providerId}/endpoints` |
+| Get    | `GET    /api/v1/endpoints/{id}` |
+| Update | `PATCH  /api/v1/endpoints/{id}` |
+| Status | `PATCH  /api/v1/endpoints/{id}/status` |
+| Delete | `DELETE /api/v1/endpoints/{id}` |
+
+### Status lifecycle
+
+| Status     | Description |
+|------------|-------------|
+| `draft`    | Created but not yet accepting traffic |
+| `active`   | Accepting traffic and pricing is applied |
+| `inactive` | Paused — requests to this route fail |
+
+Deleting an endpoint removes its pricing configuration immediately.
+Requests to a deleted route receive a `404` from the gateway rather
+than being proxied.
+
+---
+
+### Seed data
+
+Run `make seed` to insert sample providers and endpoints for local
+development. This creates a seed user and three providers
+(weather-api, ai-inference, blockchain-node) with five endpoints
+configured with sample pricing.
+
+```bash
+# Start the stack and run migrations first, then:
+make seed
+```
+
+---
+
 ## Features (Backlog)
 
 | # | Epic | Description |
