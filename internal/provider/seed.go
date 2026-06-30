@@ -88,7 +88,7 @@ func SeedProviders(ctx context.Context, queries repository.Querier, userID uuid.
 
 			var rateLimit pgtype.Int4
 			if ep.RateLimit > 0 {
-				rateLimit = pgtype.Int4{Int32: int32(ep.RateLimit), Valid: true} //nolint:gosec // seed data rate limits fit in int32
+				rateLimit = pgtype.Int4{Int32: int32(ep.RateLimit), Valid: true} // #nosec G115 — seed data rate limits fit in int32
 			}
 
 			if _, err = queries.CreateEndpoint(ctx, repository.CreateEndpointParams{
