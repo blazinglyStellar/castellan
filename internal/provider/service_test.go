@@ -347,6 +347,105 @@ func TestUpdateProvider_Success(t *testing.T) {
 	}
 }
 
+func TestPartialUpdateProvider_Success(t *testing.T) {
+	t.Run("update both fields", func(t *testing.T) {
+		mq := newMockQuerier()
+		s := NewProviderService(mq)
+		ownerID := uuid.New()
+
+		created, err := s.CreateProvider(context.Background(), ownerID, "Original", "https://original.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		name := "Updated"
+		baseURL := "https://updated.com"
+		updated, err := s.PartialUpdateProvider(context.Background(), created.ID, ownerID, &name, &baseURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.Name != "Updated" {
+			t.Errorf("expected name %q, got %q", "Updated", updated.Name)
+		}
+		if updated.BaseUrl != "https://updated.com" {
+			t.Errorf("expected base_url %q, got %q", "https://updated.com", updated.BaseUrl)
+		}
+	})
+
+	t.Run("update name only", func(t *testing.T) {
+		mq := newMockQuerier()
+		s := NewProviderService(mq)
+		ownerID := uuid.New()
+
+		created, err := s.CreateProvider(context.Background(), ownerID, "Original", "https://original.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		name := "NameOnly"
+		updated, err := s.PartialUpdateProvider(context.Background(), created.ID, ownerID, &name, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.Name != "NameOnly" {
+			t.Errorf("expected name %q, got %q", "NameOnly", updated.Name)
+		}
+		if updated.BaseUrl != "https://original.com" {
+			t.Errorf("expected base_url %q (unchanged), got %q", "https://original.com", updated.BaseUrl)
+		}
+	})
+
+	t.Run("update base_url only", func(t *testing.T) {
+		mq := newMockQuerier()
+		s := NewProviderService(mq)
+		ownerID := uuid.New()
+
+		created, err := s.CreateProvider(context.Background(), ownerID, "Original", "https://original.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		baseURL := "https://new.example.com"
+		updated, err := s.PartialUpdateProvider(context.Background(), created.ID, ownerID, nil, &baseURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.Name != "Original" {
+			t.Errorf("expected name %q (unchanged), got %q", "Original", updated.Name)
+		}
+		if updated.BaseUrl != "https://new.example.com" {
+			t.Errorf("expected base_url %q, got %q", "https://new.example.com", updated.BaseUrl)
+		}
+	})
+}
+
+func TestPartialUpdateProvider_NotOwner(t *testing.T) {
+	mq := newMockQuerier()
+	s := NewProviderService(mq)
+	ownerID := uuid.New()
+	otherUser := uuid.New()
+
+	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	name := "Hacked"
+	_, err = s.PartialUpdateProvider(context.Background(), created.ID, otherUser, &name, nil)
+	if err == nil {
+		t.Fatal("expected error for non-owner partial update")
+	}
+}
+
+func TestPartialUpdateProvider_NotFound(t *testing.T) {
+	s := NewProviderService(newMockQuerier())
+	name := "Test"
+	_, err := s.PartialUpdateProvider(context.Background(), uuid.New(), uuid.New(), &name, nil)
+	if err == nil {
+		t.Fatal("expected error for non-existent provider")
+	}
+}
+
 func TestUpdateProvider_NotOwner(t *testing.T) {
 	mq := newMockQuerier()
 	s := NewProviderService(mq)

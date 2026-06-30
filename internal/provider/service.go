@@ -159,6 +159,24 @@ func (s *ProviderService) ListProviders(ctx context.Context, ownerID uuid.UUID) 
 	return providers, nil
 }
 
+func (s *ProviderService) PartialUpdateProvider(ctx context.Context, providerID, ownerID uuid.UUID, name, baseURL *string) (repository.Provider, error) {
+	current, err := s.GetProviderByID(ctx, providerID, ownerID)
+	if err != nil {
+		return repository.Provider{}, err
+	}
+
+	resolvedName := current.Name
+	if name != nil {
+		resolvedName = *name
+	}
+	resolvedBaseURL := current.BaseUrl
+	if baseURL != nil {
+		resolvedBaseURL = *baseURL
+	}
+
+	return s.UpdateProvider(ctx, providerID, ownerID, resolvedName, resolvedBaseURL)
+}
+
 func (s *ProviderService) UpdateProvider(ctx context.Context, providerID, ownerID uuid.UUID, name, baseURL string) (repository.Provider, error) {
 	if _, err := s.GetProviderByID(ctx, providerID, ownerID); err != nil {
 		return repository.Provider{}, err
