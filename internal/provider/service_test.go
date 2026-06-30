@@ -1121,6 +1121,237 @@ func TestDeleteEndpoint_NotOwner(t *testing.T) {
 	}
 }
 
+func TestPartialUpdateEndpoint_Success(t *testing.T) {
+	t.Run("all fields", func(t *testing.T) {
+		mq := newMockQuerier()
+		ps := NewProviderService(mq)
+		es := NewEndpointService(mq)
+		ownerID := uuid.New()
+
+		provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		created, err := es.CreateEndpoint(context.Background(), CreateEndpointInput{
+			OwnerID: ownerID, ProviderID: provider.ID,
+			Route: "/old", Method: http.MethodGet,
+			PriceAmount: numericFromInt64(10), Currency: repository.CurrencyXLM,
+			Status: repository.EndpointStatusActive,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		route := "/new"
+		method := "POST"
+		price := numericFromInt64(99)
+		currency := repository.CurrencyUSDC
+		rateLimit := pgtype.Int4{Int32: 20, Valid: true}
+
+		updated, err := es.PartialUpdateEndpoint(context.Background(), created.ID, ownerID, PartialUpdateEndpointInput{
+			Route: &route, Method: &method,
+			PriceAmount: &price, Currency: &currency,
+			RateLimit: &rateLimit,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.Route != "/new" {
+			t.Errorf("expected route '/new', got %q", updated.Route)
+		}
+		if updated.Method != http.MethodPost {
+			t.Errorf("expected method 'POST', got %q", updated.Method)
+		}
+	})
+
+	t.Run("route only", func(t *testing.T) {
+		mq := newMockQuerier()
+		ps := NewProviderService(mq)
+		es := NewEndpointService(mq)
+		ownerID := uuid.New()
+
+		provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		created, err := es.CreateEndpoint(context.Background(), CreateEndpointInput{
+			OwnerID: ownerID, ProviderID: provider.ID,
+			Route: "/old", Method: http.MethodGet,
+			PriceAmount: numericFromInt64(10), Currency: repository.CurrencyXLM,
+			Status: repository.EndpointStatusActive,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		route := "/new"
+		updated, err := es.PartialUpdateEndpoint(context.Background(), created.ID, ownerID, PartialUpdateEndpointInput{
+			Route: &route,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.Route != "/new" {
+			t.Errorf("expected route '/new', got %q", updated.Route)
+		}
+		if updated.Method != http.MethodGet {
+			t.Errorf("expected method unchanged 'GET', got %q", updated.Method)
+		}
+		if updated.Currency != repository.CurrencyXLM {
+			t.Errorf("expected currency unchanged 'XLM', got %q", updated.Currency)
+		}
+	})
+
+	t.Run("method only", func(t *testing.T) {
+		mq := newMockQuerier()
+		ps := NewProviderService(mq)
+		es := NewEndpointService(mq)
+		ownerID := uuid.New()
+
+		provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		created, err := es.CreateEndpoint(context.Background(), CreateEndpointInput{
+			OwnerID: ownerID, ProviderID: provider.ID,
+			Route: "/test", Method: http.MethodGet,
+			PriceAmount: numericFromInt64(10), Currency: repository.CurrencyXLM,
+			Status: repository.EndpointStatusActive,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		method := "POST"
+		updated, err := es.PartialUpdateEndpoint(context.Background(), created.ID, ownerID, PartialUpdateEndpointInput{
+			Method: &method,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.Method != http.MethodPost {
+			t.Errorf("expected method 'POST', got %q", updated.Method)
+		}
+		if updated.Route != "/test" {
+			t.Errorf("expected route unchanged '/test', got %q", updated.Route)
+		}
+	})
+
+	t.Run("price only", func(t *testing.T) {
+		mq := newMockQuerier()
+		ps := NewProviderService(mq)
+		es := NewEndpointService(mq)
+		ownerID := uuid.New()
+
+		provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		created, err := es.CreateEndpoint(context.Background(), CreateEndpointInput{
+			OwnerID: ownerID, ProviderID: provider.ID,
+			Route: "/test", Method: http.MethodGet,
+			PriceAmount: numericFromInt64(10), Currency: repository.CurrencyXLM,
+			Status: repository.EndpointStatusActive,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		price := numericFromInt64(50)
+		updated, err := es.PartialUpdateEndpoint(context.Background(), created.ID, ownerID, PartialUpdateEndpointInput{
+			PriceAmount: &price,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !updated.PriceAmount.Valid || updated.PriceAmount.Int.Int64() != 50 {
+			t.Errorf("expected price 50, got %d", updated.PriceAmount.Int.Int64())
+		}
+	})
+}
+
+func TestPartialUpdateEndpoint_NotOwner(t *testing.T) {
+	mq := newMockQuerier()
+	ps := NewProviderService(mq)
+	es := NewEndpointService(mq)
+	ownerID := uuid.New()
+	otherUser := uuid.New()
+
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := es.CreateEndpoint(context.Background(), CreateEndpointInput{
+		OwnerID: ownerID, ProviderID: provider.ID,
+		Route: "/test", Method: http.MethodGet,
+		PriceAmount: numericFromInt64(10), Currency: repository.CurrencyXLM,
+		Status: repository.EndpointStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	route := "/hacked"
+	_, err = es.PartialUpdateEndpoint(context.Background(), created.ID, otherUser, PartialUpdateEndpointInput{
+		Route: &route,
+	})
+	if err == nil {
+		t.Fatal("expected error for non-owner partial update")
+	}
+}
+
+func TestPartialUpdateEndpoint_NotFound(t *testing.T) {
+	es := NewEndpointService(newMockQuerier())
+	route := "/test"
+	_, err := es.PartialUpdateEndpoint(context.Background(), uuid.New(), uuid.New(), PartialUpdateEndpointInput{
+		Route: &route,
+	})
+	if err == nil {
+		t.Fatal("expected error for non-existent endpoint")
+	}
+}
+
+func TestUpdateEndpoint_DuplicateConflict(t *testing.T) {
+	mq := newMockQuerier()
+	ps := NewProviderService(mq)
+	es := NewEndpointService(mq)
+	ownerID := uuid.New()
+
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ep1, err := es.CreateEndpoint(context.Background(), CreateEndpointInput{
+		OwnerID: ownerID, ProviderID: provider.ID,
+		Route: "/ep1", Method: http.MethodGet,
+		PriceAmount: numericFromInt64(10), Currency: repository.CurrencyXLM,
+		Status: repository.EndpointStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = es.CreateEndpoint(context.Background(), CreateEndpointInput{
+		OwnerID: ownerID, ProviderID: provider.ID,
+		Route: "/ep2", Method: http.MethodGet,
+		PriceAmount: numericFromInt64(20), Currency: repository.CurrencyXLM,
+		Status: repository.EndpointStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = es.UpdateEndpoint(context.Background(), UpdateEndpointInput{
+		OwnerID: ownerID, EndpointID: ep1.ID,
+		Route: "/ep2", Method: http.MethodGet,
+		PriceAmount: numericFromInt64(99), Currency: repository.CurrencyXLM,
+	})
+	if !errors.Is(err, ErrDuplicateEndpoint) {
+		t.Fatalf("expected ErrDuplicateEndpoint, got %v", err)
+	}
+}
+
 func TestGetEndpointByID_OwnershipProviderDeleted(t *testing.T) {
 	mq := newMockQuerier()
 	ps := NewProviderService(mq)

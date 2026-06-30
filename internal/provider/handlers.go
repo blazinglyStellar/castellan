@@ -17,6 +17,10 @@ import (
 
 const errKey = "error"
 
+const msgAuthRequired = "authentication required"
+
+const msgInvalidConsumerID = "invalid consumer identity"
+
 type createProviderRequest struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url"`
@@ -42,13 +46,13 @@ func NewProviderHandler(service *ProviderService) *Handler {
 func (h *Handler) CreateProvider(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
 		return
 	}
 
 	ownerID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: msgInvalidConsumerID})
 		return
 	}
 
@@ -70,13 +74,13 @@ func (h *Handler) CreateProvider(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListProviders(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
 		return
 	}
 
 	ownerID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: msgInvalidConsumerID})
 		return
 	}
 
@@ -93,16 +97,17 @@ func (h *Handler) ListProviders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, providers)
 }
 
+//nolint:dupl
 func (h *Handler) GetProvider(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
 		return
 	}
 
 	ownerID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: msgInvalidConsumerID})
 		return
 	}
 
@@ -124,13 +129,13 @@ func (h *Handler) GetProvider(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateProvider(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
 		return
 	}
 
 	ownerID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: msgInvalidConsumerID})
 		return
 	}
 
@@ -155,16 +160,17 @@ func (h *Handler) UpdateProvider(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, provider)
 }
 
+//nolint:dupl
 func (h *Handler) UpdateProviderStatus(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
 		return
 	}
 
 	ownerID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: msgInvalidConsumerID})
 		return
 	}
 
@@ -192,13 +198,13 @@ func (h *Handler) UpdateProviderStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteProvider(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
 		return
 	}
 
 	ownerID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: msgInvalidConsumerID})
 		return
 	}
 
@@ -224,6 +230,18 @@ type createEndpointRequest struct {
 	RateLimit   *int32          `json:"rate_limit,omitempty"`
 }
 
+type updateEndpointRequest struct {
+	Route       *string          `json:"route,omitempty"`
+	Method      *string          `json:"method,omitempty"`
+	PriceAmount *decimal.Decimal `json:"price_amount,omitempty"`
+	Currency    *string          `json:"currency,omitempty"`
+	RateLimit   *int32           `json:"rate_limit,omitempty"`
+}
+
+type updateEndpointStatusRequest struct {
+	Status repository.EndpointStatus `json:"status"`
+}
+
 type EndpointHandler struct {
 	service *EndpointService
 }
@@ -235,14 +253,14 @@ func NewEndpointHandler(service *EndpointService) *EndpointHandler {
 func (h *EndpointHandler) CreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
 
 		return
 	}
 
 	ownerID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: msgInvalidConsumerID})
 
 		return
 	}
@@ -309,14 +327,14 @@ func (h *EndpointHandler) CreateEndpoint(w http.ResponseWriter, r *http.Request)
 func (h *EndpointHandler) ListEndpoints(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
 
 		return
 	}
 
 	ownerID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: msgInvalidConsumerID})
 
 		return
 	}
@@ -356,6 +374,180 @@ func (h *EndpointHandler) ListEndpoints(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, endpoints)
+}
+
+//nolint:dupl
+func (h *EndpointHandler) GetEndpoint(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
+
+		return
+	}
+
+	ownerID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: msgInvalidConsumerID})
+
+		return
+	}
+
+	endpointID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid endpoint id"})
+
+		return
+	}
+
+	endpoint, err := h.service.GetEndpointByID(r.Context(), endpointID, ownerID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{errKey: "endpoint not found"})
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, endpoint)
+}
+
+func (h *EndpointHandler) UpdateEndpoint(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
+
+		return
+	}
+
+	ownerID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: msgInvalidConsumerID})
+
+		return
+	}
+
+	endpointID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid endpoint id"})
+
+		return
+	}
+
+	var req updateEndpointRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid request body"})
+
+		return
+	}
+
+	var partialInput PartialUpdateEndpointInput
+	if req.Route != nil {
+		partialInput.Route = req.Route
+	}
+	if req.Method != nil {
+		method := strings.ToUpper(*req.Method)
+		partialInput.Method = &method
+	}
+	if req.PriceAmount != nil {
+		var priceNum pgtype.Numeric
+		if err := priceNum.Scan(req.PriceAmount.String()); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid price_amount"})
+
+			return
+		}
+		partialInput.PriceAmount = &priceNum
+	}
+	if req.Currency != nil {
+		currency := repository.Currency(*req.Currency)
+		partialInput.Currency = &currency
+	}
+	if req.RateLimit != nil {
+		rateLimit := pgtype.Int4{Int32: *req.RateLimit, Valid: true}
+		partialInput.RateLimit = &rateLimit
+	}
+
+	endpoint, err := h.service.PartialUpdateEndpoint(r.Context(), endpointID, ownerID, partialInput)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrDuplicateEndpoint):
+			writeJSON(w, http.StatusConflict, map[string]string{errKey: err.Error()})
+		default:
+			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: err.Error()})
+		}
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, endpoint)
+}
+
+//nolint:dupl
+func (h *EndpointHandler) UpdateEndpointStatus(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
+
+		return
+	}
+
+	ownerID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: msgInvalidConsumerID})
+
+		return
+	}
+
+	endpointID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid endpoint id"})
+
+		return
+	}
+
+	var req updateEndpointStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid request body"})
+
+		return
+	}
+
+	endpoint, err := h.service.UpdateEndpointStatus(r.Context(), endpointID, ownerID, req.Status)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: err.Error()})
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, endpoint)
+}
+
+func (h *EndpointHandler) DeleteEndpoint(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
+
+		return
+	}
+
+	ownerID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: msgInvalidConsumerID})
+
+		return
+	}
+
+	endpointID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid endpoint id"})
+
+		return
+	}
+
+	if _, err := h.service.DeleteEndpoint(r.Context(), endpointID, ownerID); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{errKey: "endpoint not found"})
+
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
