@@ -13,6 +13,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+var ErrDuplicateEndpoint = errors.New("endpoint with this route and method already exists on this provider")
+
+var ErrEndpointNotFound = errors.New("endpoint not found")
+
 const (
 	maxNameLen  = 255
 	maxRouteLen = 2048
@@ -268,10 +272,10 @@ func (s *EndpointService) CreateEndpoint(
 ) (repository.ApiEndpoint, error) {
 	provider, err := s.queries.GetProviderByID(ctx, input.ProviderID)
 	if err != nil {
-		return repository.ApiEndpoint{}, fmt.Errorf("endpoint not found: %w", err)
+		return repository.ApiEndpoint{}, fmt.Errorf("%w: %w", ErrEndpointNotFound, err)
 	}
 	if provider.OwnerID != input.OwnerID {
-		return repository.ApiEndpoint{}, errors.New("endpoint not found")
+		return repository.ApiEndpoint{}, ErrEndpointNotFound
 	}
 	if err := validateRoute(input.Route); err != nil {
 		return repository.ApiEndpoint{}, err
@@ -290,6 +294,15 @@ func (s *EndpointService) CreateEndpoint(
 	}
 	if err := validateEndpointStatus(input.Status); err != nil {
 		return repository.ApiEndpoint{}, err
+	}
+
+	dupParams := repository.GetEndpointByProviderRouteMethodParams{
+		ProviderID: input.ProviderID,
+		Route:      input.Route,
+		Method:     input.Method,
+	}
+	if _, err := s.queries.GetEndpointByProviderRouteMethod(ctx, dupParams); err == nil {
+		return repository.ApiEndpoint{}, ErrDuplicateEndpoint
 	}
 
 	params := repository.CreateEndpointParams{
@@ -324,18 +337,22 @@ func (s *EndpointService) GetEndpointByID(ctx context.Context, endpointID, owner
 	return endpoint, nil
 }
 
-func (s *EndpointService) ListEndpoints(ctx context.Context, providerID, ownerID uuid.UUID) ([]repository.ApiEndpoint, error) {
+func (s *EndpointService) ListEndpoints(ctx context.Context, providerID, ownerID uuid.UUID, statusFilter *repository.EndpointStatus) ([]repository.ApiEndpoint, error) {
 	provider, err := s.queries.GetProviderByID(ctx, providerID)
 	if err != nil {
-		return nil, fmt.Errorf("endpoint not found: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrEndpointNotFound, err)
 	}
 	if provider.OwnerID != ownerID {
-		return nil, errors.New("endpoint not found")
+		return nil, ErrEndpointNotFound
 	}
 
+	var statusInterface any
+	if statusFilter != nil {
+		statusInterface = statusFilter
+	}
 	params := repository.ListEndpointsByProviderParams{
 		ProviderID: providerID,
-		Status:     nil,
+		Status:     statusInterface,
 	}
 	endpoints, err := s.queries.ListEndpointsByProvider(ctx, params)
 	if err != nil {

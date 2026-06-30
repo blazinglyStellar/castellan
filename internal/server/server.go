@@ -38,6 +38,7 @@ type Server struct {
 	sessionValidator middleware.SessionValidator
 	sessionHandler   *auth.SessionHandler
 	providerHandler  *provider.Handler
+	endpointHandler  *provider.EndpointHandler
 }
 
 // NewServer creates an http.Server with all dependencies wired: database pool,
@@ -99,6 +100,7 @@ func NewServer() (*http.Server, error) {
 	})
 
 	providerSvc := provider.NewProviderService(queries)
+	endpointSvc := provider.NewEndpointService(queries)
 
 	srv := &Server{
 		port:             port,
@@ -112,6 +114,7 @@ func NewServer() (*http.Server, error) {
 		sessionValidator: sessionValidator,
 		sessionHandler:   auth.NewSessionHandler(sessionSvc),
 		providerHandler:  provider.NewProviderHandler(providerSvc),
+		endpointHandler:  provider.NewEndpointHandler(endpointSvc),
 	}
 
 	httpServer := &http.Server{

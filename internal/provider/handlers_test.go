@@ -587,3 +587,479 @@ func TestDeleteProviderHandler_Unauthenticated(t *testing.T) {
 		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// --- Endpoint handler tests ---
+
+func setupEndpointTest(t *testing.T) (*EndpointHandler, uuid.UUID, repository.Provider) {
+	t.Helper()
+
+	mq := newMockQuerier()
+	ps := NewProviderService(mq)
+	eh := NewEndpointHandler(NewEndpointService(mq))
+	ownerID := uuid.New()
+
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test Provider", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return eh, ownerID, provider
+}
+
+func TestCreateEndpointHandler_Success(t *testing.T) {
+	eh, ownerID, provider := setupEndpointTest(t)
+
+	body := `{"route":"/current","method":"GET","price_amount":"0.50"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/providers/"+provider.ID.String()+"/endpoints", strings.NewReader(body))
+	req.SetPathValue("providerId", provider.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      ownerID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	rec := httptest.NewRecorder()
+	eh.CreateEndpoint(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp repository.ApiEndpoint
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.ID == uuid.Nil {
+		t.Error("expected non-nil id")
+	}
+	if resp.ProviderID != provider.ID {
+		t.Errorf("expected provider_id %s, got %s", provider.ID, resp.ProviderID)
+	}
+	if resp.Route != "/current" {
+		t.Errorf("expected route %q, got %q", "/current", resp.Route)
+	}
+	if resp.Method != http.MethodGet {
+		t.Errorf("expected method %q, got %q", http.MethodGet, resp.Method)
+	}
+	if resp.Currency != repository.CurrencyXLM {
+		t.Errorf("expected currency %q, got %q", repository.CurrencyXLM, resp.Currency)
+	}
+	if resp.Status != repository.EndpointStatusDraft {
+		t.Errorf("expected status %q, got %q", repository.EndpointStatusDraft, resp.Status)
+	}
+	if resp.CreatedAt.IsZero() {
+		t.Error("expected non-zero created_at")
+	}
+	if resp.UpdatedAt.IsZero() {
+		t.Error("expected non-zero updated_at")
+	}
+}
+
+func TestCreateEndpointHandler_ValidationErrors(t *testing.T) {
+	eh, ownerID, provider := setupEndpointTest(t)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantErr    string
+		wantStatus int
+	}{
+		{
+			name:       "missing route",
+			body:       `{"method":"GET","price_amount":"0.50"}`,
+			wantErr:    "route is required",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "route without slash",
+			body:       `{"route":"current","method":"GET","price_amount":"0.50"}`,
+			wantErr:    "route must start with /",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid method",
+			body:       `{"route":"/current","method":"INVALID","price_amount":"0.50"}`,
+			wantErr:    "invalid HTTP method: INVALID",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "empty body",
+			body:       `{}`,
+			wantErr:    "route is required",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/providers/"+provider.ID.String()+"/endpoints", strings.NewReader(tt.body))
+			req.SetPathValue("providerId", provider.ID.String())
+			req = req.WithContext(
+				gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+					ConsumerID:      ownerID.String(),
+					IsAuthenticated: true,
+				}),
+			)
+
+			rec := httptest.NewRecorder()
+			eh.CreateEndpoint(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("expected %d, got %d. Body: %s", tt.wantStatus, rec.Code, rec.Body.String())
+			}
+
+			var errResp map[string]string
+			if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if errResp["error"] != tt.wantErr {
+				t.Errorf("expected error %q, got %q", tt.wantErr, errResp["error"])
+			}
+		})
+	}
+}
+
+func TestCreateEndpointHandler_ProviderNotFound(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+	otherUser := uuid.New()
+	providerID := uuid.New()
+
+	body := `{"route":"/current","method":"GET","price_amount":"0.50"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/providers/"+providerID.String()+"/endpoints", strings.NewReader(body))
+	req.SetPathValue("providerId", providerID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      otherUser.String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	rec := httptest.NewRecorder()
+	eh.CreateEndpoint(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateEndpointHandler_NotOwner(t *testing.T) {
+	eh, _, provider := setupEndpointTest(t)
+	otherUser := uuid.New()
+
+	body := `{"route":"/current","method":"GET","price_amount":"0.50"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/providers/"+provider.ID.String()+"/endpoints", strings.NewReader(body))
+	req.SetPathValue("providerId", provider.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      otherUser.String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	rec := httptest.NewRecorder()
+	eh.CreateEndpoint(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateEndpointHandler_Duplicate(t *testing.T) {
+	eh, ownerID, provider := setupEndpointTest(t)
+
+	baseURL := "/api/v1/providers/" + provider.ID.String() + "/endpoints"
+
+	// First create should succeed
+	req1 := httptest.NewRequest(http.MethodPost, baseURL, strings.NewReader(`{"route":"/current","method":"GET","price_amount":"0.50"}`))
+	req1.SetPathValue("providerId", provider.ID.String())
+	req1 = req1.WithContext(
+		gatewaycontext.SetConsumerInfo(req1.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      ownerID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	rec := httptest.NewRecorder()
+	eh.CreateEndpoint(rec, req1)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	// Second create with same route+method should conflict
+	req2 := httptest.NewRequest(http.MethodPost, baseURL, strings.NewReader(`{"route":"/current","method":"GET","price_amount":"0.50"}`))
+	req2.SetPathValue("providerId", provider.ID.String())
+	req2 = req2.WithContext(
+		gatewaycontext.SetConsumerInfo(req2.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      ownerID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	rec2 := httptest.NewRecorder()
+	eh.CreateEndpoint(rec2, req2)
+	if rec2.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d. Body: %s", rec2.Code, rec2.Body.String())
+	}
+
+	var errResp map[string]string
+	if err := json.NewDecoder(rec2.Body).Decode(&errResp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if errResp["error"] != ErrDuplicateEndpoint.Error() {
+		t.Errorf("expected error %q, got %q", ErrDuplicateEndpoint.Error(), errResp["error"])
+	}
+}
+
+func TestCreateEndpointHandler_Unauthenticated(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+
+	body := `{"route":"/current","method":"GET","price_amount":"0.50"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/providers/"+uuid.New().String()+"/endpoints", strings.NewReader(body))
+
+	rec := httptest.NewRecorder()
+	eh.CreateEndpoint(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateEndpointHandler_InvalidProviderId(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+
+	body := `{"route":"/current","method":"GET","price_amount":"0.50"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/providers/not-a-uuid/endpoints", strings.NewReader(body))
+	req.SetPathValue("providerId", "not-a-uuid")
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      uuid.New().String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	rec := httptest.NewRecorder()
+	eh.CreateEndpoint(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestListEndpointsHandler_Success(t *testing.T) {
+	mq := newMockQuerier()
+	ps := NewProviderService(mq)
+	es := NewEndpointService(mq)
+	eh := NewEndpointHandler(es)
+	ownerID := uuid.New()
+
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create two endpoints
+	for _, ep := range []struct {
+		route  string
+		method string
+	}{
+		{"/ep1", "GET"},
+		{"/ep2", "POST"},
+	} {
+		_, err := es.CreateEndpoint(context.Background(), CreateEndpointInput{
+			OwnerID: ownerID, ProviderID: provider.ID,
+			Route: ep.route, Method: ep.method,
+			PriceAmount: numericFromInt64(10),
+			Currency:    repository.CurrencyXLM,
+			Status:      repository.EndpointStatusActive,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/"+provider.ID.String()+"/endpoints", nil)
+	req.SetPathValue("providerId", provider.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      ownerID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	rec := httptest.NewRecorder()
+	eh.ListEndpoints(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var items []repository.ApiEndpoint
+	if err := json.NewDecoder(rec.Body).Decode(&items); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(items) != 2 {
+		t.Errorf("expected 2 endpoints, got %d", len(items))
+	}
+}
+
+func TestListEndpointsHandler_Empty(t *testing.T) {
+	eh, ownerID, provider := setupEndpointTest(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/"+provider.ID.String()+"/endpoints", nil)
+	req.SetPathValue("providerId", provider.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      ownerID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	rec := httptest.NewRecorder()
+	eh.ListEndpoints(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var items []repository.ApiEndpoint
+	if err := json.NewDecoder(rec.Body).Decode(&items); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if items == nil {
+		t.Fatal("expected empty slice, got nil")
+	}
+	if len(items) != 0 {
+		t.Errorf("expected 0 endpoints, got %d", len(items))
+	}
+}
+
+func TestListEndpointsHandler_StatusFilter(t *testing.T) {
+	mq := newMockQuerier()
+	ps := NewProviderService(mq)
+	es := NewEndpointService(mq)
+	eh := NewEndpointHandler(es)
+	ownerID := uuid.New()
+
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create one active and one draft endpoint
+	es.CreateEndpoint(context.Background(), CreateEndpointInput{
+		OwnerID: ownerID, ProviderID: provider.ID,
+		Route: "/active", Method: http.MethodGet,
+		PriceAmount: numericFromInt64(10),
+		Currency:    repository.CurrencyXLM,
+		Status:      repository.EndpointStatusActive,
+	})
+	es.CreateEndpoint(context.Background(), CreateEndpointInput{
+		OwnerID: ownerID, ProviderID: provider.ID,
+		Route: "/draft", Method: http.MethodGet,
+		PriceAmount: numericFromInt64(20),
+		Currency:    repository.CurrencyXLM,
+		Status:      repository.EndpointStatusDraft,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/"+provider.ID.String()+"/endpoints?status=active", nil)
+	req.SetPathValue("providerId", provider.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      ownerID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	rec := httptest.NewRecorder()
+	eh.ListEndpoints(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var items []repository.ApiEndpoint
+	if err := json.NewDecoder(rec.Body).Decode(&items); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 endpoint, got %d", len(items))
+	}
+	if items[0].Route != "/active" {
+		t.Errorf("expected route %q, got %q", "/active", items[0].Route)
+	}
+}
+
+func TestListEndpointsHandler_InvalidStatusFilter(t *testing.T) {
+	eh, ownerID, provider := setupEndpointTest(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/"+provider.ID.String()+"/endpoints?status=bogus", nil)
+	req.SetPathValue("providerId", provider.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      ownerID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	rec := httptest.NewRecorder()
+	eh.ListEndpoints(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestListEndpointsHandler_ProviderNotFound(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/"+uuid.New().String()+"/endpoints", nil)
+	req.SetPathValue("providerId", uuid.New().String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      uuid.New().String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	rec := httptest.NewRecorder()
+	eh.ListEndpoints(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestListEndpointsHandler_NotOwner(t *testing.T) {
+	eh, _, provider := setupEndpointTest(t)
+	otherUser := uuid.New()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/"+provider.ID.String()+"/endpoints", nil)
+	req.SetPathValue("providerId", provider.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      otherUser.String(),
+			IsAuthenticated: true,
+		}),
+	)
+
+	rec := httptest.NewRecorder()
+	eh.ListEndpoints(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestListEndpointsHandler_Unauthenticated(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/"+uuid.New().String()+"/endpoints", nil)
+	rec := httptest.NewRecorder()
+	eh.ListEndpoints(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
