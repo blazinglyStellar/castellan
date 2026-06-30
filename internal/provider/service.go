@@ -258,6 +258,14 @@ type UpdateEndpointInput struct {
 	RateLimit   pgtype.Int4
 }
 
+type PartialUpdateEndpointInput struct {
+	Route       *string
+	Method      *string
+	PriceAmount *pgtype.Numeric
+	Currency    *repository.Currency
+	RateLimit   *pgtype.Int4
+}
+
 type EndpointService struct {
 	queries repository.Querier
 }
@@ -365,7 +373,8 @@ func (s *EndpointService) UpdateEndpoint(
 	ctx context.Context,
 	input UpdateEndpointInput,
 ) (repository.ApiEndpoint, error) {
-	if _, err := s.GetEndpointByID(ctx, input.EndpointID, input.OwnerID); err != nil {
+	current, err := s.GetEndpointByID(ctx, input.EndpointID, input.OwnerID)
+	if err != nil {
 		return repository.ApiEndpoint{}, err
 	}
 	if err := validateRoute(input.Route); err != nil {
@@ -384,6 +393,15 @@ func (s *EndpointService) UpdateEndpoint(
 		return repository.ApiEndpoint{}, err
 	}
 
+	dupParams := repository.GetEndpointByProviderRouteMethodParams{
+		ProviderID: current.ProviderID,
+		Route:      input.Route,
+		Method:     input.Method,
+	}
+	if existing, err := s.queries.GetEndpointByProviderRouteMethod(ctx, dupParams); err == nil && existing.ID != input.EndpointID {
+		return repository.ApiEndpoint{}, ErrDuplicateEndpoint
+	}
+
 	params := repository.UpdateEndpointParams{
 		ID:          input.EndpointID,
 		Route:       input.Route,
@@ -398,6 +416,50 @@ func (s *EndpointService) UpdateEndpoint(
 		return repository.ApiEndpoint{}, fmt.Errorf("update endpoint: %w", err)
 	}
 	return endpoint, nil
+}
+
+func (s *EndpointService) PartialUpdateEndpoint(
+	ctx context.Context,
+	endpointID, ownerID uuid.UUID,
+	input PartialUpdateEndpointInput,
+) (repository.ApiEndpoint, error) {
+	current, err := s.GetEndpointByID(ctx, endpointID, ownerID)
+	if err != nil {
+		return repository.ApiEndpoint{}, err
+	}
+
+	resolvedRoute := current.Route
+	if input.Route != nil {
+		resolvedRoute = *input.Route
+	}
+	resolvedMethod := current.Method
+	if input.Method != nil {
+		resolvedMethod = *input.Method
+	}
+	resolvedPrice := current.PriceAmount
+	if input.PriceAmount != nil {
+		resolvedPrice = *input.PriceAmount
+	}
+	resolvedCurrency := current.Currency
+	if input.Currency != nil {
+		resolvedCurrency = *input.Currency
+	}
+	resolvedRateLimit := current.RateLimit
+	if input.RateLimit != nil {
+		resolvedRateLimit = *input.RateLimit
+	}
+
+	fullInput := UpdateEndpointInput{
+		OwnerID:     ownerID,
+		EndpointID:  endpointID,
+		Route:       resolvedRoute,
+		Method:      resolvedMethod,
+		PriceAmount: resolvedPrice,
+		Currency:    resolvedCurrency,
+		RateLimit:   resolvedRateLimit,
+	}
+
+	return s.UpdateEndpoint(ctx, fullInput)
 }
 
 func (s *EndpointService) UpdateEndpointStatus(ctx context.Context, endpointID, ownerID uuid.UUID, status repository.EndpointStatus) (repository.ApiEndpoint, error) {

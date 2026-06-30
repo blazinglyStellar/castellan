@@ -262,6 +262,7 @@ func invalidUUIDRequest(t *testing.T, method, body string) *http.Request {
 	return req
 }
 
+//nolint:dupl
 func TestGetProviderHandler_Success(t *testing.T) {
 	h, userID, created := createTestProvider(t)
 
@@ -432,6 +433,7 @@ func TestUpdateProviderHandler_Unauthenticated(t *testing.T) {
 	}
 }
 
+//nolint:dupl
 func TestUpdateProviderStatusHandler_Success(t *testing.T) {
 	h, userID, created := createTestProvider(t)
 
@@ -1058,6 +1060,507 @@ func TestListEndpointsHandler_Unauthenticated(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/providers/"+uuid.New().String()+"/endpoints", nil)
 	rec := httptest.NewRecorder()
 	eh.ListEndpoints(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Standalone endpoint handler tests ---
+
+func setupEndpointByIDTest(t *testing.T) (*EndpointHandler, uuid.UUID, repository.ApiEndpoint) {
+	t.Helper()
+
+	mq := newMockQuerier()
+	ps := NewProviderService(mq)
+	eh := NewEndpointHandler(NewEndpointService(mq))
+	ownerID := uuid.New()
+
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test Provider", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	endpoint, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID:  provider.ID,
+		Route:       "/current",
+		Method:      http.MethodGet,
+		PriceAmount: numericFromInt64(50),
+		Currency:    repository.CurrencyXLM,
+		Status:      repository.EndpointStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return eh, ownerID, endpoint
+}
+
+//nolint:dupl
+func TestGetEndpointHandler_Success(t *testing.T) {
+	eh, ownerID, endpoint := setupEndpointByIDTest(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/endpoints/"+endpoint.ID.String(), nil)
+	req.SetPathValue("id", endpoint.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      ownerID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.GetEndpoint(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp repository.ApiEndpoint
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.ID != endpoint.ID {
+		t.Errorf("expected ID %s, got %s", endpoint.ID, resp.ID)
+	}
+}
+
+func TestGetEndpointHandler_NotFound(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+	id := uuid.New().String()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/endpoints/"+id, nil)
+	req.SetPathValue("id", id)
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      uuid.New().String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.GetEndpoint(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetEndpointHandler_NotOwner(t *testing.T) {
+	eh, _, endpoint := setupEndpointByIDTest(t)
+	otherUser := uuid.New()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/endpoints/"+endpoint.ID.String(), nil)
+	req.SetPathValue("id", endpoint.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      otherUser.String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.GetEndpoint(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetEndpointHandler_InvalidUUID(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/endpoints/not-a-uuid", nil)
+	req.SetPathValue("id", "not-a-uuid")
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      uuid.New().String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.GetEndpoint(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetEndpointHandler_Unauthenticated(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/endpoints/"+uuid.New().String(), nil)
+	eh.GetEndpoint(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdateEndpointHandler_Success(t *testing.T) {
+	tests := []struct {
+		name               string
+		body               string
+		wantRoute          string
+		wantMethod         string
+		wantCurrency       repository.Currency
+		wantRateLimitValid bool
+		wantRateLimit      int32
+	}{
+		{
+			name:         "route and method",
+			body:         `{"route":"/updated","method":"POST"}`,
+			wantRoute:    "/updated",
+			wantMethod:   "POST",
+			wantCurrency: repository.CurrencyXLM,
+		},
+		{
+			name:         "route only",
+			body:         `{"route":"/new-route"}`,
+			wantRoute:    "/new-route",
+			wantMethod:   "GET",
+			wantCurrency: repository.CurrencyXLM,
+		},
+		{
+			name:         "method only",
+			body:         `{"method":"POST"}`,
+			wantRoute:    "/current",
+			wantMethod:   "POST",
+			wantCurrency: repository.CurrencyXLM,
+		},
+		{
+			name:         "price only",
+			body:         `{"price_amount":"99.50"}`,
+			wantRoute:    "/current",
+			wantMethod:   "GET",
+			wantCurrency: repository.CurrencyXLM,
+		},
+		{
+			name:         "currency only",
+			body:         `{"currency":"USDC"}`,
+			wantRoute:    "/current",
+			wantMethod:   "GET",
+			wantCurrency: repository.CurrencyUSDC,
+		},
+		{
+			name:               "rate_limit only",
+			body:               `{"rate_limit":100}`,
+			wantRoute:          "/current",
+			wantMethod:         "GET",
+			wantCurrency:       repository.CurrencyXLM,
+			wantRateLimitValid: true,
+			wantRateLimit:      100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eh, ownerID, endpoint := setupEndpointByIDTest(t)
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/endpoints/"+endpoint.ID.String(),
+				strings.NewReader(tt.body))
+			req.SetPathValue("id", endpoint.ID.String())
+			req = req.WithContext(
+				gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+					ConsumerID:      ownerID.String(),
+					IsAuthenticated: true,
+				}),
+			)
+			eh.UpdateEndpoint(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+			}
+
+			var resp repository.ApiEndpoint
+			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if resp.Route != tt.wantRoute {
+				t.Errorf("expected route %q, got %q", tt.wantRoute, resp.Route)
+			}
+			if resp.Method != tt.wantMethod {
+				t.Errorf("expected method %q, got %q", tt.wantMethod, resp.Method)
+			}
+			if resp.Currency != tt.wantCurrency {
+				t.Errorf("expected currency %q, got %q", tt.wantCurrency, resp.Currency)
+			}
+			if tt.wantRateLimitValid {
+				if !resp.RateLimit.Valid {
+					t.Error("expected rate_limit to be set")
+				} else if resp.RateLimit.Int32 != tt.wantRateLimit {
+					t.Errorf("expected rate_limit %d, got %d", tt.wantRateLimit, resp.RateLimit.Int32)
+				}
+			}
+		})
+	}
+}
+
+func TestUpdateEndpointHandler_Conflict(t *testing.T) {
+	mq := newMockQuerier()
+	ps := NewProviderService(mq)
+	eh := NewEndpointHandler(NewEndpointService(mq))
+	ownerID := uuid.New()
+
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID:  provider.ID,
+		Route:       "/ep1",
+		Method:      http.MethodGet,
+		PriceAmount: numericFromInt64(10),
+		Currency:    repository.CurrencyXLM,
+		Status:      repository.EndpointStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep2, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID:  provider.ID,
+		Route:       "/ep2",
+		Method:      http.MethodGet,
+		PriceAmount: numericFromInt64(20),
+		Currency:    repository.CurrencyXLM,
+		Status:      repository.EndpointStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/endpoints/"+ep2.ID.String(),
+		strings.NewReader(`{"route":"/ep1","method":"GET"}`))
+	req.SetPathValue("id", ep2.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      ownerID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.UpdateEndpoint(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var errResp map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if errResp["error"] != ErrDuplicateEndpoint.Error() {
+		t.Errorf("expected error %q, got %q", ErrDuplicateEndpoint.Error(), errResp["error"])
+	}
+}
+
+func TestUpdateEndpointHandler_InvalidUUID(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/endpoints/not-a-uuid",
+		strings.NewReader(`{"route":"/test"}`))
+	req.SetPathValue("id", "not-a-uuid")
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      uuid.New().String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.UpdateEndpoint(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdateEndpointHandler_Unauthenticated(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/endpoints/"+uuid.New().String(),
+		strings.NewReader(`{"route":"/test"}`))
+	eh.UpdateEndpoint(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+//nolint:dupl
+func TestUpdateEndpointStatusHandler_Success(t *testing.T) {
+	eh, ownerID, endpoint := setupEndpointByIDTest(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/endpoints/"+endpoint.ID.String()+"/status",
+		strings.NewReader(`{"status":"inactive"}`))
+	req.SetPathValue("id", endpoint.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      ownerID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.UpdateEndpointStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp repository.ApiEndpoint
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Status != repository.EndpointStatusInactive {
+		t.Errorf("expected status %q, got %q", repository.EndpointStatusInactive, resp.Status)
+	}
+}
+
+func TestUpdateEndpointStatusHandler_InvalidStatus(t *testing.T) {
+	eh, ownerID, endpoint := setupEndpointByIDTest(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/endpoints/"+endpoint.ID.String()+"/status",
+		strings.NewReader(`{"status":"bogus"}`))
+	req.SetPathValue("id", endpoint.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      ownerID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.UpdateEndpointStatus(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var errResp map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if errResp["error"] != "invalid endpoint status: bogus" {
+		t.Errorf("expected error %q, got %q", "invalid endpoint status: bogus", errResp["error"])
+	}
+}
+
+func TestUpdateEndpointStatusHandler_InvalidUUID(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/endpoints/not-a-uuid/status",
+		strings.NewReader(`{"status":"active"}`))
+	req.SetPathValue("id", "not-a-uuid")
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      uuid.New().String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.UpdateEndpointStatus(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdateEndpointStatusHandler_Unauthenticated(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/endpoints/"+uuid.New().String()+"/status",
+		strings.NewReader(`{"status":"active"}`))
+	eh.UpdateEndpointStatus(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteEndpointHandler_Success(t *testing.T) {
+	eh, ownerID, endpoint := setupEndpointByIDTest(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/endpoints/"+endpoint.ID.String(), nil)
+	req.SetPathValue("id", endpoint.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      ownerID.String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.DeleteEndpoint(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteEndpointHandler_NotFound(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+	id := uuid.New().String()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/endpoints/"+id, nil)
+	req.SetPathValue("id", id)
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      uuid.New().String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.DeleteEndpoint(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteEndpointHandler_NotOwner(t *testing.T) {
+	eh, _, endpoint := setupEndpointByIDTest(t)
+	otherUser := uuid.New()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/endpoints/"+endpoint.ID.String(), nil)
+	req.SetPathValue("id", endpoint.ID.String())
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      otherUser.String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.DeleteEndpoint(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteEndpointHandler_InvalidUUID(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/endpoints/not-a-uuid", nil)
+	req.SetPathValue("id", "not-a-uuid")
+	req = req.WithContext(
+		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+			ConsumerID:      uuid.New().String(),
+			IsAuthenticated: true,
+		}),
+	)
+	eh.DeleteEndpoint(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteEndpointHandler_Unauthenticated(t *testing.T) {
+	eh := NewEndpointHandler(NewEndpointService(newMockQuerier()))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/endpoints/"+uuid.New().String(), nil)
+	eh.DeleteEndpoint(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
