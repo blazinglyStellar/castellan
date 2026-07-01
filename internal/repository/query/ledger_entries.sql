@@ -34,3 +34,17 @@ UPDATE ledger_entries
 SET status = $2
 WHERE id = $1
 RETURNING *;
+
+-- name: CountLedgerEntriesByAccount :one
+SELECT COUNT(*) FROM ledger_entries
+WHERE account_id = $1;
+
+-- name: CountLedgerEntriesByAccountAndType :one
+SELECT COUNT(*) FROM ledger_entries
+WHERE account_id = $1 AND entry_type = $2;
+
+-- name: GetLedgerEntryByIDAndOwner :one
+SELECT le.* FROM ledger_entries le
+JOIN accounts a ON a.id = le.account_id
+WHERE le.id = $1 AND a.owner_id = $2
+LIMIT 1;

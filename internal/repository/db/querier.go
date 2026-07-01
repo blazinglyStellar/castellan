@@ -13,6 +13,8 @@ import (
 
 type Querier interface {
 	ConfirmDeposit(ctx context.Context, id uuid.UUID) (Deposit, error)
+	CountLedgerEntriesByAccount(ctx context.Context, accountID uuid.UUID) (int64, error)
+	CountLedgerEntriesByAccountAndType(ctx context.Context, arg CountLedgerEntriesByAccountAndTypeParams) (int64, error)
 	CreateEndpoint(ctx context.Context, arg CreateEndpointParams) (ApiEndpoint, error)
 	CreateProvider(ctx context.Context, arg CreateProviderParams) (Provider, error)
 	CreateUsageEvent(ctx context.Context, arg CreateUsageEventParams) (CreateUsageEventRow, error)
@@ -29,6 +31,7 @@ type Querier interface {
 	GetKeyByID(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	GetKeyWithUserAndAccount(ctx context.Context, keyHash string) (GetKeyWithUserAndAccountRow, error)
 	GetLedgerEntryByID(ctx context.Context, id uuid.UUID) (LedgerEntry, error)
+	GetLedgerEntryByIDAndOwner(ctx context.Context, arg GetLedgerEntryByIDAndOwnerParams) (LedgerEntry, error)
 	GetLedgerEntryByReferenceID(ctx context.Context, referenceID pgtype.UUID) (LedgerEntry, error)
 	GetOrCreateAccount(ctx context.Context, ownerID uuid.UUID) (Account, error)
 	GetProviderBaseURL(ctx context.Context, id uuid.UUID) (string, error)

@@ -12,6 +12,35 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countLedgerEntriesByAccount = `-- name: CountLedgerEntriesByAccount :one
+SELECT COUNT(*) FROM ledger_entries
+WHERE account_id = $1
+`
+
+func (q *Queries) CountLedgerEntriesByAccount(ctx context.Context, accountID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countLedgerEntriesByAccount, accountID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countLedgerEntriesByAccountAndType = `-- name: CountLedgerEntriesByAccountAndType :one
+SELECT COUNT(*) FROM ledger_entries
+WHERE account_id = $1 AND entry_type = $2
+`
+
+type CountLedgerEntriesByAccountAndTypeParams struct {
+	AccountID uuid.UUID `json:"account_id"`
+	EntryType EntryType `json:"entry_type"`
+}
+
+func (q *Queries) CountLedgerEntriesByAccountAndType(ctx context.Context, arg CountLedgerEntriesByAccountAndTypeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countLedgerEntriesByAccountAndType, arg.AccountID, arg.EntryType)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getLedgerEntryByID = `-- name: GetLedgerEntryByID :one
 SELECT id, account_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at FROM ledger_entries
 WHERE id = $1
@@ -20,6 +49,37 @@ LIMIT 1
 
 func (q *Queries) GetLedgerEntryByID(ctx context.Context, id uuid.UUID) (LedgerEntry, error) {
 	row := q.db.QueryRow(ctx, getLedgerEntryByID, id)
+	var i LedgerEntry
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.EntryType,
+		&i.Amount,
+		&i.BalanceAfter,
+		&i.Currency,
+		&i.ReferenceID,
+		&i.ReferenceType,
+		&i.Status,
+		&i.Description,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getLedgerEntryByIDAndOwner = `-- name: GetLedgerEntryByIDAndOwner :one
+SELECT le.id, le.account_id, le.entry_type, le.amount, le.balance_after, le.currency, le.reference_id, le.reference_type, le.status, le.description, le.created_at FROM ledger_entries le
+JOIN accounts a ON a.id = le.account_id
+WHERE le.id = $1 AND a.owner_id = $2
+LIMIT 1
+`
+
+type GetLedgerEntryByIDAndOwnerParams struct {
+	ID      uuid.UUID `json:"id"`
+	OwnerID uuid.UUID `json:"owner_id"`
+}
+
+func (q *Queries) GetLedgerEntryByIDAndOwner(ctx context.Context, arg GetLedgerEntryByIDAndOwnerParams) (LedgerEntry, error) {
+	row := q.db.QueryRow(ctx, getLedgerEntryByIDAndOwner, arg.ID, arg.OwnerID)
 	var i LedgerEntry
 	err := row.Scan(
 		&i.ID,
