@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math/big"
@@ -14,15 +15,18 @@ import (
 	"testing"
 	"time"
 
+	"castellan/internal/accounts"
 	"castellan/internal/auth"
 	"castellan/internal/gateway"
 	gatewaycontext "castellan/internal/gateway/context"
+	"castellan/internal/ledger"
 	"castellan/internal/provider"
 	"castellan/internal/proxy"
 	"castellan/internal/repository/db"
 	"castellan/internal/server/middleware"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 )
@@ -58,19 +62,24 @@ func (m *mockResolver) ResolveBaseURL(_ context.Context, _ string) (string, erro
 	return m.baseURL, m.err
 }
 
-// mockQuerier implements repository.Querier with in-memory provider/endpoint storage.
+// mockQuerier implements repository.Querier with in-memory storage.
 type mockQuerier struct {
 	repository.Querier
 
 	mu        sync.Mutex
 	providers map[uuid.UUID]repository.Provider
 	endpoints map[uuid.UUID]repository.ApiEndpoint
+	accounts  map[uuid.UUID]repository.Account
+	entries   []repository.LedgerEntry
+	entryIdx  int
 }
 
 func newMockQuerier() *mockQuerier {
 	return &mockQuerier{
 		providers: make(map[uuid.UUID]repository.Provider),
 		endpoints: make(map[uuid.UUID]repository.ApiEndpoint),
+		accounts:  make(map[uuid.UUID]repository.Account),
+		entries:   nil,
 	}
 }
 
@@ -255,6 +264,203 @@ func (m *mockQuerier) DeleteEndpoint(_ context.Context, id uuid.UUID) (repositor
 	return e, nil
 }
 
+// ---------------------------------------------------------------------------
+// Account mock methods
+// ---------------------------------------------------------------------------
+
+func (m *mockQuerier) GetAccountByOwnerID(_ context.Context, ownerID uuid.UUID) (repository.Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a, ok := m.accounts[ownerID]
+	if !ok {
+		return repository.Account{}, pgx.ErrNoRows
+	}
+	return a, nil
+}
+
+func (m *mockQuerier) GetOrCreateAccount(_ context.Context, ownerID uuid.UUID) (repository.Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if a, ok := m.accounts[ownerID]; ok {
+		return a, nil
+	}
+	a := repository.Account{
+		ID:        uuid.New(),
+		OwnerID:   ownerID,
+		Balance:   pgtype.Numeric{Int: big.NewInt(0), Exp: 0, Valid: true},
+		Currency:  repository.CurrencyXLM,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	m.accounts[ownerID] = a
+	return a, nil
+}
+
+func (m *mockQuerier) GetAccountBalance(_ context.Context, ownerID uuid.UUID) (pgtype.Numeric, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a, ok := m.accounts[ownerID]
+	if !ok {
+		return pgtype.Numeric{}, errors.New("not found")
+	}
+	return a.Balance, nil
+}
+
+func (m *mockQuerier) UpdateAccountBalance(_ context.Context, arg repository.UpdateAccountBalanceParams) (repository.Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for ownerID, a := range m.accounts {
+		if a.ID == arg.ID {
+			a.Balance = arg.Balance
+			a.UpdatedAt = time.Now().UTC()
+			m.accounts[ownerID] = a
+			return a, nil
+		}
+	}
+	return repository.Account{}, errors.New("account not found")
+}
+
+// ---------------------------------------------------------------------------
+// Ledger entry mock methods
+// ---------------------------------------------------------------------------
+
+func (m *mockQuerier) InsertLedgerEntry(_ context.Context, arg repository.InsertLedgerEntryParams) (repository.LedgerEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entryIdx++
+	e := repository.LedgerEntry{
+		ID:            uuid.New(),
+		AccountID:     arg.AccountID,
+		EntryType:     arg.EntryType,
+		Amount:        arg.Amount,
+		BalanceAfter:  arg.BalanceAfter,
+		Currency:      arg.Currency,
+		ReferenceID:   arg.ReferenceID,
+		ReferenceType: arg.ReferenceType,
+		Status:        arg.Status,
+		Description:   arg.Description,
+		CreatedAt:     time.Now().UTC(),
+	}
+	m.entries = append(m.entries, e)
+	return e, nil
+}
+
+func (m *mockQuerier) GetLedgerEntryByID(_ context.Context, id uuid.UUID) (repository.LedgerEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range m.entries {
+		if e.ID == id {
+			return e, nil
+		}
+	}
+	return repository.LedgerEntry{}, pgx.ErrNoRows
+}
+
+func (m *mockQuerier) GetLedgerEntryByIDAndOwner(_ context.Context, arg repository.GetLedgerEntryByIDAndOwnerParams) (repository.LedgerEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range m.entries {
+		if e.ID == arg.ID {
+			for _, a := range m.accounts {
+				if a.ID == e.AccountID && a.OwnerID == arg.OwnerID {
+					return e, nil
+				}
+			}
+		}
+	}
+	return repository.LedgerEntry{}, pgx.ErrNoRows
+}
+
+func (m *mockQuerier) GetLedgerEntryByReferenceID(_ context.Context, refID pgtype.UUID) (repository.LedgerEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range m.entries {
+		if e.ReferenceID.Valid && e.ReferenceID.Bytes == refID.Bytes {
+			return e, nil
+		}
+	}
+	return repository.LedgerEntry{}, errors.New("not found")
+}
+
+func (m *mockQuerier) ListLedgerEntriesByAccount(_ context.Context, arg repository.ListLedgerEntriesByAccountParams) ([]repository.LedgerEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []repository.LedgerEntry
+	for i := len(m.entries) - 1; i >= 0; i-- {
+		e := m.entries[i]
+		if e.AccountID == arg.AccountID {
+			result = append(result, e)
+		}
+	}
+	start := int(arg.Offset)
+	if start > len(result) {
+		start = len(result)
+	}
+	end := start + int(arg.Limit)
+	if end > len(result) {
+		end = len(result)
+	}
+	return result[start:end], nil
+}
+
+func (m *mockQuerier) ListLedgerEntriesByAccountAndType(_ context.Context, arg repository.ListLedgerEntriesByAccountAndTypeParams) ([]repository.LedgerEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []repository.LedgerEntry
+	for i := len(m.entries) - 1; i >= 0; i-- {
+		e := m.entries[i]
+		if e.AccountID == arg.AccountID && e.EntryType == arg.EntryType {
+			result = append(result, e)
+		}
+	}
+	start := int(arg.Offset)
+	if start > len(result) {
+		start = len(result)
+	}
+	end := start + int(arg.Limit)
+	if end > len(result) {
+		end = len(result)
+	}
+	return result[start:end], nil
+}
+
+func (m *mockQuerier) CountLedgerEntriesByAccount(_ context.Context, accountID uuid.UUID) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var count int64
+	for _, e := range m.entries {
+		if e.AccountID == accountID {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *mockQuerier) CountLedgerEntriesByAccountAndType(_ context.Context, arg repository.CountLedgerEntriesByAccountAndTypeParams) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var count int64
+	for _, e := range m.entries {
+		if e.AccountID == arg.AccountID && e.EntryType == arg.EntryType {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *mockQuerier) UpdateLedgerEntryStatus(_ context.Context, arg repository.UpdateLedgerEntryStatusParams) (repository.LedgerEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, e := range m.entries {
+		if e.ID == arg.ID {
+			e.Status = arg.Status
+			m.entries[i] = e
+			return e, nil
+		}
+	}
+	return repository.LedgerEntry{}, errors.New("not found")
+}
+
 func testPriceAmount() pgtype.Numeric {
 	return pgtype.Numeric{Int: big.NewInt(10), Exp: 0, Valid: true}
 }
@@ -302,6 +508,129 @@ func createTestEndpoint(t *testing.T, mq *mockQuerier, providerID uuid.UUID) rep
 		t.Fatal(err)
 	}
 	return ep
+}
+
+// ---------------------------------------------------------------------------
+// mockLedgerService implements gateway.LedgerService with in-memory state
+// and optionally syncs balance changes to a mockQuerier.
+// ---------------------------------------------------------------------------
+
+type mockLedgerService struct {
+	mu           sync.Mutex
+	consumerID   uuid.UUID
+	balance      decimal.Decimal
+	reservations map[string]decimal.Decimal
+	mq           *mockQuerier
+}
+
+func newMockLedgerService(consumerID uuid.UUID, initialBalance decimal.Decimal, mq *mockQuerier) *mockLedgerService {
+	return &mockLedgerService{
+		consumerID:   consumerID,
+		balance:      initialBalance,
+		reservations: make(map[string]decimal.Decimal),
+		mq:           mq,
+	}
+}
+
+func (m *mockLedgerService) Reserve(_ context.Context, consumerID uuid.UUID, amount decimal.Decimal, referenceID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if consumerID != m.consumerID {
+		return errors.New("unknown consumer")
+	}
+	if m.balance.LessThan(amount) {
+		return ledger.ErrInsufficientBalance
+	}
+	m.balance = m.balance.Sub(amount)
+	m.reservations[referenceID] = amount
+	if m.mq != nil {
+		m.mq.mu.Lock()
+		if a, ok := m.mq.accounts[consumerID]; ok {
+			bigFloat := new(big.Float).SetFloat64(m.balance.InexactFloat64())
+			intVal, _ := bigFloat.Int(nil)
+			a.Balance = pgtype.Numeric{Int: intVal, Exp: 0, Valid: true}
+			m.mq.accounts[consumerID] = a
+		}
+		m.mq.mu.Unlock()
+	}
+	return nil
+}
+
+func (m *mockLedgerService) Commit(_ context.Context, referenceID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.reservations[referenceID]; !ok {
+		return ledger.ErrReservationNotFound
+	}
+	delete(m.reservations, referenceID)
+	return nil
+}
+
+func (m *mockLedgerService) Release(_ context.Context, referenceID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	amount, ok := m.reservations[referenceID]
+	if !ok {
+		return ledger.ErrReservationNotFound
+	}
+	m.balance = m.balance.Add(amount)
+	delete(m.reservations, referenceID)
+	if m.mq != nil {
+		m.mq.mu.Lock()
+		if a, ok := m.mq.accounts[m.consumerID]; ok {
+			bigFloat := new(big.Float).SetFloat64(m.balance.InexactFloat64())
+			intVal, _ := bigFloat.Int(nil)
+			a.Balance = pgtype.Numeric{Int: intVal, Exp: 0, Valid: true}
+			m.mq.accounts[m.consumerID] = a
+		}
+		m.mq.mu.Unlock()
+	}
+	return nil
+}
+
+func (m *mockLedgerService) GetBalance() decimal.Decimal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.balance
+}
+
+// ---------------------------------------------------------------------------
+// Account / entry test helpers
+// ---------------------------------------------------------------------------
+
+func seedAccount(t *testing.T, mq *mockQuerier, ownerID uuid.UUID, balance decimal.Decimal) uuid.UUID {
+	t.Helper()
+	bigFloat := new(big.Float).SetFloat64(balance.InexactFloat64())
+	intVal, _ := bigFloat.Int(nil)
+	num := pgtype.Numeric{Int: intVal, Exp: 0, Valid: true}
+	a, err := mq.GetOrCreateAccount(context.Background(), ownerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Balance = num
+	mq.mu.Lock()
+	mq.accounts[ownerID] = a
+	mq.mu.Unlock()
+	return a.ID
+}
+
+func seedEntry(t *testing.T, mq *mockQuerier, accountID uuid.UUID, entryType repository.EntryType, amount decimal.Decimal) repository.LedgerEntry {
+	t.Helper()
+	bigFloat := new(big.Float).SetFloat64(amount.InexactFloat64())
+	intVal, _ := bigFloat.Int(nil)
+	amountNum := pgtype.Numeric{Int: intVal, Exp: 0, Valid: true}
+	e, err := mq.InsertLedgerEntry(context.Background(), repository.InsertLedgerEntryParams{
+		AccountID:    accountID,
+		EntryType:    entryType,
+		Amount:       amountNum,
+		BalanceAfter: amountNum,
+		Currency:     repository.CurrencyXLM,
+		Status:       repository.LedgerStatusCompleted,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
 }
 
 func TestHandler(t *testing.T) {
@@ -448,6 +777,7 @@ func newTestServerWithProviders() (*Server, uuid.UUID, *mockQuerier) {
 
 	providerSvc := provider.NewProviderService(mq)
 	endpointSvc := provider.NewEndpointService(mq)
+	accountSvc := accounts.NewService(mq)
 
 	keyValidator := &testKeyValidator{
 		key: repository.ApiKey{
@@ -471,7 +801,56 @@ func newTestServerWithProviders() (*Server, uuid.UUID, *mockQuerier) {
 		sessionValidator: &testSessionValidator{},
 		providerHandler:  provider.NewProviderHandler(providerSvc),
 		endpointHandler:  provider.NewEndpointHandler(endpointSvc),
+		accountHandler:   accounts.NewHandler(accountSvc),
 	}, userID, mq
+}
+
+// newTestServerWithAccounts creates a Server wired with the full mockQuerier,
+// a mockLedgerService, and the accounts handler. The consumerID is returned
+// for use with authenticatedRequest.
+func newTestServerWithAccounts(upstreamURL string, consumerID uuid.UUID, initialBalance decimal.Decimal) (*Server, *mockQuerier, *mockLedgerService) {
+	mq := newMockQuerier()
+	accountSvc := accounts.NewService(mq)
+
+	resolver := &mockResolver{baseURL: upstreamURL}
+	pxy := proxy.NewReverseProxy(resolver, slog.Default(), proxy.DefaultConfig())
+
+	mls := newMockLedgerService(consumerID, initialBalance, mq)
+
+	keyValidator := &testKeyValidator{
+		key: repository.ApiKey{
+			ID:        uuid.New(),
+			UserID:    consumerID,
+			KeyHash:   auth.HashKey("ca_test-key"),
+			Status:    repository.ApiKeyStatusActive,
+			CreatedAt: time.Now().UTC(),
+		},
+	}
+
+	return &Server{
+		proxy: pxy,
+		balance: middleware.BalanceCheckerFunc(func(ctx context.Context, ownerID uuid.UUID) (decimal.Decimal, error) {
+			if _, err := mq.GetOrCreateAccount(ctx, ownerID); err != nil {
+				return decimal.Zero, fmt.Errorf("get or create account: %w", err)
+			}
+			bal, err := mq.GetAccountBalance(ctx, ownerID)
+			if err != nil {
+				return decimal.Zero, errors.New("account not found")
+			}
+			f64, err := bal.Float64Value()
+			if err != nil {
+				return decimal.Zero, err
+			}
+			return decimal.NewFromFloat(f64.Float64), nil
+		}),
+		usageRepo: middleware.UsageEventRepositoryFunc(func(_ context.Context, _ repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error) {
+			return repository.CreateUsageEventRow{}, nil
+		}),
+		ledger:           mls,
+		keyValidator:     keyValidator,
+		sessionValidator: &testSessionValidator{},
+		accountHandler:   accounts.NewHandler(accountSvc),
+	}, mq, mls
 }
 
 func newTestServer(upstreamURL string, balance decimal.Decimal) *Server {
@@ -499,6 +878,401 @@ func newTestServer(upstreamURL string, balance decimal.Decimal) *Server {
 		ledger:           &gateway.LedgerServiceFunc{},
 		keyValidator:     keyValidator,
 		sessionValidator: &testSessionValidator{},
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Gateway ledger lifecycle tests  (Issue #108)
+// ---------------------------------------------------------------------------
+
+func TestGatewayLifecycle_BalanceDecreases(t *testing.T) {
+	consumerID := uuid.New()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer upstream.Close()
+
+	s, mq, mls := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(100))
+	seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
+
+	handler := s.RegisterRoutes()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req.Header.Set("Authorization", "Bearer ca_test-key")
+	req = req.WithContext(
+		gatewaycontext.SetPricingInfo(
+			gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+				ConsumerID: consumerID.String(),
+			}),
+			gatewaycontext.PricingInfo{
+				EndpointID:  uuid.NewString(),
+				ProviderID:  uuid.NewString(),
+				PriceAmount: decimal.NewFromFloat(10),
+				Currency:    gatewaycontext.CurrencyXLM,
+			},
+		),
+	)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	expectedBalance := decimal.NewFromFloat(90)
+	if !mls.GetBalance().Equal(expectedBalance) {
+		t.Fatalf("expected balance %s, got %s", expectedBalance, mls.GetBalance())
+	}
+}
+
+func TestGatewayLifecycle_UpstreamFailure(t *testing.T) {
+	consumerID := uuid.New()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+
+	s, mq, mls := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(100))
+	seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
+
+	handler := s.RegisterRoutes()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req.Header.Set("Authorization", "Bearer ca_test-key")
+	req = req.WithContext(
+		gatewaycontext.SetPricingInfo(
+			gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+				ConsumerID: consumerID.String(),
+			}),
+			gatewaycontext.PricingInfo{
+				EndpointID:  uuid.NewString(),
+				ProviderID:  uuid.NewString(),
+				PriceAmount: decimal.NewFromFloat(10),
+				Currency:    gatewaycontext.CurrencyXLM,
+			},
+		),
+	)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	expectedBalance := decimal.NewFromFloat(100)
+	if !mls.GetBalance().Equal(expectedBalance) {
+		t.Fatalf("expected balance %s (released after failure), got %s", expectedBalance, mls.GetBalance())
+	}
+}
+
+func TestGatewayInsufficientBalance_NoEntries(t *testing.T) {
+	consumerID := uuid.New()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	s, mq, _ := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(5))
+	accountID := seedAccount(t, mq, consumerID, decimal.NewFromFloat(5))
+
+	handler := s.RegisterRoutes()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req.Header.Set("Authorization", "Bearer ca_test-key")
+	req = req.WithContext(
+		gatewaycontext.SetPricingInfo(
+			gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
+				ConsumerID: consumerID.String(),
+			}),
+			gatewaycontext.PricingInfo{
+				EndpointID:  uuid.NewString(),
+				ProviderID:  uuid.NewString(),
+				PriceAmount: decimal.NewFromFloat(10),
+				Currency:    gatewaycontext.CurrencyXLM,
+			},
+		),
+	)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	total, err := mq.CountLedgerEntriesByAccount(context.Background(), accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 0 {
+		t.Fatalf("expected 0 ledger entries, got %d", total)
+	}
+}
+
+func TestGatewayLifecycle_BalanceEndpoint(t *testing.T) {
+	consumerID := uuid.New()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer upstream.Close()
+
+	s, mq, _ := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(100))
+	seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
+
+	handler := s.RegisterRoutes()
+
+	gatewayReq := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	gatewayReq.Header.Set("Authorization", "Bearer ca_test-key")
+	gatewayReq = gatewayReq.WithContext(
+		gatewaycontext.SetPricingInfo(
+			gatewaycontext.SetConsumerInfo(gatewayReq.Context(), gatewaycontext.ConsumerInfo{
+				ConsumerID: consumerID.String(),
+			}),
+			gatewaycontext.PricingInfo{
+				EndpointID:  uuid.NewString(),
+				ProviderID:  uuid.NewString(),
+				PriceAmount: decimal.NewFromFloat(10),
+				Currency:    gatewaycontext.CurrencyXLM,
+			},
+		),
+	)
+
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, gatewayReq)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("gateway request expected 200, got %d. Body: %s", rec1.Code, rec1.Body.String())
+	}
+
+	acctReq := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/me", nil)
+	acctReq = authenticatedRequest(acctReq, consumerID.String())
+
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, acctReq)
+
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 from account endpoint, got %d. Body: %s", rec2.Code, rec2.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(rec2.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	balanceStr, ok := body["balance"].(string)
+	if !ok {
+		t.Fatalf("expected balance field as string, got %T", body["balance"])
+	}
+	if balanceStr != "90" {
+		t.Fatalf("expected balance 90, got %s", balanceStr)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Account HTTP handler tests  (Issue #112)
+// ---------------------------------------------------------------------------
+
+func TestAccountHandler_GetAccount_Success(t *testing.T) {
+	consumerID := uuid.New()
+	s, mq, _ := newTestServerWithAccounts("http://example.com", consumerID, decimal.NewFromFloat(50))
+	seedAccount(t, mq, consumerID, decimal.NewFromFloat(50))
+
+	handler := s.RegisterRoutes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/me", nil)
+	req = authenticatedRequest(req, consumerID.String())
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body["balance"] != "50" {
+		t.Fatalf("expected balance 50, got %v", body["balance"])
+	}
+	if body["currency"] != "XLM" {
+		t.Fatalf("expected currency XLM, got %v", body["currency"])
+	}
+}
+
+func TestAccountHandler_GetAccount_Unauthenticated(t *testing.T) {
+	consumerID := uuid.New()
+	s, _, _ := newTestServerWithAccounts("http://example.com", consumerID, decimal.NewFromFloat(50))
+
+	handler := s.RegisterRoutes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/me", nil)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body["error"] != "authentication required" {
+		t.Fatalf("expected authentication required error, got %v", body["error"])
+	}
+}
+
+func TestAccountHandler_GetAccount_NotFound(t *testing.T) {
+	noAccountID := uuid.New()
+	s, _, _ := newTestServerWithAccounts("http://example.com", noAccountID, decimal.NewFromFloat(0))
+
+	handler := s.RegisterRoutes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/me", nil)
+	req = authenticatedRequest(req, noAccountID.String())
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body["error"] != "account not found" {
+		t.Fatalf("expected account not found error, got %v", body["error"])
+	}
+}
+
+func TestAccountHandler_ListEntries_Success(t *testing.T) {
+	consumerID := uuid.New()
+	s, mq, _ := newTestServerWithAccounts("http://example.com", consumerID, decimal.NewFromFloat(100))
+	accountID := seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
+
+	seedEntry(t, mq, accountID, repository.EntryTypeDeduction, decimal.NewFromFloat(10))
+	seedEntry(t, mq, accountID, repository.EntryTypeDeduction, decimal.NewFromFloat(20))
+	seedEntry(t, mq, accountID, repository.EntryTypeDeposit, decimal.NewFromFloat(50))
+
+	handler := s.RegisterRoutes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/me/entries", nil)
+	req = authenticatedRequest(req, consumerID.String())
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	total, ok := body["total"].(float64)
+	if !ok || int(total) != 3 {
+		t.Fatalf("expected total 3, got %v", body["total"])
+	}
+	entries, ok := body["entries"].([]any)
+	if !ok || len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
+	}
+}
+
+func TestAccountHandler_ListEntries_Filtered(t *testing.T) {
+	consumerID := uuid.New()
+	s, mq, _ := newTestServerWithAccounts("http://example.com", consumerID, decimal.NewFromFloat(100))
+	accountID := seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
+
+	seedEntry(t, mq, accountID, repository.EntryTypeDeduction, decimal.NewFromFloat(10))
+	seedEntry(t, mq, accountID, repository.EntryTypeDeduction, decimal.NewFromFloat(20))
+	seedEntry(t, mq, accountID, repository.EntryTypeDeposit, decimal.NewFromFloat(50))
+
+	handler := s.RegisterRoutes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/me/entries?type=deduction", nil)
+	req = authenticatedRequest(req, consumerID.String())
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	total, ok := body["total"].(float64)
+	if !ok || int(total) != 2 {
+		t.Fatalf("expected total 2, got %v", body["total"])
+	}
+	entries, ok := body["entries"].([]any)
+	if !ok || len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	for _, entry := range entries {
+		e, ok := entry.(map[string]any)
+		if !ok {
+			t.Fatalf("expected map entry, got %T", entry)
+		}
+		if e["entry_type"] != "deduction" {
+			t.Fatalf("expected entry_type deduction, got %v", e["entry_type"])
+		}
+	}
+}
+
+func TestAccountHandler_GetEntry_Success(t *testing.T) {
+	consumerID := uuid.New()
+	s, mq, _ := newTestServerWithAccounts("http://example.com", consumerID, decimal.NewFromFloat(100))
+	accountID := seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
+
+	seeded := seedEntry(t, mq, accountID, repository.EntryTypeDeduction, decimal.NewFromFloat(10))
+
+	handler := s.RegisterRoutes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/me/entries/"+seeded.ID.String(), nil)
+	req = authenticatedRequest(req, consumerID.String())
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body["entry_type"] != "deduction" {
+		t.Fatalf("expected entry_type deduction, got %v", body["entry_type"])
+	}
+}
+
+func TestAccountHandler_GetEntry_NotFound(t *testing.T) {
+	consumerA := uuid.New()
+	consumerB := uuid.New()
+	s, mq, _ := newTestServerWithAccounts("http://example.com", consumerA, decimal.NewFromFloat(100))
+	accountA := seedAccount(t, mq, consumerA, decimal.NewFromFloat(100))
+
+	seeded := seedEntry(t, mq, accountA, repository.EntryTypeDeduction, decimal.NewFromFloat(10))
+
+	handler := s.RegisterRoutes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/me/entries/"+seeded.ID.String(), nil)
+	req = authenticatedRequest(req, consumerB.String())
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 }
 
