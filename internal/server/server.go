@@ -15,6 +15,7 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/shopspring/decimal"
 
+	"castellan/internal/accounts"
 	"castellan/internal/auth"
 	"castellan/internal/database"
 	"castellan/internal/gateway"
@@ -40,6 +41,7 @@ type Server struct {
 	sessionHandler   *auth.SessionHandler
 	providerHandler  *provider.Handler
 	endpointHandler  *provider.EndpointHandler
+	accountHandler   *accounts.Handler
 }
 
 // NewServer creates an http.Server with all dependencies wired: database pool,
@@ -102,6 +104,7 @@ func NewServer() (*http.Server, error) {
 
 	providerSvc := provider.NewProviderService(queries)
 	endpointSvc := provider.NewEndpointService(queries)
+	accountSvc := accounts.NewService(queries)
 
 	srv := &Server{
 		port:             port,
@@ -116,6 +119,7 @@ func NewServer() (*http.Server, error) {
 		sessionHandler:   auth.NewSessionHandler(sessionSvc),
 		providerHandler:  provider.NewProviderHandler(providerSvc),
 		endpointHandler:  provider.NewEndpointHandler(endpointSvc),
+		accountHandler:   accounts.NewHandler(accountSvc),
 	}
 
 	httpServer := &http.Server{
