@@ -68,6 +68,10 @@ func NewServer() (*http.Server, error) {
 	}
 
 	balancer := middleware.BalanceCheckerFunc(func(ctx context.Context, ownerID uuid.UUID) (decimal.Decimal, error) {
+		if _, err := queries.GetOrCreateAccount(ctx, ownerID); err != nil {
+			return decimal.Zero, fmt.Errorf("get or create account: %w", err)
+		}
+
 		balance, err := queries.GetAccountBalance(ctx, ownerID)
 		if err != nil {
 			return decimal.Zero, fmt.Errorf("balance unavailable: %w", err)

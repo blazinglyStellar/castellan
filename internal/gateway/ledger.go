@@ -50,22 +50,3 @@ func (f *LedgerServiceFunc) Release(ctx context.Context, referenceID string) err
 	}
 	return f.ReleaseFunc(ctx, referenceID)
 }
-
-// NoopLedger is a LedgerService that performs no operations. Used as a default
-// until a real ledger implementation is wired.
-type NoopLedger struct{}
-
-// Reserve performs a no-op reservation.
-func (NoopLedger) Reserve(_ context.Context, _ uuid.UUID, _ decimal.Decimal, _ string) error {
-	return nil
-}
-
-// Commit performs a no-op commit.
-func (NoopLedger) Commit(_ context.Context, _ string) error {
-	return nil
-}
-
-// Release performs a no-op release.
-func (NoopLedger) Release(_ context.Context, _ string) error {
-	return nil
-}
