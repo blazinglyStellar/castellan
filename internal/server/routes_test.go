@@ -466,7 +466,7 @@ func newTestServerWithProviders() (*Server, uuid.UUID, *mockQuerier) {
 		usageRepo: middleware.UsageEventRepositoryFunc(func(_ context.Context, _ repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error) {
 			return repository.CreateUsageEventRow{}, nil
 		}),
-		ledger:           gateway.NoopLedger{},
+		ledger:           &gateway.LedgerServiceFunc{},
 		keyValidator:     keyValidator,
 		sessionValidator: &testSessionValidator{},
 		providerHandler:  provider.NewProviderHandler(providerSvc),
@@ -496,7 +496,7 @@ func newTestServer(upstreamURL string, balance decimal.Decimal) *Server {
 		usageRepo: middleware.UsageEventRepositoryFunc(func(_ context.Context, _ repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error) {
 			return repository.CreateUsageEventRow{}, nil
 		}),
-		ledger:           gateway.NoopLedger{},
+		ledger:           &gateway.LedgerServiceFunc{},
 		keyValidator:     keyValidator,
 		sessionValidator: &testSessionValidator{},
 	}
