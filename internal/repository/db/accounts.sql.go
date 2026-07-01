@@ -12,6 +12,27 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getAccountByIDForUpdate = `-- name: GetAccountByIDForUpdate :one
+SELECT id, owner_id, balance, currency, created_at, updated_at FROM accounts
+WHERE id = $1
+LIMIT 1
+FOR UPDATE
+`
+
+func (q *Queries) GetAccountByIDForUpdate(ctx context.Context, id uuid.UUID) (Account, error) {
+	row := q.db.QueryRow(ctx, getAccountByIDForUpdate, id)
+	var i Account
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.Balance,
+		&i.Currency,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getAccountByOwnerID = `-- name: GetAccountByOwnerID :one
 SELECT id, owner_id, balance, currency, created_at, updated_at FROM accounts
 WHERE owner_id = $1
@@ -20,6 +41,27 @@ LIMIT 1
 
 func (q *Queries) GetAccountByOwnerID(ctx context.Context, ownerID uuid.UUID) (Account, error) {
 	row := q.db.QueryRow(ctx, getAccountByOwnerID, ownerID)
+	var i Account
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.Balance,
+		&i.Currency,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getAccountForUpdate = `-- name: GetAccountForUpdate :one
+SELECT id, owner_id, balance, currency, created_at, updated_at FROM accounts
+WHERE owner_id = $1
+LIMIT 1
+FOR UPDATE
+`
+
+func (q *Queries) GetAccountForUpdate(ctx context.Context, ownerID uuid.UUID) (Account, error) {
+	row := q.db.QueryRow(ctx, getAccountForUpdate, ownerID)
 	var i Account
 	err := row.Scan(
 		&i.ID,
