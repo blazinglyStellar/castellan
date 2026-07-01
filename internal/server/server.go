@@ -18,6 +18,7 @@ import (
 	"castellan/internal/auth"
 	"castellan/internal/database"
 	"castellan/internal/gateway"
+	"castellan/internal/ledger"
 	"castellan/internal/provider"
 	"castellan/internal/proxy"
 	"castellan/internal/repository/db"
@@ -108,7 +109,7 @@ func NewServer() (*http.Server, error) {
 		proxy:            pxy,
 		balance:          balancer,
 		usageRepo:        usageRepo,
-		ledger:           gateway.NoopLedger{},
+		ledger:           ledger.NewPostgresLedger(databaseService.Pool()),
 		keyHandler:       auth.NewKeyHandler(keySvc),
 		keyValidator:     keyValidator,
 		sessionValidator: sessionValidator,

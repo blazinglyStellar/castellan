@@ -9,6 +9,18 @@ SELECT * FROM accounts
 WHERE owner_id = $1
 LIMIT 1;
 
+-- name: GetAccountForUpdate :one
+SELECT * FROM accounts
+WHERE owner_id = $1
+LIMIT 1
+FOR UPDATE;
+
+-- name: GetAccountByIDForUpdate :one
+SELECT * FROM accounts
+WHERE id = $1
+LIMIT 1
+FOR UPDATE;
+
 -- name: UpdateAccountBalance :one
 UPDATE accounts
 SET balance = $2, updated_at = now()

@@ -15,7 +15,7 @@ Usage-based API monetization gateway (Stellar settlement, PostgreSQL ledger, Red
 | `internal/repository/db/` | **sqlc-generated** (package `repository`), checked in |
 | `internal/repository/query/` | sqlc source `.sql` files |
 | `internal/provider/` | `DBResolver` — resolves upstream base URL |
-| `internal/gateway/` | `LedgerService` interface (only `NoopLedger{}` wired) |
+| `internal/gateway/` | `LedgerService` interface |
 | `migrations/` | Goose SQL migrations (10 tables, 10 enums in `000001_init.sql`) |
 | `internal/gateway/context/` | Request-scoped context values (consumer, pricing, metrics) |
 
@@ -65,7 +65,7 @@ Middleware uses `func(http.Handler) http.Handler`. Function adapters (`BalanceCh
 - **`PORT` has no default fallback.** `strconv.Atoi(os.Getenv("PORT"))` — if unset/empty, Atoi returns 0 → random port. `.env.example` sets `PORT=8080` but the app doesn't default to it.
 - **CI integration-testing.yml is broken** in two ways: (1) runs `./integration/...` — that directory doesn't exist; Makefile's paths are correct. (2) passes `DB_*` env vars but code reads `BLUEPRINT_DB_*`. Both must be fixed for CI to pass.
 - **`internal/database/database_test.go`** uses testcontainers but has NO `//go:build integration` tag, unlike every other testcontainers test. `make test` will try Docker.
-- **NoopLedger** — real `LedgerService` not implemented. Only `NoopLedger{}` wired in `server.go` (line 85).
+- **NoopLedger** — legacy stub still used in `routes_test.go`; production wiring uses `ledger.NewPostgresLedger`.
 - **No auth middleware** — API key auth documented but not wired. Integration tests inject mock auth.
 - **No Redis** — docker-compose has no Redis service; no rate-limit code exists.
 - **sqlc filename typo:** `internal/repository/db/getAccountBalaance.sql.go` (double 'a'). Function `GetAccountBalance` is correct.
