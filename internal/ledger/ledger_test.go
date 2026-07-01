@@ -178,7 +178,7 @@ func TestReserveBalance_Success(t *testing.T) {
 	ctx := context.Background()
 	seed := seedTestData(ctx, t, "100.00")
 
-	repo := ledger.NewRepository(testPool)
+	repo := ledger.NewPostgresRepository(testPool)
 	requestID := uuid.NewString()
 
 	result, err := repo.ReserveBalance(ctx, seed.UserID, decimal.NewFromFloat(50), requestID)
@@ -213,7 +213,7 @@ func TestReserveBalance_InsufficientBalance(t *testing.T) {
 	ctx := context.Background()
 	seed := seedTestData(ctx, t, "10.00")
 
-	repo := ledger.NewRepository(testPool)
+	repo := ledger.NewPostgresRepository(testPool)
 	requestID := uuid.NewString()
 
 	_, err := repo.ReserveBalance(ctx, seed.UserID, decimal.NewFromFloat(50), requestID)
@@ -236,7 +236,7 @@ func TestReserveBalance_AutoCreateAccount(t *testing.T) {
 	ctx := context.Background()
 	userID := seedUserOnly(ctx, t)
 
-	repo := ledger.NewRepository(testPool)
+	repo := ledger.NewPostgresRepository(testPool)
 	requestID := uuid.NewString()
 
 	_, err := repo.ReserveBalance(ctx, userID, decimal.NewFromFloat(50), requestID)
@@ -259,7 +259,7 @@ func TestReserveBalance_Concurrent(t *testing.T) {
 	ctx := context.Background()
 	seed := seedTestData(ctx, t, "100.00")
 
-	repo := ledger.NewRepository(testPool)
+	repo := ledger.NewPostgresRepository(testPool)
 	const goroutines = 10
 	const amount = 5.0
 
@@ -304,7 +304,7 @@ func TestConfirmReservation(t *testing.T) {
 	ctx := context.Background()
 	seed := seedTestData(ctx, t, "100.00")
 
-	repo := ledger.NewRepository(testPool)
+	repo := ledger.NewPostgresRepository(testPool)
 	requestID := uuid.NewString()
 
 	_, err := repo.ReserveBalance(ctx, seed.UserID, decimal.NewFromFloat(30), requestID)
@@ -359,7 +359,7 @@ func TestConfirmReservation(t *testing.T) {
 func TestConfirmReservation_NotFound(t *testing.T) {
 	ctx := context.Background()
 
-	repo := ledger.NewRepository(testPool)
+	repo := ledger.NewPostgresRepository(testPool)
 	err := repo.ConfirmReservation(ctx, uuid.NewString())
 	if err != ledger.ErrReservationNotFound {
 		t.Fatalf("expected ErrReservationNotFound, got %v", err)
@@ -370,7 +370,7 @@ func TestConfirmReservation_NotPending(t *testing.T) {
 	ctx := context.Background()
 	seed := seedTestData(ctx, t, "100.00")
 
-	repo := ledger.NewRepository(testPool)
+	repo := ledger.NewPostgresRepository(testPool)
 	requestID := uuid.NewString()
 
 	_, err := repo.ReserveBalance(ctx, seed.UserID, decimal.NewFromFloat(30), requestID)
@@ -393,7 +393,7 @@ func TestReleaseReservation(t *testing.T) {
 	ctx := context.Background()
 	seed := seedTestData(ctx, t, "100.00")
 
-	repo := ledger.NewRepository(testPool)
+	repo := ledger.NewPostgresRepository(testPool)
 	requestID := uuid.NewString()
 
 	_, err := repo.ReserveBalance(ctx, seed.UserID, decimal.NewFromFloat(30), requestID)
@@ -448,7 +448,7 @@ func TestReleaseReservation(t *testing.T) {
 func TestReleaseReservation_NotFound(t *testing.T) {
 	ctx := context.Background()
 
-	repo := ledger.NewRepository(testPool)
+	repo := ledger.NewPostgresRepository(testPool)
 	err := repo.ReleaseReservation(ctx, uuid.NewString())
 	if err != ledger.ErrReservationNotFound {
 		t.Fatalf("expected ErrReservationNotFound, got %v", err)
@@ -459,7 +459,7 @@ func TestGetOrCreateAccount(t *testing.T) {
 	ctx := context.Background()
 	userID := seedUserOnly(ctx, t)
 
-	repo := ledger.NewRepository(testPool)
+	repo := ledger.NewPostgresRepository(testPool)
 
 	account, err := repo.GetOrCreateAccount(ctx, userID)
 	if err != nil {
@@ -489,7 +489,7 @@ func TestListEntriesByAccount(t *testing.T) {
 	ctx := context.Background()
 	seed := seedTestData(ctx, t, "100.00")
 
-	repo := ledger.NewRepository(testPool)
+	repo := ledger.NewPostgresRepository(testPool)
 
 	firstID := uuid.NewString()
 	secondID := uuid.NewString()

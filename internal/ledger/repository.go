@@ -14,12 +14,15 @@ import (
 	"castellan/internal/repository/db"
 )
 
-type Repository struct {
+// Compile-time check that *PostgresRepository implements Repository.
+var _ Repository = (*PostgresRepository)(nil)
+
+type PostgresRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewRepository(pool *pgxpool.Pool) *Repository {
-	return &Repository{pool: pool}
+func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
+	return &PostgresRepository{pool: pool}
 }
 
 func numericToDecimal(n pgtype.Numeric) (decimal.Decimal, error) {
@@ -62,7 +65,7 @@ type ReserveBalanceResult struct {
 	Entry   repository.LedgerEntry
 }
 
-func (r *Repository) ReserveBalance(
+func (r *PostgresRepository) ReserveBalance(
 	ctx context.Context,
 	ownerID uuid.UUID,
 	amount decimal.Decimal,
@@ -145,7 +148,7 @@ func (r *Repository) ReserveBalance(
 	return &ReserveBalanceResult{Account: account, Entry: entry}, nil
 }
 
-func (r *Repository) ConfirmReservation(ctx context.Context, requestID string) error {
+func (r *PostgresRepository) ConfirmReservation(ctx context.Context, requestID string) error {
 	refUUID, err := stringToUUID(requestID)
 	if err != nil {
 		return fmt.Errorf("invalid request id: %w", err)
@@ -205,7 +208,7 @@ func (r *Repository) ConfirmReservation(ctx context.Context, requestID string) e
 	return nil
 }
 
-func (r *Repository) ReleaseReservation(ctx context.Context, requestID string) error {
+func (r *PostgresRepository) ReleaseReservation(ctx context.Context, requestID string) error {
 	refUUID, err := stringToUUID(requestID)
 	if err != nil {
 		return fmt.Errorf("invalid request id: %w", err)
@@ -293,7 +296,7 @@ func (r *Repository) ReleaseReservation(ctx context.Context, requestID string) e
 	return nil
 }
 
-func (r *Repository) GetOrCreateAccount(ctx context.Context, ownerID uuid.UUID) (repository.Account, error) {
+func (r *PostgresRepository) GetOrCreateAccount(ctx context.Context, ownerID uuid.UUID) (repository.Account, error) {
 	q := repository.New(r.pool)
 	account, err := q.GetOrCreateAccount(ctx, ownerID)
 	if err != nil {
@@ -303,7 +306,7 @@ func (r *Repository) GetOrCreateAccount(ctx context.Context, ownerID uuid.UUID) 
 	return account, nil
 }
 
-func (r *Repository) ListEntriesByAccount(
+func (r *PostgresRepository) ListEntriesByAccount(
 	ctx context.Context,
 	accountID uuid.UUID,
 	limit, offset int32,
