@@ -129,6 +129,59 @@ Cobra-command background worker running on a configurable interval (default ~5 m
 
 ---
 
+## Ledger & Prepaid Balances
+
+The ledger is Castellan's internal accounting system. Every consumer has a
+prepaid balance stored in the `accounts` table (`NUMERIC(20,10)`, default
+currency `XLM`). Balance increases come from Stellar deposits (see Deposit
+Watcher); decreases happen per-request through the atomic
+reserve-commit-release flow.
+
+### Reserve / Commit / Release lifecycle
+
+Each gateway request follows a three-phase ledger flow:
+
+| Phase | Timing | Action |
+|---|---|---|
+| **Reserve** | Before upstream proxy | Atomically deduct `price_amount` from balance inside a DB transaction. Insert a `ledger_entries` row with `entry_type='reservation'`, `status='pending'`. If balance < amount, the request is rejected before the upstream call. |
+| **Commit** | After a 2xx upstream response | Mark the reservation `completed`. Insert a `deduction` entry — no additional balance change (the deduction was already accounted at reserve time). |
+| **Release** | After a non-2xx upstream response | Credit the held amount back to the balance. Mark the reservation `cancelled`. Insert a `refund` entry. |
+
+Post-response ledger operations (`Commit` / `Release`) run in a
+`context.WithoutCancel` context so they complete even if the client
+disconnects after receiving the response. Errors during commit or release
+are logged but do not block the response to the client.
+
+### Account endpoints
+
+| Action | Method + Path | Description |
+|---|---|---|
+| Get account | `GET /api/v1/accounts/me` | Returns `{id, balance, currency, created_at, updated_at}` for the authenticated user |
+| List entries | `GET /api/v1/accounts/me/entries` | Paginated ledger entries. Query params: `?type=` (`deposit`, `reservation`, `deduction`, `refund`, `settlement`), `?limit=` (default 50, max 100), `?offset=` |
+| Get entry | `GET /api/v1/accounts/me/entries/{id}` | Single ledger entry by UUID (scoped to the authenticated owner) |
+
+All three require `Authorization: Bearer ca_...` or `st_...`.
+
+### Security: amounts as strings
+
+Monetary amounts in API responses are serialised as **string-formatted
+decimals** (e.g. `"0.50"`) via `decimal.Decimal.StringFixed()`, never as
+raw `float64` or `shopspring/decimal` JSON output. This prevents
+floating-point precision leaks and ensures exact representation across
+all clients.
+
+### Account auto-creation
+
+Accounts are **auto-created** on the first gateway request for a
+consumer. The `GetOrCreateAccount` SQL upsert fires during the
+`BalanceCheck` middleware: if no `accounts` row exists for the owner, one
+is inserted with `balance = 0` and `currency = 'XLM'`. The `Reserve`
+method also calls `GetOrCreateAccount` as a safety net inside its
+transaction. The `/api/v1/accounts/me` endpoint does **not** auto-create —
+it returns `404` if no account exists yet.
+
+---
+
 ## Authentication
 
 Castellan uses two credential types, both carried in the `Authorization`
