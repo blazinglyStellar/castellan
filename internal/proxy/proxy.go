@@ -257,7 +257,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Proxy) director(outReq *http.Request) {
-	providerID, restPath, ok := parseProviderPath(outReq.URL.Path)
+	providerID, restPath, ok := ParseProviderPath(outReq.URL.Path)
 	if !ok {
 		ctx := context.WithValue(outReq.Context(), keyDirectorErr, errMissingProvider)
 		*outReq = *outReq.WithContext(ctx)
@@ -342,7 +342,7 @@ func (p *Proxy) errorHandler(w http.ResponseWriter, r *http.Request, err error) 
 	writeJSON(r.Context(), w, http.StatusBadGateway, map[string]string{"error": "upstream request failed"})
 }
 
-func parseProviderPath(path string) (providerID, rest string, ok bool) {
+func ParseProviderPath(path string) (providerID, rest string, ok bool) {
 	const prefix = "/api/gateway/"
 	const splitParts = 2
 

@@ -292,7 +292,7 @@ func TestParseProviderPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			gotProviderID, gotRest, gotOK := parseProviderPath(tt.path)
+			gotProviderID, gotRest, gotOK := ParseProviderPath(tt.path)
 
 			if gotProviderID != tt.wantProviderID {
 				t.Errorf("expected providerID %q, got %q", tt.wantProviderID, gotProviderID)

@@ -47,7 +47,7 @@ func writeInternalServerError(w http.ResponseWriter) error {
 	w.WriteHeader(http.StatusInternalServerError)
 
 	if err := json.NewEncoder(w).Encode(map[string]string{
-		"error": internalServerErrorMessage,
+		errKey: internalServerErrorMessage,
 	}); err != nil {
 		return fmt.Errorf("encode recovery response: %w", err)
 	}
