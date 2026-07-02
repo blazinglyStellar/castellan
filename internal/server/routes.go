@@ -50,13 +50,14 @@ func (s *Server) RegisterRoutes() http.Handler {
 }
 
 // GatewayRoutes registers POST /api/gateway/ with the middleware chain:
-// AuthCheck → BalanceCheck → MaxBodySize → Reservation → UsageCapture → Proxy.
+// AuthCheck → PricingResolver → BalanceCheck → MaxBodySize → Reservation → UsageCapture → Proxy.
 func (s *Server) GatewayRoutes(mux *http.ServeMux) {
 	handler := http.Handler(s.proxy)
 	handler = middleware.UsageCapture(s.usageRepo, slog.Default())(handler)
 	handler = middleware.Reservation(s.ledger)(handler)
 	handler = middleware.MaxBodySize(middleware.MaxBodySizeFromEnv())(handler)
 	handler = middleware.BalanceCheck(s.balance)(handler)
+	handler = middleware.PricingResolver(s.pricingResolver)(handler)
 	handler = middleware.AuthCheck(s.keyValidator, s.sessionValidator)(handler)
 
 	mux.Handle("POST /api/gateway/", handler)

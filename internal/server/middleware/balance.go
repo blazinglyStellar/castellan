@@ -35,7 +35,7 @@ func BalanceCheck(balancer BalanceChecker) func(http.Handler) http.Handler {
 			consumer := gatewaycontext.GetConsumerInfo(r.Context())
 			if consumer.ConsumerID == "" {
 				slog.ErrorContext(r.Context(), "missing consumer context")
-				writeJSON(r.Context(), w, http.StatusInternalServerError, map[string]string{"error": "missing consumer context"})
+				writeJSON(r.Context(), w, http.StatusInternalServerError, map[string]string{errKey: "missing consumer context"})
 
 				return
 			}
@@ -43,7 +43,7 @@ func BalanceCheck(balancer BalanceChecker) func(http.Handler) http.Handler {
 			pricing := gatewaycontext.GetPricingInfo(r.Context())
 			if pricing.EndpointID == "" {
 				slog.ErrorContext(r.Context(), "missing pricing context")
-				writeJSON(r.Context(), w, http.StatusInternalServerError, map[string]string{"error": "missing pricing context"})
+				writeJSON(r.Context(), w, http.StatusInternalServerError, map[string]string{errKey: "missing pricing context"})
 
 				return
 			}
@@ -55,7 +55,7 @@ func BalanceCheck(balancer BalanceChecker) func(http.Handler) http.Handler {
 					slog.String("consumer_id", consumer.ConsumerID),
 					slog.String("error", err.Error()),
 				)
-				writeJSON(r.Context(), w, http.StatusInternalServerError, map[string]string{"error": "invalid consumer identity"})
+				writeJSON(r.Context(), w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
 
 				return
 			}
@@ -67,14 +67,14 @@ func BalanceCheck(balancer BalanceChecker) func(http.Handler) http.Handler {
 					slog.String("consumer_id", consumer.ConsumerID),
 					slog.String("error", err.Error()),
 				)
-				writeJSON(r.Context(), w, http.StatusInternalServerError, map[string]string{"error": "balance unavailable"})
+				writeJSON(r.Context(), w, http.StatusInternalServerError, map[string]string{errKey: "balance unavailable"})
 
 				return
 			}
 
 			if balance.Cmp(pricing.PriceAmount) < 0 {
 				writeJSON(r.Context(), w, http.StatusPaymentRequired, map[string]string{
-					"error":    "insufficient_balance",
+					errKey:     "insufficient_balance",
 					"balance":  balance.StringFixed(balancePrecision),
 					"required": pricing.PriceAmount.StringFixed(balancePrecision),
 				})

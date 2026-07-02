@@ -167,7 +167,7 @@ func (m *mockQuerier) GetEndpointByProviderRouteMethod(_ context.Context, arg re
 			return e, nil
 		}
 	}
-	return repository.ApiEndpoint{}, errors.New("not found")
+	return repository.ApiEndpoint{}, pgx.ErrNoRows
 }
 
 func (m *mockQuerier) CreateEndpoint(_ context.Context, arg repository.CreateEndpointParams) (repository.ApiEndpoint, error) {
@@ -662,25 +662,24 @@ func TestGatewayChain_Success(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	s := newTestServer(upstream.URL, decimal.NewFromFloat(100))
+	s, mq := newTestServer(upstream.URL, decimal.NewFromFloat(100))
+
+	providerID := uuid.New()
+	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID: providerID,
+		Route:      "/echo", Method: http.MethodPost,
+		PriceAmount: testPriceAmount(),
+		Currency:    repository.CurrencyXLM,
+		Status:      repository.EndpointStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	handler := s.RegisterRoutes()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
-	req = req.WithContext(
-		gatewaycontext.SetPricingInfo(
-			gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
-				ConsumerID: uuid.NewString(),
-			}),
-			gatewaycontext.PricingInfo{
-				EndpointID:  uuid.NewString(),
-				ProviderID:  uuid.NewString(),
-				PriceAmount: decimal.NewFromFloat(1),
-				Currency:    gatewaycontext.CurrencyXLM,
-			},
-		),
-	)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -696,25 +695,24 @@ func TestGatewayChain_InsufficientBalance(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	s := newTestServer(upstream.URL, decimal.NewFromFloat(1))
+	s, mq := newTestServer(upstream.URL, decimal.NewFromFloat(1))
+
+	providerID := uuid.New()
+	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID: providerID,
+		Route:      "/echo", Method: http.MethodPost,
+		PriceAmount: testPriceAmount(),
+		Currency:    repository.CurrencyXLM,
+		Status:      repository.EndpointStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	handler := s.RegisterRoutes()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
-	req = req.WithContext(
-		gatewaycontext.SetPricingInfo(
-			gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
-				ConsumerID: uuid.NewString(),
-			}),
-			gatewaycontext.PricingInfo{
-				EndpointID:  uuid.NewString(),
-				ProviderID:  uuid.NewString(),
-				PriceAmount: decimal.NewFromFloat(10),
-				Currency:    gatewaycontext.CurrencyXLM,
-			},
-		),
-	)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -730,7 +728,7 @@ func TestGatewayChain_MissingConsumerContext(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	s := newTestServer(upstream.URL, decimal.NewFromFloat(100))
+	s, _ := newTestServer(upstream.URL, decimal.NewFromFloat(100))
 
 	handler := s.RegisterRoutes()
 
@@ -740,8 +738,10 @@ func TestGatewayChain_MissingConsumerContext(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d. Body: %s", rec.Code, rec.Body.String())
+	// AuthCheck passes (key is valid) but PricingResolver cannot find endpoint
+	// because no endpoint was seeded → 404
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -751,23 +751,19 @@ func TestGatewayChain_MissingPricingContext(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	s := newTestServer(upstream.URL, decimal.NewFromFloat(100))
+	s, _ := newTestServer(upstream.URL, decimal.NewFromFloat(100))
 
 	handler := s.RegisterRoutes()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
-	req = req.WithContext(
-		gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
-			ConsumerID: uuid.NewString(),
-		}),
-	)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d. Body: %s", rec.Code, rec.Body.String())
+	// AuthCheck passes then PricingResolver cannot find the endpoint → 404
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -843,6 +839,27 @@ func newTestServerWithAccounts(upstreamURL string, consumerID uuid.UUID, initial
 			}
 			return decimal.NewFromFloat(f64.Float64), nil
 		}),
+		pricingResolver: middleware.EndpointPricingResolverFunc(func(ctx context.Context, providerID uuid.UUID, route, method string) (*gatewaycontext.PricingInfo, error) {
+			endpoint, err := mq.GetEndpointByProviderRouteMethod(ctx, repository.GetEndpointByProviderRouteMethodParams{
+				ProviderID: providerID,
+				Route:      route,
+				Method:     method,
+			})
+			if err != nil {
+				return nil, err
+			}
+			f64, err := endpoint.PriceAmount.Float64Value()
+			if err != nil {
+				return nil, err
+			}
+			priceAmount := decimal.NewFromFloat(f64.Float64)
+			return &gatewaycontext.PricingInfo{
+				EndpointID:  endpoint.ID.String(),
+				ProviderID:  endpoint.ProviderID.String(),
+				PriceAmount: priceAmount,
+				Currency:    gatewaycontext.Currency(endpoint.Currency),
+			}, nil
+		}),
 		usageRepo: middleware.UsageEventRepositoryFunc(func(_ context.Context, _ repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error) {
 			return repository.CreateUsageEventRow{}, nil
 		}),
@@ -853,9 +870,10 @@ func newTestServerWithAccounts(upstreamURL string, consumerID uuid.UUID, initial
 	}, mq, mls
 }
 
-func newTestServer(upstreamURL string, balance decimal.Decimal) *Server {
+func newTestServer(upstreamURL string, balance decimal.Decimal) (*Server, *mockQuerier) {
 	resolver := &mockResolver{baseURL: upstreamURL}
 	pxy := proxy.NewReverseProxy(resolver, slog.Default(), proxy.DefaultConfig())
+	mq := newMockQuerier()
 
 	keyValidator := &testKeyValidator{
 		key: repository.ApiKey{
@@ -872,13 +890,34 @@ func newTestServer(upstreamURL string, balance decimal.Decimal) *Server {
 		balance: middleware.BalanceCheckerFunc(func(_ context.Context, _ uuid.UUID) (decimal.Decimal, error) {
 			return balance, nil
 		}),
+		pricingResolver: middleware.EndpointPricingResolverFunc(func(ctx context.Context, providerID uuid.UUID, route, method string) (*gatewaycontext.PricingInfo, error) {
+			endpoint, err := mq.GetEndpointByProviderRouteMethod(ctx, repository.GetEndpointByProviderRouteMethodParams{
+				ProviderID: providerID,
+				Route:      route,
+				Method:     method,
+			})
+			if err != nil {
+				return nil, err
+			}
+			f64, err := endpoint.PriceAmount.Float64Value()
+			if err != nil {
+				return nil, err
+			}
+			priceAmount := decimal.NewFromFloat(f64.Float64)
+			return &gatewaycontext.PricingInfo{
+				EndpointID:  endpoint.ID.String(),
+				ProviderID:  endpoint.ProviderID.String(),
+				PriceAmount: priceAmount,
+				Currency:    gatewaycontext.Currency(endpoint.Currency),
+			}, nil
+		}),
 		usageRepo: middleware.UsageEventRepositoryFunc(func(_ context.Context, _ repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error) {
 			return repository.CreateUsageEventRow{}, nil
 		}),
 		ledger:           &gateway.LedgerServiceFunc{},
 		keyValidator:     keyValidator,
 		sessionValidator: &testSessionValidator{},
-	}
+	}, mq
 }
 
 // ---------------------------------------------------------------------------
@@ -896,23 +935,22 @@ func TestGatewayLifecycle_BalanceDecreases(t *testing.T) {
 	s, mq, mls := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(100))
 	seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
 
+	providerID := uuid.New()
+	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID: providerID,
+		Route:      "/echo", Method: http.MethodPost,
+		PriceAmount: testPriceAmount(),
+		Currency:    repository.CurrencyXLM,
+		Status:      repository.EndpointStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	handler := s.RegisterRoutes()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
-	req = req.WithContext(
-		gatewaycontext.SetPricingInfo(
-			gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
-				ConsumerID: consumerID.String(),
-			}),
-			gatewaycontext.PricingInfo{
-				EndpointID:  uuid.NewString(),
-				ProviderID:  uuid.NewString(),
-				PriceAmount: decimal.NewFromFloat(10),
-				Currency:    gatewaycontext.CurrencyXLM,
-			},
-		),
-	)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -937,23 +975,22 @@ func TestGatewayLifecycle_UpstreamFailure(t *testing.T) {
 	s, mq, mls := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(100))
 	seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
 
+	providerID := uuid.New()
+	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID: providerID,
+		Route:      "/echo", Method: http.MethodPost,
+		PriceAmount: testPriceAmount(),
+		Currency:    repository.CurrencyXLM,
+		Status:      repository.EndpointStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	handler := s.RegisterRoutes()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
-	req = req.WithContext(
-		gatewaycontext.SetPricingInfo(
-			gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
-				ConsumerID: consumerID.String(),
-			}),
-			gatewaycontext.PricingInfo{
-				EndpointID:  uuid.NewString(),
-				ProviderID:  uuid.NewString(),
-				PriceAmount: decimal.NewFromFloat(10),
-				Currency:    gatewaycontext.CurrencyXLM,
-			},
-		),
-	)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -974,23 +1011,22 @@ func TestGatewayInsufficientBalance_NoEntries(t *testing.T) {
 	s, mq, _ := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(5))
 	accountID := seedAccount(t, mq, consumerID, decimal.NewFromFloat(5))
 
+	providerID := uuid.New()
+	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID: providerID,
+		Route:      "/echo", Method: http.MethodPost,
+		PriceAmount: testPriceAmount(),
+		Currency:    repository.CurrencyXLM,
+		Status:      repository.EndpointStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	handler := s.RegisterRoutes()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
-	req = req.WithContext(
-		gatewaycontext.SetPricingInfo(
-			gatewaycontext.SetConsumerInfo(req.Context(), gatewaycontext.ConsumerInfo{
-				ConsumerID: consumerID.String(),
-			}),
-			gatewaycontext.PricingInfo{
-				EndpointID:  uuid.NewString(),
-				ProviderID:  uuid.NewString(),
-				PriceAmount: decimal.NewFromFloat(10),
-				Currency:    gatewaycontext.CurrencyXLM,
-			},
-		),
-	)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -1019,23 +1055,22 @@ func TestGatewayLifecycle_BalanceEndpoint(t *testing.T) {
 	s, mq, _ := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(100))
 	seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
 
+	providerID := uuid.New()
+	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID: providerID,
+		Route:      "/echo", Method: http.MethodPost,
+		PriceAmount: testPriceAmount(),
+		Currency:    repository.CurrencyXLM,
+		Status:      repository.EndpointStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	handler := s.RegisterRoutes()
 
-	gatewayReq := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	gatewayReq := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/echo", nil)
 	gatewayReq.Header.Set("Authorization", "Bearer ca_test-key")
-	gatewayReq = gatewayReq.WithContext(
-		gatewaycontext.SetPricingInfo(
-			gatewaycontext.SetConsumerInfo(gatewayReq.Context(), gatewaycontext.ConsumerInfo{
-				ConsumerID: consumerID.String(),
-			}),
-			gatewaycontext.PricingInfo{
-				EndpointID:  uuid.NewString(),
-				ProviderID:  uuid.NewString(),
-				PriceAmount: decimal.NewFromFloat(10),
-				Currency:    gatewaycontext.CurrencyXLM,
-			},
-		),
-	)
 
 	rec1 := httptest.NewRecorder()
 	handler.ServeHTTP(rec1, gatewayReq)

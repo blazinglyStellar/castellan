@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/shopspring/decimal"
 
@@ -19,6 +20,7 @@ import (
 	"castellan/internal/auth"
 	"castellan/internal/database"
 	"castellan/internal/gateway"
+	gatewaycontext "castellan/internal/gateway/context"
 	"castellan/internal/ledger"
 	"castellan/internal/provider"
 	"castellan/internal/proxy"
@@ -33,6 +35,7 @@ type Server struct {
 	db               database.Service
 	proxy            *proxy.Proxy
 	balance          middleware.BalanceChecker
+	pricingResolver  middleware.EndpointPricingResolver
 	usageRepo        middleware.UsageEventRepository
 	ledger           gateway.LedgerService
 	keyHandler       *auth.KeyHandler
@@ -92,6 +95,29 @@ func NewServer() (*http.Server, error) {
 		return queries.CreateUsageEvent(ctx, arg)
 	})
 
+	pricingResolver := middleware.EndpointPricingResolverFunc(func(ctx context.Context, providerID uuid.UUID, route, method string) (*gatewaycontext.PricingInfo, error) {
+		endpoint, err := queries.GetEndpointByProviderRouteMethod(ctx, repository.GetEndpointByProviderRouteMethodParams{
+			ProviderID: providerID,
+			Route:      route,
+			Method:     method,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("resolve endpoint pricing: %w", err)
+		}
+
+		priceAmount, err := numericToDecimal(endpoint.PriceAmount)
+		if err != nil {
+			return nil, fmt.Errorf("invalid price amount: %w", err)
+		}
+
+		return &gatewaycontext.PricingInfo{
+			EndpointID:  endpoint.ID.String(),
+			ProviderID:  endpoint.ProviderID.String(),
+			PriceAmount: priceAmount,
+			Currency:    gatewaycontext.Currency(endpoint.Currency),
+		}, nil
+	})
+
 	pxy := proxy.NewReverseProxy(resolver, slog.Default(), proxy.ConfigFromEnv())
 
 	keySvc := auth.NewKeyService(queries)
@@ -115,6 +141,7 @@ func NewServer() (*http.Server, error) {
 		db:               databaseService,
 		proxy:            pxy,
 		balance:          balancer,
+		pricingResolver:  pricingResolver,
 		usageRepo:        usageRepo,
 		ledger:           ledger.NewPostgresLedger(databaseService.Pool()),
 		keyHandler:       auth.NewKeyHandler(keySvc),
@@ -135,4 +162,14 @@ func NewServer() (*http.Server, error) {
 	}
 
 	return httpServer, nil
+}
+
+func numericToDecimal(n pgtype.Numeric) (decimal.Decimal, error) {
+	if !n.Valid {
+		return decimal.Zero, nil
+	}
+	if n.NaN {
+		return decimal.Zero, errors.New("numeric is NaN")
+	}
+	return decimal.NewFromBigInt(n.Int, n.Exp), nil
 }
