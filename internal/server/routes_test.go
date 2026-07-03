@@ -801,6 +801,39 @@ func newTestServerWithProviders() (*Server, uuid.UUID, *mockQuerier) {
 	}, userID, mq
 }
 
+func newTestPricingResolver(mq *mockQuerier) middleware.EndpointPricingResolver {
+	return middleware.EndpointPricingResolverFunc(func(ctx context.Context, providerID uuid.UUID, route, method string) (*middleware.EndpointResolution, error) {
+		endpoint, err := mq.GetEndpointByProviderRouteMethod(ctx, repository.GetEndpointByProviderRouteMethodParams{
+			ProviderID: providerID,
+			Route:      route,
+			Method:     method,
+		})
+		if err != nil {
+			return nil, err
+		}
+		f64, err := endpoint.PriceAmount.Float64Value()
+		if err != nil {
+			return nil, err
+		}
+		priceAmount := decimal.NewFromFloat(f64.Float64)
+
+		rateLimit := 0
+		if endpoint.RateLimit.Valid {
+			rateLimit = int(endpoint.RateLimit.Int32)
+		}
+
+		return &middleware.EndpointResolution{
+			PricingInfo: &gatewaycontext.PricingInfo{
+				EndpointID:  endpoint.ID.String(),
+				ProviderID:  endpoint.ProviderID.String(),
+				PriceAmount: priceAmount,
+				Currency:    gatewaycontext.Currency(endpoint.Currency),
+			},
+			RateLimit: rateLimit,
+		}, nil
+	})
+}
+
 // newTestServerWithAccounts creates a Server wired with the full mockQuerier,
 // a mockLedgerService, and the accounts handler. The consumerID is returned
 // for use with authenticatedRequest.
@@ -839,27 +872,7 @@ func newTestServerWithAccounts(upstreamURL string, consumerID uuid.UUID, initial
 			}
 			return decimal.NewFromFloat(f64.Float64), nil
 		}),
-		pricingResolver: middleware.EndpointPricingResolverFunc(func(ctx context.Context, providerID uuid.UUID, route, method string) (*gatewaycontext.PricingInfo, error) {
-			endpoint, err := mq.GetEndpointByProviderRouteMethod(ctx, repository.GetEndpointByProviderRouteMethodParams{
-				ProviderID: providerID,
-				Route:      route,
-				Method:     method,
-			})
-			if err != nil {
-				return nil, err
-			}
-			f64, err := endpoint.PriceAmount.Float64Value()
-			if err != nil {
-				return nil, err
-			}
-			priceAmount := decimal.NewFromFloat(f64.Float64)
-			return &gatewaycontext.PricingInfo{
-				EndpointID:  endpoint.ID.String(),
-				ProviderID:  endpoint.ProviderID.String(),
-				PriceAmount: priceAmount,
-				Currency:    gatewaycontext.Currency(endpoint.Currency),
-			}, nil
-		}),
+		pricingResolver: newTestPricingResolver(mq),
 		usageRepo: middleware.UsageEventRepositoryFunc(func(_ context.Context, _ repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error) {
 			return repository.CreateUsageEventRow{}, nil
 		}),
@@ -890,27 +903,7 @@ func newTestServer(upstreamURL string, balance decimal.Decimal) (*Server, *mockQ
 		balance: middleware.BalanceCheckerFunc(func(_ context.Context, _ uuid.UUID) (decimal.Decimal, error) {
 			return balance, nil
 		}),
-		pricingResolver: middleware.EndpointPricingResolverFunc(func(ctx context.Context, providerID uuid.UUID, route, method string) (*gatewaycontext.PricingInfo, error) {
-			endpoint, err := mq.GetEndpointByProviderRouteMethod(ctx, repository.GetEndpointByProviderRouteMethodParams{
-				ProviderID: providerID,
-				Route:      route,
-				Method:     method,
-			})
-			if err != nil {
-				return nil, err
-			}
-			f64, err := endpoint.PriceAmount.Float64Value()
-			if err != nil {
-				return nil, err
-			}
-			priceAmount := decimal.NewFromFloat(f64.Float64)
-			return &gatewaycontext.PricingInfo{
-				EndpointID:  endpoint.ID.String(),
-				ProviderID:  endpoint.ProviderID.String(),
-				PriceAmount: priceAmount,
-				Currency:    gatewaycontext.Currency(endpoint.Currency),
-			}, nil
-		}),
+		pricingResolver: newTestPricingResolver(mq),
 		usageRepo: middleware.UsageEventRepositoryFunc(func(_ context.Context, _ repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error) {
 			return repository.CreateUsageEventRow{}, nil
 		}),
