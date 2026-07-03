@@ -26,21 +26,30 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
+	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
+	tcwait "github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
 	testPG      *pgx.Conn
 	testQueries *repository.Queries
+	testRdb     *goredis.Client
 )
 
 func TestMain(m *testing.M) {
-	teardown, err := mustStartPostgresContainer()
+	pgTeardown, err := mustStartPostgresContainer()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not start postgres container: %v\n", err)
+		os.Exit(1)
+	}
+
+	redisTeardown, err := mustStartRedisContainer()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not start redis container: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -52,13 +61,49 @@ func TestMain(m *testing.M) {
 		}
 	}
 
-	if teardown != nil {
-		if err := teardown(context.Background()); err != nil {
+	if pgTeardown != nil {
+		if err := pgTeardown(context.Background()); err != nil {
 			slog.Warn("could not teardown postgres container", slog.String("error", err.Error()))
 		}
 	}
 
+	if redisTeardown != nil {
+		if err := redisTeardown(context.Background()); err != nil {
+			slog.Warn("could not teardown redis container", slog.String("error", err.Error()))
+		}
+	}
+
 	os.Exit(code)
+}
+
+func mustStartRedisContainer() (func(context.Context, ...testcontainers.TerminateOption) error, error) {
+	ctx := context.Background()
+
+	container, err := tcredis.Run(ctx,
+		"redis:7-alpine",
+		testcontainers.WithWaitStrategy(
+			tcwait.ForLog("* Ready to accept connections").
+				WithOccurrence(1).
+				WithStartupTimeout(60*time.Second),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("redis container: %w", err)
+	}
+
+	connStr, err := container.ConnectionString(ctx)
+	if err != nil {
+		return container.Terminate, fmt.Errorf("connection string: %w", err)
+	}
+
+	opts, err := goredis.ParseURL(connStr)
+	if err != nil {
+		return container.Terminate, fmt.Errorf("parse URL: %w", err)
+	}
+
+	testRdb = goredis.NewClient(opts)
+
+	return container.Terminate, nil
 }
 
 func mustStartPostgresContainer() (func(context.Context, ...testcontainers.TerminateOption) error, error) {
@@ -71,7 +116,7 @@ func mustStartPostgresContainer() (func(context.Context, ...testcontainers.Termi
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
 		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
+			tcwait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
 				WithStartupTimeout(10*time.Second),
 		),
@@ -224,7 +269,7 @@ type seedData struct {
 	AccountID  uuid.UUID
 }
 
-func seedGatewayTestData(ctx context.Context, t *testing.T, baseURL, balance, price string) seedData {
+func seedGatewayTestData(ctx context.Context, t *testing.T, baseURL, balance, price string, rateLimit ...int) seedData {
 	t.Helper()
 
 	userID := uuid.New()
@@ -260,9 +305,13 @@ func seedGatewayTestData(ctx context.Context, t *testing.T, baseURL, balance, pr
 	}
 
 	endpointID := uuid.New()
+	var rl *int
+	if len(rateLimit) > 0 && rateLimit[0] > 0 {
+		rl = &rateLimit[0]
+	}
 	_, err = testPG.Exec(ctx,
-		`INSERT INTO api_endpoints (id, provider_id, route, method, price_amount, currency, status) VALUES ($1, $2, $3, $4, $5, 'XLM', 'active')`,
-		endpointID, providerID, "/v1/chat", "POST", price)
+		`INSERT INTO api_endpoints (id, provider_id, route, method, price_amount, currency, rate_limit, status) VALUES ($1, $2, $3, $4, $5, 'XLM', $6, 'active')`,
+		endpointID, providerID, "/v1/chat", "POST", price, rl)
 	if err != nil {
 		t.Fatalf("seed endpoint: %v", err)
 	}
@@ -333,12 +382,13 @@ func pricingMiddleware(conn *pgx.Conn) func(http.Handler) http.Handler {
 			var endpointID uuid.UUID
 			var priceAmount string
 			var currency string
+			var rateLimit *int
 			err = conn.QueryRow(r.Context(),
-				`SELECT id, price_amount::text, currency::text FROM api_endpoints
+				`SELECT id, price_amount::text, currency::text, rate_limit FROM api_endpoints
 				 WHERE provider_id = $1 AND route = $2 AND status = 'active'
 				 LIMIT 1`,
 				providerUUID, route,
-			).Scan(&endpointID, &priceAmount, &currency)
+			).Scan(&endpointID, &priceAmount, &currency, &rateLimit)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					w.Header().Set("Content-Type", "application/json")
@@ -365,6 +415,14 @@ func pricingMiddleware(conn *pgx.Conn) func(http.Handler) http.Handler {
 				ProviderID:  providerUUID.String(),
 				PriceAmount: priceDec,
 				Currency:    gatewaycontext.Currency(currency),
+			})
+			maxRequests := 0
+			if rateLimit != nil {
+				maxRequests = *rateLimit
+			}
+			ctx = gatewaycontext.SetRateLimitInfo(ctx, gatewaycontext.RateLimitInfo{
+				MaxRequests:   maxRequests,
+				WindowSeconds: 60,
 			})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -400,6 +458,7 @@ func buildGatewayHandler(
 	conn *pgx.Conn,
 	ledger gateway.LedgerService,
 	proxyCfg proxy.Config,
+	rateLimiter ...gateway.RateLimiter,
 ) http.Handler {
 	resolver, err := provider.NewDBResolver(testQueries)
 	if err != nil {
@@ -434,6 +493,9 @@ func buildGatewayHandler(
 	h = middleware.Reservation(ledger)(h)
 	h = middleware.BalanceCheck(balanceChecker)(h)
 	h = middleware.MaxBodySize(10 * 1024 * 1024)(h)
+	if len(rateLimiter) > 0 && rateLimiter[0] != nil {
+		h = middleware.RateLimitCheck(rateLimiter[0])(h)
+	}
 	h = pricingMiddleware(conn)(h)
 	h = middleware.AuthCheck(
 		middleware.KeyValidatorFunc(testQueries.GetKeyByHash),
@@ -996,5 +1058,216 @@ func TestGatewaySessionTokenRevoked(t *testing.T) {
 	}
 	if len(events) != 0 {
 		t.Fatalf("expected 0 usage events for revoked session; got %d", len(events))
+	}
+}
+
+func TestGatewayRateLimit_WithinLimit(t *testing.T) {
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"message":"ok"}`))
+	}))
+	defer mockUpstream.Close()
+
+	ctx := context.Background()
+	seed := seedGatewayTestData(ctx, t, mockUpstream.URL, "1000.00", "5.00", 10)
+
+	ledger := newLedgerTracker()
+	rateLimiter := gateway.NewRedisRateLimiter(testRdb, 60)
+	handler := buildGatewayHandler(testPG, ledger, proxy.DefaultConfig(), rateLimiter)
+
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest(http.MethodPost,
+			fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+			strings.NewReader(`{"prompt":"hello"}`))
+		req.Header.Set("Authorization", "Bearer "+testRawKey)
+		req.Header.Set("Content-Type", "application/json")
+
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200; got %d, body: %s", i+1, rec.Code, rec.Body.String())
+		}
+
+		if v := rec.Header().Get("X-Ratelimit-Limit"); v != "10" {
+			t.Errorf("request %d: expected X-Ratelimit-Limit 10, got %q", i+1, v)
+		}
+		if v := rec.Header().Get("X-Ratelimit-Remaining"); v == "" {
+			t.Errorf("request %d: expected X-Ratelimit-Remaining header", i+1)
+		}
+		if v := rec.Header().Get("X-Ratelimit-Reset"); v == "" {
+			t.Errorf("request %d: expected X-Ratelimit-Reset header", i+1)
+		}
+	}
+}
+
+func TestGatewayRateLimit_Exceeded(t *testing.T) {
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"message":"ok"}`))
+	}))
+	defer mockUpstream.Close()
+
+	ctx := context.Background()
+	seed := seedGatewayTestData(ctx, t, mockUpstream.URL, "1000.00", "5.00", 10)
+
+	ledger := newLedgerTracker()
+	rateLimiter := gateway.NewRedisRateLimiter(testRdb, 60)
+	handler := buildGatewayHandler(testPG, ledger, proxy.DefaultConfig(), rateLimiter)
+
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest(http.MethodPost,
+			fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+			strings.NewReader(`{"prompt":"hello"}`))
+		req.Header.Set("Authorization", "Bearer "+testRawKey)
+		req.Header.Set("Content-Type", "application/json")
+
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200; got %d, body: %s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		strings.NewReader(`{"prompt":"hello"}`))
+	req.Header.Set("Authorization", "Bearer "+testRawKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	if v := rec.Header().Get("Retry-After"); v == "" {
+		t.Error("expected Retry-After header on 429")
+	}
+	if v := rec.Header().Get("X-Ratelimit-Limit"); v != "10" {
+		t.Errorf("expected X-Ratelimit-Limit 10, got %q", v)
+	}
+	if v := rec.Header().Get("X-Ratelimit-Remaining"); v != "0" {
+		t.Errorf("expected X-Ratelimit-Remaining 0, got %q", v)
+	}
+	if v := rec.Header().Get("X-Ratelimit-Reset"); v == "" {
+		t.Error("expected X-Ratelimit-Reset header")
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected valid JSON body: %v", err)
+	}
+	if body["error"] != "rate_limit_exceeded" {
+		t.Errorf("expected error 'rate_limit_exceeded', got %q", body["error"])
+	}
+}
+
+func TestGatewayRateLimit_UnlimitedEndpoint(t *testing.T) {
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"message":"ok"}`))
+	}))
+	defer mockUpstream.Close()
+
+	ctx := context.Background()
+	seed := seedGatewayTestData(ctx, t, mockUpstream.URL, "1000.00", "5.00")
+
+	ledger := newLedgerTracker()
+	rateLimiter := gateway.NewRedisRateLimiter(testRdb, 60)
+	handler := buildGatewayHandler(testPG, ledger, proxy.DefaultConfig(), rateLimiter)
+
+	for i := 0; i < 20; i++ {
+		req := httptest.NewRequest(http.MethodPost,
+			fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+			strings.NewReader(`{"prompt":"hello"}`))
+		req.Header.Set("Authorization", "Bearer "+testRawKey)
+		req.Header.Set("Content-Type", "application/json")
+
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200; got %d, body: %s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestGatewayRateLimit_ConsumerIsolation(t *testing.T) {
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"message":"ok"}`))
+	}))
+	defer mockUpstream.Close()
+
+	ctx := context.Background()
+
+	// Consumer A — owns provider+endpoint
+	rawKeyA := "ca_rate-limit-isolation-a"
+	seedA := seedGatewayTestData(ctx, t, mockUpstream.URL, "1000.00", "5.00", 1)
+	_, err := testPG.Exec(ctx,
+		`UPDATE api_keys SET key_hash = $1 WHERE user_id = $2`,
+		auth.HashKey(rawKeyA), seedA.UserID)
+	if err != nil {
+		t.Fatalf("update api key A: %v", err)
+	}
+
+	// Consumer B — different user, uses the same provider+endpoint
+	userBID := uuid.New()
+	_, err = testPG.Exec(ctx, `INSERT INTO users (id, email) VALUES ($1, $2)`,
+		userBID, fmt.Sprintf("isolation-b-%s@example.com", userBID.String()))
+	if err != nil {
+		t.Fatalf("seed user B: %v", err)
+	}
+	rawKeyB := "ca_rate-limit-isolation-b"
+	keyHashB := auth.HashKey(rawKeyB)
+	_, err = testPG.Exec(ctx,
+		`INSERT INTO api_keys (id, user_id, key_hash, status) VALUES ($1, $2, $3, 'active')`,
+		uuid.New(), userBID, keyHashB)
+	if err != nil {
+		t.Fatalf("seed api key B: %v", err)
+	}
+	_, err = testPG.Exec(ctx,
+		`INSERT INTO accounts (id, owner_id, balance) VALUES ($1, $2, $3)`,
+		uuid.New(), userBID, "1000.00")
+	if err != nil {
+		t.Fatalf("seed account B: %v", err)
+	}
+
+	ledger := newLedgerTracker()
+	rateLimiter := gateway.NewRedisRateLimiter(testRdb, 60)
+	handler := buildGatewayHandler(testPG, ledger, proxy.DefaultConfig(), rateLimiter)
+
+	doRequest := func(key string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost,
+			fmt.Sprintf("/api/gateway/%s/v1/chat", seedA.ProviderID.String()),
+			strings.NewReader(`{"prompt":"hello"}`))
+		req.Header.Set("Authorization", "Bearer "+key)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := doRequest(rawKeyA)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("consumer A request 1: expected 200; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doRequest(rawKeyB)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("consumer B request 1: expected 200; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doRequest(rawKeyA)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("consumer A request 2: expected 429; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doRequest(rawKeyB)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("consumer B request 2: expected 429; got %d, body: %s", rec.Code, rec.Body.String())
 	}
 }
