@@ -26,6 +26,10 @@ func TestGatewayContextValuesPassBetweenHandlers(t *testing.T) {
 		LatencyMs:    42,
 		ResponseSize: 2048,
 	}
+	expectedRateLimit := RateLimitInfo{
+		MaxRequests:   100,
+		WindowSeconds: 60,
+	}
 
 	reader := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := GetConsumerInfo(r.Context()); got != expectedConsumer {
@@ -43,6 +47,10 @@ func TestGatewayContextValuesPassBetweenHandlers(t *testing.T) {
 			t.Fatalf("expected upstream metrics %#v, got %#v", expectedMetrics, got)
 		}
 
+		if got := GetRateLimitInfo(r.Context()); got != expectedRateLimit {
+			t.Fatalf("expected rate limit info %#v, got %#v", expectedRateLimit, got)
+		}
+
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -50,6 +58,7 @@ func TestGatewayContextValuesPassBetweenHandlers(t *testing.T) {
 		ctx := SetConsumerInfo(r.Context(), expectedConsumer)
 		ctx = SetPricingInfo(ctx, expectedPricing)
 		ctx = SetUpstreamMetrics(ctx, expectedMetrics)
+		ctx = SetRateLimitInfo(ctx, expectedRateLimit)
 
 		reader.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -79,6 +88,10 @@ func TestGatewayContextUnsetValuesReturnZeroValues(t *testing.T) {
 
 	if got := GetUpstreamMetrics(request.Context()); got != (UpstreamMetrics{}) {
 		t.Fatalf("expected zero upstream metrics, got %#v", got)
+	}
+
+	if got := GetRateLimitInfo(request.Context()); got != (RateLimitInfo{}) {
+		t.Fatalf("expected zero rate limit info, got %#v", got)
 	}
 }
 
