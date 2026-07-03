@@ -1,5 +1,5 @@
 services:
-  psql_bp:
+  postgres:
     image: postgres:latest
     restart: unless-stopped
     environment:
@@ -10,6 +10,22 @@ services:
       - "${BLUEPRINT_DB_PORT}:5432"
     volumes:
       - psql_volume_bp:/var/lib/postgresql/data
+    networks:
+      - castellan
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - castellan
 
 volumes:
   psql_volume_bp:
+  redis_data:
+
+networks:
+  castellan:
