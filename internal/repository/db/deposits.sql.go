@@ -134,6 +134,53 @@ func (q *Queries) InsertDeposit(ctx context.Context, arg InsertDepositParams) (D
 	return i, err
 }
 
+const insertDepositIgnoreConflict = `-- name: InsertDepositIgnoreConflict :one
+INSERT INTO deposits (
+    account_id, from_address, amount, currency, memo, tx_hash, status
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7
+)
+ON CONFLICT (tx_hash) DO NOTHING
+RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
+`
+
+type InsertDepositIgnoreConflictParams struct {
+	AccountID   uuid.UUID      `json:"account_id"`
+	FromAddress string         `json:"from_address"`
+	Amount      pgtype.Numeric `json:"amount"`
+	Currency    Currency       `json:"currency"`
+	Memo        pgtype.Text    `json:"memo"`
+	TxHash      string         `json:"tx_hash"`
+	Status      DepositStatus  `json:"status"`
+}
+
+func (q *Queries) InsertDepositIgnoreConflict(ctx context.Context, arg InsertDepositIgnoreConflictParams) (Deposit, error) {
+	row := q.db.QueryRow(ctx, insertDepositIgnoreConflict,
+		arg.AccountID,
+		arg.FromAddress,
+		arg.Amount,
+		arg.Currency,
+		arg.Memo,
+		arg.TxHash,
+		arg.Status,
+	)
+	var i Deposit
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.FromAddress,
+		&i.Amount,
+		&i.Currency,
+		&i.Memo,
+		&i.TxHash,
+		&i.Status,
+		&i.CreatedAt,
+		&i.ConfirmedAt,
+		&i.Reason,
+	)
+	return i, err
+}
+
 const listDepositsByAccount = `-- name: ListDepositsByAccount :many
 SELECT id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason FROM deposits
 WHERE account_id = $1

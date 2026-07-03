@@ -46,6 +46,7 @@ type Querier interface {
 	GetUserByDepositMemo(ctx context.Context, depositMemo pgtype.Text) (User, error)
 	GetWatcherCursor(ctx context.Context) (StellarWatcherCursor, error)
 	InsertDeposit(ctx context.Context, arg InsertDepositParams) (Deposit, error)
+	InsertDepositIgnoreConflict(ctx context.Context, arg InsertDepositIgnoreConflictParams) (Deposit, error)
 	InsertKey(ctx context.Context, arg InsertKeyParams) (ApiKey, error)
 	InsertLedgerEntry(ctx context.Context, arg InsertLedgerEntryParams) (LedgerEntry, error)
 	InsertSessionToken(ctx context.Context, arg InsertSessionTokenParams) (SessionToken, error)

@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"castellan/internal/repository/db"
 	"castellan/internal/stellar"
 )
@@ -13,12 +15,17 @@ import (
 const pollInterval = 30 * time.Second
 
 type Watcher struct {
-	queries repository.Querier
-	cfg     stellar.Config
+	queries       repository.Querier
+	cfg           stellar.Config
+	creditHandler *CreditHandler
 }
 
-func NewWatcher(queries repository.Querier, cfg stellar.Config) *Watcher {
-	return &Watcher{queries: queries, cfg: cfg}
+func NewWatcher(queries repository.Querier, cfg stellar.Config, pool *pgxpool.Pool, logger *slog.Logger) *Watcher {
+	return &Watcher{
+		queries:       queries,
+		cfg:           cfg,
+		creditHandler: NewCreditHandler(pool, queries, cfg, logger),
+	}
 }
 
 func (w *Watcher) Run(ctx context.Context) error {
@@ -46,5 +53,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 }
 
 func (w *Watcher) poll(_ context.Context) error {
+	// TODO: fetch Stellar payments to hot wallet address from Horizon,
+	// convert each to PaymentOperation, and call w.creditHandler.CreditDeposit(ctx, op).
 	return nil
 }
