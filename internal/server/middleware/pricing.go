@@ -13,26 +13,33 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// EndpointResolution holds pricing and rate-limit data for a resolved endpoint.
+type EndpointResolution struct {
+	PricingInfo *gatewaycontext.PricingInfo
+	RateLimit   int
+}
+
 // EndpointPricingResolver resolves endpoint pricing from the request path and method,
-// returning a PricingInfo to inject into the gateway request context.
+// returning pricing and rate-limit data to inject into the gateway request context.
 type EndpointPricingResolver interface {
-	ResolvePricing(ctx context.Context, providerID uuid.UUID, route, method string) (*gatewaycontext.PricingInfo, error)
+	ResolvePricing(ctx context.Context, providerID uuid.UUID, route, method string) (*EndpointResolution, error)
 }
 
 // EndpointPricingResolverFunc is an adapter that lets a function serve as a EndpointPricingResolver.
-type EndpointPricingResolverFunc func(ctx context.Context, providerID uuid.UUID, route, method string) (*gatewaycontext.PricingInfo, error)
+type EndpointPricingResolverFunc func(ctx context.Context, providerID uuid.UUID, route, method string) (*EndpointResolution, error)
 
 // ResolvePricing delegates to the underlying function.
-func (f EndpointPricingResolverFunc) ResolvePricing(ctx context.Context, providerID uuid.UUID, route, method string) (*gatewaycontext.PricingInfo, error) {
+func (f EndpointPricingResolverFunc) ResolvePricing(ctx context.Context, providerID uuid.UUID, route, method string) (*EndpointResolution, error) {
 	return f(ctx, providerID, route, method)
 }
 
 // PricingResolver middleware extracts the provider ID and endpoint path from
 // POST /api/gateway/{providerID}/{endpoint...}, looks up the endpoint pricing
-// from the api_endpoints table, and injects PricingInfo into the request context.
+// from the api_endpoints table, and injects PricingInfo and RateLimitInfo into
+// the request context.
 //
 // Missing or invalid provider returns 400. Endpoint not found returns 404.
-func PricingResolver(resolver EndpointPricingResolver) func(http.Handler) http.Handler {
+func PricingResolver(resolver EndpointPricingResolver, windowSeconds int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			providerID, endpointPath, ok := parseGatewayPath(r.URL.Path)
@@ -47,7 +54,7 @@ func PricingResolver(resolver EndpointPricingResolver) func(http.Handler) http.H
 				return
 			}
 
-			pricing, err := resolver.ResolvePricing(r.Context(), providerUUID, endpointPath, r.Method)
+			resolution, err := resolver.ResolvePricing(r.Context(), providerUUID, endpointPath, r.Method)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					writeJSON(r.Context(), w, http.StatusNotFound, map[string]string{errKey: "endpoint not found"})
@@ -66,9 +73,9 @@ func PricingResolver(resolver EndpointPricingResolver) func(http.Handler) http.H
 				return
 			}
 
-			if pricing == nil {
+			if resolution == nil || resolution.PricingInfo == nil {
 				slog.ErrorContext(r.Context(),
-					"pricing resolver returned nil pricing without error",
+					"pricing resolver returned nil resolution without error",
 					slog.String("provider_id", providerID),
 					slog.String("endpoint_path", endpointPath),
 				)
@@ -77,7 +84,13 @@ func PricingResolver(resolver EndpointPricingResolver) func(http.Handler) http.H
 				return
 			}
 
-			ctx := gatewaycontext.SetPricingInfo(r.Context(), *pricing)
+			ctx := gatewaycontext.SetPricingInfo(r.Context(), *resolution.PricingInfo)
+			if resolution.RateLimit > 0 {
+				ctx = gatewaycontext.SetRateLimitInfo(ctx, gatewaycontext.RateLimitInfo{
+					MaxRequests:   resolution.RateLimit,
+					WindowSeconds: windowSeconds,
+				})
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

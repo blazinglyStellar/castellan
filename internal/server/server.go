@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	_ "github.com/joho/godotenv/autoload"
+	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 
 	"castellan/internal/accounts"
@@ -37,6 +38,8 @@ type Server struct {
 	balance          middleware.BalanceChecker
 	pricingResolver  middleware.EndpointPricingResolver
 	usageRepo        middleware.UsageEventRepository
+	rateLimiter      gateway.RateLimiter
+	redisClient      *redis.Client
 	ledger           gateway.LedgerService
 	keyHandler       *auth.KeyHandler
 	keyValidator     middleware.KeyValidator
@@ -45,10 +48,13 @@ type Server struct {
 	providerHandler  *provider.Handler
 	endpointHandler  *provider.EndpointHandler
 	accountHandler   *accounts.Handler
+
+	windowSeconds int
 }
 
 // NewServer creates an http.Server with all dependencies wired: database pool,
-// sqlc queries, provider resolver, reverse proxy, and the full middleware chain.
+// sqlc queries, provider resolver, reverse proxy, Redis rate limiter, ledger,
+// and the full middleware chain.
 func NewServer() (*http.Server, error) {
 	port, _ := strconv.Atoi(os.Getenv("PORT"))
 
@@ -69,6 +75,35 @@ func NewServer() (*http.Server, error) {
 
 		return nil, fmt.Errorf("failed to create provider resolver: %w", err)
 	}
+
+	windowSeconds := 60
+	if ws := os.Getenv("RATE_LIMIT_WINDOW_SECONDS"); ws != "" {
+		if v, err := strconv.Atoi(ws); err != nil {
+			slog.Warn("invalid RATE_LIMIT_WINDOW_SECONDS, using default",
+				slog.String("value", ws),
+				slog.String("error", err.Error()),
+			)
+		} else if v <= 0 {
+			slog.Warn("RATE_LIMIT_WINDOW_SECONDS must be positive, using default",
+				slog.Int("value", v),
+			)
+		} else {
+			windowSeconds = v
+		}
+	}
+
+	rdb, err := connectRedis()
+	if err != nil {
+		if closeErr := databaseService.Close(); closeErr != nil {
+			slog.Warn(
+				"failed to close database after redis error",
+				slog.String("error", closeErr.Error()),
+			)
+		}
+		return nil, fmt.Errorf("failed to connect to redis: %w", err)
+	}
+
+	rateLimiter := gateway.NewRedisRateLimiter(rdb, windowSeconds)
 
 	balancer := middleware.BalanceCheckerFunc(func(ctx context.Context, ownerID uuid.UUID) (decimal.Decimal, error) {
 		if _, err := queries.GetOrCreateAccount(ctx, ownerID); err != nil {
@@ -95,7 +130,7 @@ func NewServer() (*http.Server, error) {
 		return queries.CreateUsageEvent(ctx, arg)
 	})
 
-	pricingResolver := middleware.EndpointPricingResolverFunc(func(ctx context.Context, providerID uuid.UUID, route, method string) (*gatewaycontext.PricingInfo, error) {
+	pricingResolver := middleware.EndpointPricingResolverFunc(func(ctx context.Context, providerID uuid.UUID, route, method string) (*middleware.EndpointResolution, error) {
 		endpoint, err := queries.GetEndpointByProviderRouteMethod(ctx, repository.GetEndpointByProviderRouteMethodParams{
 			ProviderID: providerID,
 			Route:      route,
@@ -110,11 +145,19 @@ func NewServer() (*http.Server, error) {
 			return nil, fmt.Errorf("invalid price amount: %w", err)
 		}
 
-		return &gatewaycontext.PricingInfo{
-			EndpointID:  endpoint.ID.String(),
-			ProviderID:  endpoint.ProviderID.String(),
-			PriceAmount: priceAmount,
-			Currency:    gatewaycontext.Currency(endpoint.Currency),
+		rateLimit := 0
+		if endpoint.RateLimit.Valid {
+			rateLimit = int(endpoint.RateLimit.Int32)
+		}
+
+		return &middleware.EndpointResolution{
+			PricingInfo: &gatewaycontext.PricingInfo{
+				EndpointID:  endpoint.ID.String(),
+				ProviderID:  endpoint.ProviderID.String(),
+				PriceAmount: priceAmount,
+				Currency:    gatewaycontext.Currency(endpoint.Currency),
+			},
+			RateLimit: rateLimit,
 		}, nil
 	})
 
@@ -143,6 +186,8 @@ func NewServer() (*http.Server, error) {
 		balance:          balancer,
 		pricingResolver:  pricingResolver,
 		usageRepo:        usageRepo,
+		rateLimiter:      rateLimiter,
+		redisClient:      rdb,
 		ledger:           ledger.NewPostgresLedger(databaseService.Pool()),
 		keyHandler:       auth.NewKeyHandler(keySvc),
 		keyValidator:     keyValidator,
@@ -151,6 +196,7 @@ func NewServer() (*http.Server, error) {
 		providerHandler:  provider.NewProviderHandler(providerSvc),
 		endpointHandler:  provider.NewEndpointHandler(endpointSvc),
 		accountHandler:   accounts.NewHandler(accountSvc),
+		windowSeconds:    windowSeconds,
 	}
 
 	httpServer := &http.Server{
@@ -162,6 +208,38 @@ func NewServer() (*http.Server, error) {
 	}
 
 	return httpServer, nil
+}
+
+func connectRedis() (*redis.Client, error) {
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379/0"
+	}
+
+	opts, err := redis.ParseURL(redisURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse REDIS_URL: %w", err)
+	}
+
+	rdb := redis.NewClient(opts)
+
+	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := rdb.Ping(pingCtx).Err(); err != nil {
+		if closeErr := rdb.Close(); closeErr != nil {
+			slog.Warn("redis close after ping failure",
+				slog.Any("close_err", closeErr),
+			)
+		}
+		return nil, fmt.Errorf("redis ping: %w", err)
+	}
+
+	slog.Info("connected to redis",
+		slog.String("addr", opts.Addr),
+	)
+
+	return rdb, nil
 }
 
 func numericToDecimal(n pgtype.Numeric) (decimal.Decimal, error) {
