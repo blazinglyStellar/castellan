@@ -32,3 +32,9 @@ UPDATE deposits
 SET status = 'confirmed', confirmed_at = now()
 WHERE id = $1
 RETURNING *;
+
+-- name: MarkDepositRejected :one
+UPDATE deposits
+SET status = 'failed', reason = $2
+WHERE id = $1
+RETURNING *;

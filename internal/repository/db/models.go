@@ -534,6 +534,7 @@ type Deposit struct {
 	Status      DepositStatus      `json:"status"`
 	CreatedAt   time.Time          `json:"created_at"`
 	ConfirmedAt pgtype.Timestamptz `json:"confirmed_at"`
+	Reason      pgtype.Text        `json:"reason"`
 }
 
 type LedgerEntry struct {
@@ -591,6 +592,12 @@ type SettlementEntry struct {
 	WalletAddress string                `json:"wallet_address"`
 	Status        SettlementEntryStatus `json:"status"`
 	CreatedAt     time.Time             `json:"created_at"`
+}
+
+type StellarWatcherCursor struct {
+	ID        int32     `json:"id"`
+	Cursor    string    `json:"cursor"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type UsageEvent struct {
