@@ -20,6 +20,7 @@ import (
 	"castellan/internal/accounts"
 	"castellan/internal/auth"
 	"castellan/internal/database"
+	"castellan/internal/deposit"
 	"castellan/internal/gateway"
 	gatewaycontext "castellan/internal/gateway/context"
 	"castellan/internal/ledger"
@@ -49,6 +50,7 @@ type Server struct {
 	providerHandler  *provider.Handler
 	endpointHandler  *provider.EndpointHandler
 	accountHandler   *accounts.Handler
+	depositHandler   *deposit.Handler
 
 	stellarConfig stellar.Config
 
@@ -186,6 +188,7 @@ func NewServer() (*http.Server, error) {
 	providerSvc := provider.NewProviderService(queries)
 	endpointSvc := provider.NewEndpointService(queries)
 	accountSvc := accounts.NewService(queries)
+	depositSvc := deposit.NewService(queries, stellarCfg)
 
 	srv := &Server{
 		port:             port,
@@ -204,6 +207,7 @@ func NewServer() (*http.Server, error) {
 		providerHandler:  provider.NewProviderHandler(providerSvc),
 		endpointHandler:  provider.NewEndpointHandler(endpointSvc),
 		accountHandler:   accounts.NewHandler(accountSvc),
+		depositHandler:   deposit.NewHandler(depositSvc),
 		stellarConfig:    stellarCfg,
 		windowSeconds:    windowSeconds,
 	}
