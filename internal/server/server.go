@@ -35,22 +35,24 @@ import (
 type Server struct {
 	port int
 
-	db               database.Service
-	proxy            *proxy.Proxy
-	balance          middleware.BalanceChecker
-	pricingResolver  middleware.EndpointPricingResolver
-	usageRepo        middleware.UsageEventRepository
-	rateLimiter      gateway.RateLimiter
-	redisClient      *redis.Client
-	ledger           gateway.LedgerService
-	keyHandler       *auth.KeyHandler
-	keyValidator     middleware.KeyValidator
-	sessionValidator middleware.SessionValidator
-	sessionHandler   *auth.SessionHandler
-	providerHandler  *provider.Handler
-	endpointHandler  *provider.EndpointHandler
-	accountHandler   *accounts.Handler
-	depositHandler   *deposit.Handler
+	db                   database.Service
+	proxy                *proxy.Proxy
+	balance              middleware.BalanceChecker
+	pricingResolver      middleware.EndpointPricingResolver
+	usageRepo            middleware.UsageEventRepository
+	rateLimiter          gateway.RateLimiter
+	redisClient          *redis.Client
+	ledger               gateway.LedgerService
+	keyHandler           *auth.KeyHandler
+	keyValidator         middleware.KeyValidator
+	sessionValidator     middleware.SessionValidator
+	sessionHandler       *auth.SessionHandler
+	providerHandler      *provider.Handler
+	endpointHandler      *provider.EndpointHandler
+	accountHandler       *accounts.Handler
+	depositHandler       *deposit.Handler
+	depositCreditHandler *deposit.CreditHandler
+	depositWatcher       *deposit.Watcher
 
 	stellarConfig stellar.Config
 
@@ -189,28 +191,38 @@ func NewServer() (*http.Server, error) {
 	endpointSvc := provider.NewEndpointService(queries)
 	accountSvc := accounts.NewService(queries)
 	depositSvc := deposit.NewService(queries, stellarCfg)
+	depositCreditHandler := deposit.NewCreditHandler(databaseService.Pool(), queries, stellarCfg, slog.Default())
+	depositWatcher := deposit.NewWatcher(queries, stellarCfg, databaseService.Pool(), slog.Default())
 
 	srv := &Server{
-		port:             port,
-		db:               databaseService,
-		proxy:            pxy,
-		balance:          balancer,
-		pricingResolver:  pricingResolver,
-		usageRepo:        usageRepo,
-		rateLimiter:      rateLimiter,
-		redisClient:      rdb,
-		ledger:           ledger.NewPostgresLedger(databaseService.Pool()),
-		keyHandler:       auth.NewKeyHandler(keySvc),
-		keyValidator:     keyValidator,
-		sessionValidator: sessionValidator,
-		sessionHandler:   auth.NewSessionHandler(sessionSvc),
-		providerHandler:  provider.NewProviderHandler(providerSvc),
-		endpointHandler:  provider.NewEndpointHandler(endpointSvc),
-		accountHandler:   accounts.NewHandler(accountSvc),
-		depositHandler:   deposit.NewHandler(depositSvc),
-		stellarConfig:    stellarCfg,
-		windowSeconds:    windowSeconds,
+		port:                 port,
+		db:                   databaseService,
+		proxy:                pxy,
+		balance:              balancer,
+		pricingResolver:      pricingResolver,
+		usageRepo:            usageRepo,
+		rateLimiter:          rateLimiter,
+		redisClient:          rdb,
+		ledger:               ledger.NewPostgresLedger(databaseService.Pool()),
+		keyHandler:           auth.NewKeyHandler(keySvc),
+		keyValidator:         keyValidator,
+		sessionValidator:     sessionValidator,
+		sessionHandler:       auth.NewSessionHandler(sessionSvc),
+		providerHandler:      provider.NewProviderHandler(providerSvc),
+		endpointHandler:      provider.NewEndpointHandler(endpointSvc),
+		accountHandler:       accounts.NewHandler(accountSvc),
+		depositHandler:       deposit.NewHandler(depositSvc),
+		depositCreditHandler: depositCreditHandler,
+		depositWatcher:       depositWatcher,
+		stellarConfig:        stellarCfg,
+		windowSeconds:        windowSeconds,
 	}
+
+	go func() {
+		if err := srv.depositWatcher.Run(context.Background()); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Warn("deposit watcher exited", slog.String("error", err.Error()))
+		}
+	}()
 
 	httpServer := &http.Server{
 		Addr:         net.JoinHostPort("", strconv.Itoa(srv.port)),
