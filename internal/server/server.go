@@ -27,6 +27,7 @@ import (
 	"castellan/internal/proxy"
 	"castellan/internal/repository/db"
 	"castellan/internal/server/middleware"
+	"castellan/internal/stellar"
 )
 
 // Server wires together database, resolver, proxy, ledger, and middleware dependencies.
@@ -49,6 +50,8 @@ type Server struct {
 	endpointHandler  *provider.EndpointHandler
 	accountHandler   *accounts.Handler
 
+	stellarConfig stellar.Config
+
 	windowSeconds int
 }
 
@@ -57,6 +60,11 @@ type Server struct {
 // and the full middleware chain.
 func NewServer() (*http.Server, error) {
 	port, _ := strconv.Atoi(os.Getenv("PORT"))
+
+	stellarCfg := stellar.ConfigFromEnv()
+	if stellarCfg.HotWalletAddress == "" {
+		return nil, errors.New("STELLAR_HOT_WALLET_ADDRESS is required")
+	}
 
 	databaseService, err := database.New()
 	if err != nil {
@@ -196,6 +204,7 @@ func NewServer() (*http.Server, error) {
 		providerHandler:  provider.NewProviderHandler(providerSvc),
 		endpointHandler:  provider.NewEndpointHandler(endpointSvc),
 		accountHandler:   accounts.NewHandler(accountSvc),
+		stellarConfig:    stellarCfg,
 		windowSeconds:    windowSeconds,
 	}
 

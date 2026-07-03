@@ -16,7 +16,7 @@ const confirmDeposit = `-- name: ConfirmDeposit :one
 UPDATE deposits
 SET status = 'confirmed', confirmed_at = now()
 WHERE id = $1
-RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at
+RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
 `
 
 func (q *Queries) ConfirmDeposit(ctx context.Context, id uuid.UUID) (Deposit, error) {
@@ -33,12 +33,13 @@ func (q *Queries) ConfirmDeposit(ctx context.Context, id uuid.UUID) (Deposit, er
 		&i.Status,
 		&i.CreatedAt,
 		&i.ConfirmedAt,
+		&i.Reason,
 	)
 	return i, err
 }
 
 const getDepositByID = `-- name: GetDepositByID :one
-SELECT id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at FROM deposits
+SELECT id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason FROM deposits
 WHERE id = $1
 LIMIT 1
 `
@@ -57,12 +58,13 @@ func (q *Queries) GetDepositByID(ctx context.Context, id uuid.UUID) (Deposit, er
 		&i.Status,
 		&i.CreatedAt,
 		&i.ConfirmedAt,
+		&i.Reason,
 	)
 	return i, err
 }
 
 const getDepositByTxHash = `-- name: GetDepositByTxHash :one
-SELECT id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at FROM deposits
+SELECT id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason FROM deposits
 WHERE tx_hash = $1
 LIMIT 1
 `
@@ -81,6 +83,7 @@ func (q *Queries) GetDepositByTxHash(ctx context.Context, txHash string) (Deposi
 		&i.Status,
 		&i.CreatedAt,
 		&i.ConfirmedAt,
+		&i.Reason,
 	)
 	return i, err
 }
@@ -91,7 +94,7 @@ INSERT INTO deposits (
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
 )
-RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at
+RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
 `
 
 type InsertDepositParams struct {
@@ -126,12 +129,13 @@ func (q *Queries) InsertDeposit(ctx context.Context, arg InsertDepositParams) (D
 		&i.Status,
 		&i.CreatedAt,
 		&i.ConfirmedAt,
+		&i.Reason,
 	)
 	return i, err
 }
 
 const listDepositsByAccount = `-- name: ListDepositsByAccount :many
-SELECT id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at FROM deposits
+SELECT id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason FROM deposits
 WHERE account_id = $1
 ORDER BY created_at DESC
 `
@@ -156,6 +160,7 @@ func (q *Queries) ListDepositsByAccount(ctx context.Context, accountID uuid.UUID
 			&i.Status,
 			&i.CreatedAt,
 			&i.ConfirmedAt,
+			&i.Reason,
 		); err != nil {
 			return nil, err
 		}
@@ -167,11 +172,42 @@ func (q *Queries) ListDepositsByAccount(ctx context.Context, accountID uuid.UUID
 	return items, nil
 }
 
+const markDepositRejected = `-- name: MarkDepositRejected :one
+UPDATE deposits
+SET status = 'failed', reason = $2
+WHERE id = $1
+RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
+`
+
+type MarkDepositRejectedParams struct {
+	ID     uuid.UUID   `json:"id"`
+	Reason pgtype.Text `json:"reason"`
+}
+
+func (q *Queries) MarkDepositRejected(ctx context.Context, arg MarkDepositRejectedParams) (Deposit, error) {
+	row := q.db.QueryRow(ctx, markDepositRejected, arg.ID, arg.Reason)
+	var i Deposit
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.FromAddress,
+		&i.Amount,
+		&i.Currency,
+		&i.Memo,
+		&i.TxHash,
+		&i.Status,
+		&i.CreatedAt,
+		&i.ConfirmedAt,
+		&i.Reason,
+	)
+	return i, err
+}
+
 const updateDepositStatus = `-- name: UpdateDepositStatus :one
 UPDATE deposits
 SET status = $2
 WHERE id = $1
-RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at
+RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
 `
 
 type UpdateDepositStatusParams struct {
@@ -193,6 +229,7 @@ func (q *Queries) UpdateDepositStatus(ctx context.Context, arg UpdateDepositStat
 		&i.Status,
 		&i.CreatedAt,
 		&i.ConfirmedAt,
+		&i.Reason,
 	)
 	return i, err
 }

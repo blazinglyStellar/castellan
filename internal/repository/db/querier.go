@@ -21,6 +21,7 @@ type Querier interface {
 	DeleteEndpoint(ctx context.Context, id uuid.UUID) (ApiEndpoint, error)
 	DeleteKey(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	DeleteProvider(ctx context.Context, id uuid.UUID) (Provider, error)
+	EnsureUserDepositMemo(ctx context.Context, id uuid.UUID) (pgtype.Text, error)
 	GetAccountBalance(ctx context.Context, ownerID uuid.UUID) (pgtype.Numeric, error)
 	GetAccountByIDForUpdate(ctx context.Context, id uuid.UUID) (Account, error)
 	GetAccountByOwnerID(ctx context.Context, ownerID uuid.UUID) (Account, error)
@@ -42,6 +43,8 @@ type Querier interface {
 	GetSettlementBatchByID(ctx context.Context, id uuid.UUID) (SettlementBatch, error)
 	GetSettlementEntryByID(ctx context.Context, id uuid.UUID) (SettlementEntry, error)
 	GetUsageEventByRequestID(ctx context.Context, requestID string) (UsageEvent, error)
+	GetUserByDepositMemo(ctx context.Context, depositMemo pgtype.Text) (User, error)
+	GetWatcherCursor(ctx context.Context) (StellarWatcherCursor, error)
 	InsertDeposit(ctx context.Context, arg InsertDepositParams) (Deposit, error)
 	InsertKey(ctx context.Context, arg InsertKeyParams) (ApiKey, error)
 	InsertLedgerEntry(ctx context.Context, arg InsertLedgerEntryParams) (LedgerEntry, error)
@@ -59,6 +62,7 @@ type Querier interface {
 	ListSettlementBatches(ctx context.Context) ([]SettlementBatch, error)
 	ListSettlementEntriesByBatch(ctx context.Context, batchID uuid.UUID) ([]SettlementEntry, error)
 	ListUsageEventsByConsumer(ctx context.Context, consumerID uuid.UUID) ([]UsageEvent, error)
+	MarkDepositRejected(ctx context.Context, arg MarkDepositRejectedParams) (Deposit, error)
 	RevokeKey(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	RevokeSessionToken(ctx context.Context, id uuid.UUID) (SessionToken, error)
 	UpdateAccountBalance(ctx context.Context, arg UpdateAccountBalanceParams) (Account, error)
@@ -72,6 +76,7 @@ type Querier interface {
 	UpdateSessionTokenStatus(ctx context.Context, arg UpdateSessionTokenStatusParams) (SessionToken, error)
 	UpdateSettlementBatchStatus(ctx context.Context, arg UpdateSettlementBatchStatusParams) (SettlementBatch, error)
 	UpdateSettlementEntryStatus(ctx context.Context, arg UpdateSettlementEntryStatusParams) (SettlementEntry, error)
+	UpsertWatcherCursor(ctx context.Context, cursor string) error
 }
 
 var _ Querier = (*Queries)(nil)
