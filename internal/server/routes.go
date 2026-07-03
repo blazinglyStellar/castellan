@@ -38,6 +38,8 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.Handle("GET /api/v1/accounts/me", http.HandlerFunc(s.accountHandler.GetAccount))
 	mux.Handle("GET /api/v1/accounts/me/entries", http.HandlerFunc(s.accountHandler.ListEntries))
 	mux.Handle("GET /api/v1/accounts/me/entries/{id}", http.HandlerFunc(s.accountHandler.GetEntry))
+	mux.Handle("GET /api/v1/deposits/intent", s.authMiddleware(http.HandlerFunc(s.depositHandler.DepositIntent)))
+	mux.Handle("GET /api/v1/deposits", s.authMiddleware(http.HandlerFunc(s.depositHandler.ListDeposits)))
 	s.GatewayRoutes(mux)
 
 	var handler http.Handler = mux
@@ -62,6 +64,10 @@ func (s *Server) GatewayRoutes(mux *http.ServeMux) {
 	handler = middleware.AuthCheck(s.keyValidator, s.sessionValidator)(handler)
 
 	mux.Handle("POST /api/gateway/", handler)
+}
+
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return middleware.AuthCheck(s.keyValidator, s.sessionValidator)(next)
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
