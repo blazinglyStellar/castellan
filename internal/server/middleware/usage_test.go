@@ -1,11 +1,13 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	gatewaycontext "castellan/internal/gateway/context"
@@ -23,6 +25,56 @@ type mockUsageEventRepository struct {
 func (m *mockUsageEventRepository) CreateUsageEvent(_ context.Context, arg repository.CreateUsageEventParams) (repository.CreateUsageEventRow, error) {
 	m.createUsageCalls = append(m.createUsageCalls, arg)
 	return repository.CreateUsageEventRow{}, m.createErr
+}
+
+func TestUsageCaptureDoesNotLogRawAmount(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	consumerID := uuid.New()
+	providerID := uuid.New()
+	endpointID := uuid.New()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/providers/", nil)
+	request = request.WithContext(
+		gatewaycontext.SetUpstreamMetrics(
+			gatewaycontext.SetPricingInfo(
+				gatewaycontext.SetConsumerInfo(request.Context(), gatewaycontext.ConsumerInfo{
+					ConsumerID: consumerID.String(),
+				}),
+				gatewaycontext.PricingInfo{
+					EndpointID:  endpointID.String(),
+					ProviderID:  providerID.String(),
+					PriceAmount: decimal.NewFromFloat(1.50),
+					Currency:    gatewaycontext.CurrencyXLM,
+				},
+			),
+			gatewaycontext.UpstreamMetrics{
+				StatusCode:   200,
+				LatencyMs:    42,
+				ResponseSize: 1024,
+			},
+		),
+	)
+	request = request.WithContext(
+		context.WithValue(request.Context(), requestIDContextKey, uuid.New().String()),
+	)
+
+	mock := &mockUsageEventRepository{}
+	UsageCapture(mock, logger)(handler).ServeHTTP(recorder, request)
+
+	logOutput := buf.String()
+	if strings.Contains(logOutput, "1.50") {
+		t.Fatal("raw amount must not appear in log output")
+	}
+	if strings.Contains(logOutput, "request_cost") {
+		t.Fatal("request_cost must not appear in log output on success path")
+	}
 }
 
 func TestUsageCaptureSuccess(t *testing.T) {

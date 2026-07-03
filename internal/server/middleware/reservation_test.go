@@ -1,10 +1,13 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -319,6 +322,55 @@ func TestReservationUsesRequestID(t *testing.T) {
 		if c.ReferenceID != customTraceID {
 			t.Fatalf("expected referenceID %q for call %s; got %q", customTraceID, c.Method, c.ReferenceID)
 		}
+	}
+}
+
+func TestReservationDoesNotLogRawAmount(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	original := slog.Default()
+	slog.SetDefault(logger)
+	t.Cleanup(func() { slog.SetDefault(original) })
+
+	// Success path: no error logs emitted, no amount leaks.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	ledger := &mockLedgerService{}
+	recorder := httptest.NewRecorder()
+	request := withContext(httptest.NewRequest(http.MethodGet, "/v1/providers/", nil))
+
+	Reservation(ledger)(handler).ServeHTTP(recorder, request)
+
+	logOutput := buf.String()
+	if logOutput != "" {
+		t.Fatal("expected no log output on success path")
+	}
+
+	buf.Reset()
+
+	// Error path: reservation fails — no amount should leak.
+	handler2 := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	ledger2 := &mockLedgerService{
+		ReserveFunc: func(_ context.Context, _ uuid.UUID, _ decimal.Decimal, _ string) error {
+			return context.DeadlineExceeded
+		},
+	}
+	recorder2 := httptest.NewRecorder()
+	request2 := withContext(httptest.NewRequest(http.MethodGet, "/v1/providers/", nil))
+
+	Reservation(ledger2)(handler2).ServeHTTP(recorder2, request2)
+
+	logOutput = buf.String()
+	if strings.Contains(logOutput, "1.00") {
+		t.Fatal("raw amount must not appear in log output on error path")
+	}
+	if !strings.Contains(logOutput, "consumer_id") {
+		t.Fatal("expected consumer_id in log output on error path")
 	}
 }
 

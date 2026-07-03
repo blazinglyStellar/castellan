@@ -1,8 +1,10 @@
 package ledger
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
 	"github.com/google/uuid"
@@ -90,6 +92,60 @@ func TestCommit_UnknownReference(t *testing.T) {
 	err := ledger.Commit(context.Background(), uuid.New().String())
 	if !errors.Is(err, ErrReservationNotFound) {
 		t.Fatalf("expected ErrReservationNotFound, got %v", err)
+	}
+}
+
+func TestLedgerDoesNotLogFinancialData(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	original := slog.Default()
+	slog.SetDefault(logger)
+	t.Cleanup(func() { slog.SetDefault(original) })
+
+	mock := &mockRepository{
+		ReserveBalanceFunc: func(_ context.Context, _ uuid.UUID, _ decimal.Decimal, _ string) (*ReserveBalanceResult, error) {
+			return &ReserveBalanceResult{}, nil
+		},
+		ConfirmReservationFunc: func(_ context.Context, _ string) error {
+			return nil
+		},
+		ReleaseReservationFunc: func(_ context.Context, _ string) error {
+			return nil
+		},
+	}
+
+	consumerID := uuid.New()
+	refID := uuid.New().String()
+
+	ledger := NewPostgresLedgerWithRepo(mock)
+
+	if err := ledger.Reserve(context.Background(), consumerID, decimal.NewFromFloat(10.50), refID); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if err := ledger.Commit(context.Background(), refID); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	logOutput := buf.String()
+	if logOutput != "" {
+		t.Fatal("ledger package must not produce any log output")
+	}
+
+	// Test error path also produces no logs
+	buf.Reset()
+
+	mockErr := &mockRepository{
+		ReserveBalanceFunc: func(_ context.Context, _ uuid.UUID, _ decimal.Decimal, _ string) (*ReserveBalanceResult, error) {
+			return nil, ErrInsufficientBalance
+		},
+	}
+
+	ledgerErr := NewPostgresLedgerWithRepo(mockErr)
+	_ = ledgerErr.Reserve(context.Background(), consumerID, decimal.NewFromFloat(100), uuid.New().String())
+
+	logOutput = buf.String()
+	if logOutput != "" {
+		t.Fatal("ledger package must not produce any log output on error paths")
 	}
 }
 

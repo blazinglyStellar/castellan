@@ -1,10 +1,13 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	gatewaycontext "castellan/internal/gateway/context"
@@ -159,6 +162,46 @@ func TestBalanceCheckMissingPricingContext(t *testing.T) {
 	}
 	if called {
 		t.Fatal("expected downstream handler not to be called after missing pricing context")
+	}
+}
+
+func TestBalanceCheckDoesNotLogBalanceAmount(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	original := slog.Default()
+	slog.SetDefault(logger)
+	t.Cleanup(func() { slog.SetDefault(original) })
+
+	// Error path: balance query fails — no balance amount should leak.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/providers/", nil)
+	request = request.WithContext(
+		gatewaycontext.SetPricingInfo(
+			gatewaycontext.SetConsumerInfo(request.Context(), gatewaycontext.ConsumerInfo{
+				ConsumerID: uuid.NewString(),
+			}),
+			gatewaycontext.PricingInfo{
+				EndpointID:  "ep-1",
+				PriceAmount: decimal.NewFromFloat(1.00),
+				Currency:    gatewaycontext.CurrencyXLM,
+			},
+		),
+	)
+
+	mock := &mockBalanceChecker{err: context.DeadlineExceeded}
+	BalanceCheck(mock)(handler).ServeHTTP(recorder, request)
+
+	logOutput := buf.String()
+
+	if strings.Contains(logOutput, "1.00") {
+		t.Fatal("balance amount must not appear in log output on error path")
+	}
+	if !strings.Contains(logOutput, "consumer_id") {
+		t.Fatal("expected consumer_id in log output")
 	}
 }
 
