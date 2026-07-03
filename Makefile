@@ -36,6 +36,14 @@ seed:
 	@echo "Seeding database..."
 	@go run cmd/seed/main.go
 
+# Build the worker binary
+build-worker:
+	@go build -o worker.exe cmd/worker/main.go
+
+# Run the worker process
+run-worker:
+	@go run cmd/worker/main.go
+
 # Shutdown DB container
 docker-down:
 	@docker compose down
@@ -78,4 +86,4 @@ watch:
 		Write-Output 'Watching...'; \
 	}"
 
-.PHONY: all ci ci-full build lint vet test itest security trivy-scan run clean watch docker-run docker-down
+.PHONY: all ci ci-full build lint vet test itest security trivy-scan run clean watch docker-run docker-down build-worker run-worker
