@@ -227,7 +227,11 @@ func connectRedis() (*redis.Client, error) {
 	defer cancel()
 
 	if err := rdb.Ping(pingCtx).Err(); err != nil {
-		rdb.Close()
+		if closeErr := rdb.Close(); closeErr != nil {
+			slog.Warn("redis close after ping failure",
+				slog.Any("close_err", closeErr),
+			)
+		}
 		return nil, fmt.Errorf("redis ping: %w", err)
 	}
 
