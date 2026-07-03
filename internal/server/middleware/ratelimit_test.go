@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -120,6 +121,20 @@ func TestRateLimitCheck_Exceeded(t *testing.T) {
 	}
 	if v := recorder.Header().Get("X-Ratelimit-Reset"); v == "" {
 		t.Error("expected X-RateLimit-Reset header")
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected valid JSON body: %v", err)
+	}
+	if body["error"] != "rate_limit_exceeded" {
+		t.Errorf("expected error 'rate_limit_exceeded', got %q", body["error"])
+	}
+	if body["reset"] == "" {
+		t.Error("expected non-empty reset field in body")
+	}
+	if body["retry_after"] == "" {
+		t.Error("expected non-empty retry_after field in body")
 	}
 }
 
