@@ -45,15 +45,41 @@ go build -o ./bin/castellan ./cmd/api/
 
 ### Environment Variables
 
-| Variable            | Default                                                    | Description                    |
-|---------------------|------------------------------------------------------------|--------------------------------|
-| `DATABASE_URL`      | `postgres://postgres:postgres@localhost:5432/castellan`     | PostgreSQL connection string   |
-| `REDIS_URL`         | `redis://localhost:6379`                                   | Redis connection string        |
-| `PORT`              | `8080`                                                     | HTTP server port               |
-| `STELLAR_HORIZON`   | `https://horizon-testnet.stellar.org`                      | Stellar network endpoint       |
-| `WALLET_SECRET_KEY` | —                                                          | Stellar secret key for deposits |
+| Variable                      | Default                                                    | Description                          |
+|-------------------------------|------------------------------------------------------------|--------------------------------------|
+| `DATABASE_URL`                | `postgres://postgres:postgres@localhost:5432/castellan`     | PostgreSQL connection string         |
+| `REDIS_URL`                   | `redis://localhost:6379`                                   | Redis connection string              |
+| `PORT`                        | `8080`                                                     | HTTP server port                     |
+| `STELLAR_HORIZON`             | `https://horizon-testnet.stellar.org`                      | Stellar Horizon endpoint             |
+| `STELLAR_NETWORK`             | `testnet`                                                  | Stellar network (`testnet`/`pubnet`) |
+| `STELLAR_HOT_WALLET_ADDRESS`  | —                                                          | Public key for receiving deposits    |
+| `WALLET_SECRET_KEY`           | —                                                          | Stellar secret key for deposits      |
+| `STELLAR_DEPOSIT_MIN_AMOUNT`  | `5`                                                        | Minimum deposit in XLM               |
 
 Environment is loaded automatically via `github.com/joho/godotenv/autoload` — a `.env` file in the project root is picked up on startup.
+
+### Testnet Setup (Stellar)
+
+To test the deposit flow locally:
+
+1. **Create a testnet account.** Use the
+   [Stellar Lab](https://laboratory.stellar.org/#account-creator?network=testnet)
+   or the Stellar CLI to generate a keypair.
+
+2. **Fund via Friendbot.**
+   ```sh
+   curl "https://friendbot.stellar.org?addr=YOUR_TESTNET_PUBLIC_KEY"
+   ```
+   Friendbot sends 10,000 test XLM — enough for development.
+
+3. **Configure env vars.**
+   ```sh
+   STELLAR_HOT_WALLET_ADDRESS=YOUR_PUBLIC_KEY
+   WALLET_SECRET_KEY=YOUR_SECRET_SEED
+   ```
+
+4. **Start the server.** The watcher goroutine will begin polling Horizon
+   for incoming deposits immediately.
 
 ---
 
