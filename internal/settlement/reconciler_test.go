@@ -236,3 +236,374 @@ func TestCreateBatch_SinglePayout(t *testing.T) {
 		t.Errorf("entry provider_id = %s, want %s", entries[0].ProviderID, p1)
 	}
 }
+
+func seedConsumerWithAccount(
+	ctx context.Context, t *testing.T, email string,
+) (userID uuid.UUID, accountID uuid.UUID) {
+	t.Helper()
+
+	userID = uuid.New()
+	_, err := testPool.Exec(ctx,
+		`INSERT INTO users (id, email) VALUES ($1, $2)`,
+		userID, email)
+	if err != nil {
+		t.Fatalf("seed consumer user: %v", err)
+	}
+
+	accountID = uuid.New()
+	_, err = testPool.Exec(ctx,
+		`INSERT INTO accounts (id, owner_id, balance, currency) VALUES ($1, $2, 1000, 'XLM')`,
+		accountID, userID)
+	if err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+
+	return userID, accountID
+}
+
+func seedDeductionLedgerEntry(
+	ctx context.Context, t *testing.T,
+	accountID uuid.UUID, amount string,
+) {
+	t.Helper()
+
+	_, err := testPool.Exec(ctx,
+		`INSERT INTO ledger_entries (account_id, entry_type, amount, balance_after, currency, status)
+		 VALUES ($1, 'deduction', $2, (SELECT balance FROM accounts WHERE id = $1), 'XLM', 'completed')`,
+		accountID, amount)
+	if err != nil {
+		t.Fatalf("seed ledger entry: %v", err)
+	}
+}
+
+func TestFinalizeBatch_AllSuccess(t *testing.T) {
+	ctx := context.Background()
+
+	p1 := seedProvider(ctx, t, "fb-all-p1@example.com", "GASUCCESS")
+	consumer1, acct1 := seedConsumerWithAccount(ctx, t, "fb-all-c1@example.com")
+	consumer2, acct2 := seedConsumerWithAccount(ctx, t, "fb-all-c2@example.com")
+
+	seedDeductionLedgerEntry(ctx, t, acct1, "10.00")
+	seedDeductionLedgerEntry(ctx, t, acct2, "5.75")
+
+	reconciler := NewReconciler(testPool, testQueries)
+
+	payouts := []ProviderPayout{
+		{
+			ProviderID:    p1,
+			Amount:        decimal.NewFromFloat(15.75),
+			Currency:      repository.CurrencyXLM,
+			WalletAddress: "GASUCCESS",
+		},
+	}
+
+	batchID, entries, err := reconciler.CreateBatch(ctx, payouts)
+	if err != nil {
+		t.Fatalf("CreateBatch: %v", err)
+	}
+
+	results := []PayoutResult{
+		{
+			ProviderID: p1,
+			TxHash:     "abc123",
+			Status:     TransactionSuccess,
+		},
+	}
+
+	err = reconciler.FinalizeBatch(ctx, batchID, results)
+	if err != nil {
+		t.Fatalf("FinalizeBatch: %v", err)
+	}
+
+	batch, err := testQueries.GetSettlementBatchByID(ctx, batchID)
+	if err != nil {
+		t.Fatalf("GetSettlementBatchByID: %v", err)
+	}
+	if batch.Status != repository.BatchStatusCompleted {
+		t.Errorf("batch status = %s, want completed", batch.Status)
+	}
+
+	entry, err := testQueries.GetSettlementEntryByID(ctx, entries[0].ID)
+	if err != nil {
+		t.Fatalf("GetSettlementEntryByID: %v", err)
+	}
+	if entry.Status != repository.SettlementEntryStatusCompleted {
+		t.Errorf("entry status = %s, want completed", entry.Status)
+	}
+
+	for _, ledgerAcctID := range []uuid.UUID{acct1, acct2} {
+		ledgerEntries, err := testQueries.ListLedgerEntriesByAccount(
+			ctx,
+			repository.ListLedgerEntriesByAccountParams{
+				AccountID: ledgerAcctID,
+				Limit:     10,
+				Offset:    0,
+			},
+		)
+		if err != nil {
+			t.Fatalf("ListLedgerEntriesByAccount: %v", err)
+		}
+
+		for _, le := range ledgerEntries {
+			if le.EntryType == repository.EntryTypeDeduction {
+				if !le.ReferenceID.Valid {
+					t.Errorf("ledger entry %s reference_id not set", le.ID)
+				} else if le.ReferenceID.Bytes != batchID {
+					t.Errorf("ledger entry %s reference_id = %v, want %v", le.ID, le.ReferenceID.Bytes, batchID)
+				}
+				if !le.ReferenceType.Valid {
+					t.Errorf("ledger entry %s reference_type not set", le.ID)
+				} else if le.ReferenceType.String != "settlement_batch" {
+					t.Errorf("ledger entry %s reference_type = %s, want settlement_batch", le.ID, le.ReferenceType.String)
+				}
+			}
+		}
+	}
+
+	_ = consumer1
+	_ = consumer2
+}
+
+func TestFinalizeBatch_PartialFailure(t *testing.T) {
+	ctx := context.Background()
+
+	p1 := seedProvider(ctx, t, "fb-partial-p1@example.com", "GAP1")
+	p2 := seedProvider(ctx, t, "fb-partial-p2@example.com", "GAP2")
+
+	consumer1, acct1 := seedConsumerWithAccount(ctx, t, "fb-partial-c1@example.com")
+	consumer2, acct2 := seedConsumerWithAccount(ctx, t, "fb-partial-c2@example.com")
+
+	seedDeductionLedgerEntry(ctx, t, acct1, "20.00")
+	seedDeductionLedgerEntry(ctx, t, acct2, "30.00")
+
+	reconciler := NewReconciler(testPool, testQueries)
+
+	payouts := []ProviderPayout{
+		{
+			ProviderID:    p1,
+			Amount:        decimal.NewFromFloat(20.00),
+			Currency:      repository.CurrencyXLM,
+			WalletAddress: "GAP1",
+		},
+		{
+			ProviderID:    p2,
+			Amount:        decimal.NewFromFloat(30.00),
+			Currency:      repository.CurrencyXLM,
+			WalletAddress: "GAP2",
+		},
+	}
+
+	batchID, entries, err := reconciler.CreateBatch(ctx, payouts)
+	if err != nil {
+		t.Fatalf("CreateBatch: %v", err)
+	}
+
+	results := []PayoutResult{
+		{
+			ProviderID: p1,
+			TxHash:     "tx1",
+			Status:     TransactionSuccess,
+		},
+		{
+			ProviderID: p2,
+			Error:      "insufficient funds",
+			Status:     TransactionFailed,
+		},
+	}
+
+	err = reconciler.FinalizeBatch(ctx, batchID, results)
+	if err != nil {
+		t.Fatalf("FinalizeBatch: %v", err)
+	}
+
+	batch, err := testQueries.GetSettlementBatchByID(ctx, batchID)
+	if err != nil {
+		t.Fatalf("GetSettlementBatchByID: %v", err)
+	}
+	if batch.Status != repository.BatchStatusFailed {
+		t.Errorf("batch status = %s, want failed", batch.Status)
+	}
+
+	entry1, err := testQueries.GetSettlementEntryByID(ctx, entries[0].ID)
+	if err != nil {
+		t.Fatalf("GetSettlementEntryByID: %v", err)
+	}
+	if entry1.Status != repository.SettlementEntryStatusCompleted {
+		t.Errorf("entry1 status = %s, want completed", entry1.Status)
+	}
+
+	entry2, err := testQueries.GetSettlementEntryByID(ctx, entries[1].ID)
+	if err != nil {
+		t.Fatalf("GetSettlementEntryByID: %v", err)
+	}
+	if entry2.Status != repository.SettlementEntryStatusFailed {
+		t.Errorf("entry2 status = %s, want failed", entry2.Status)
+	}
+
+	p1LedgerEntries, err := testQueries.ListLedgerEntriesByAccount(
+		ctx,
+		repository.ListLedgerEntriesByAccountParams{
+			AccountID: acct1,
+			Limit:     10,
+			Offset:    0,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ListLedgerEntriesByAccount: %v", err)
+	}
+	for _, le := range p1LedgerEntries {
+		if le.EntryType == repository.EntryTypeDeduction {
+			if !le.ReferenceID.Valid {
+				t.Errorf("p1 ledger entry %s reference_id should be set", le.ID)
+			}
+		}
+	}
+
+	p2LedgerEntries, err := testQueries.ListLedgerEntriesByAccount(
+		ctx,
+		repository.ListLedgerEntriesByAccountParams{
+			AccountID: acct2,
+			Limit:     10,
+			Offset:    0,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ListLedgerEntriesByAccount: %v", err)
+	}
+	for _, le := range p2LedgerEntries {
+		if le.EntryType == repository.EntryTypeDeduction {
+			if le.ReferenceID.Valid {
+				t.Errorf("p2 ledger entry %s reference_id should NOT be set (failed payout)", le.ID)
+			}
+		}
+	}
+
+	_ = consumer1
+	_ = consumer2
+}
+
+func TestFinalizeBatch_Idempotent(t *testing.T) {
+	ctx := context.Background()
+
+	p1 := seedProvider(ctx, t, "fb-idem-p1@example.com", "GAIDEM")
+
+	reconciler := NewReconciler(testPool, testQueries)
+
+	payouts := []ProviderPayout{
+		{
+			ProviderID:    p1,
+			Amount:        decimal.NewFromFloat(50.00),
+			Currency:      repository.CurrencyXLM,
+			WalletAddress: "GAIDEM",
+		},
+	}
+
+	batchID, _, err := reconciler.CreateBatch(ctx, payouts)
+	if err != nil {
+		t.Fatalf("CreateBatch: %v", err)
+	}
+
+	results := []PayoutResult{
+		{
+			ProviderID: p1,
+			TxHash:     "txidem",
+			Status:     TransactionSuccess,
+		},
+	}
+
+	err = reconciler.FinalizeBatch(ctx, batchID, results)
+	if err != nil {
+		t.Fatalf("first FinalizeBatch: %v", err)
+	}
+
+	err = reconciler.FinalizeBatch(ctx, batchID, results)
+	if err != nil {
+		t.Fatalf("second FinalizeBatch (should be no-op): %v", err)
+	}
+
+	batch, err := testQueries.GetSettlementBatchByID(ctx, batchID)
+	if err != nil {
+		t.Fatalf("GetSettlementBatchByID: %v", err)
+	}
+	if batch.Status != repository.BatchStatusCompleted {
+		t.Errorf("batch status = %s, want completed", batch.Status)
+	}
+}
+
+func TestFinalizeBatch_UnknownBatch(t *testing.T) {
+	ctx := context.Background()
+
+	reconciler := NewReconciler(testPool, testQueries)
+	err := reconciler.FinalizeBatch(ctx, uuid.New(), []PayoutResult{})
+	if err != ErrBatchNotFound {
+		t.Errorf("expected ErrBatchNotFound, got %v", err)
+	}
+}
+
+func TestFinalizeBatch_AtomicityOnFailure(t *testing.T) {
+	ctx := context.Background()
+
+	p1 := seedProvider(ctx, t, "fb-atomic-p1@example.com", "GAATOM")
+
+	consumer1, acct1 := seedConsumerWithAccount(ctx, t, "fb-atomic-c1@example.com")
+	seedDeductionLedgerEntry(ctx, t, acct1, "100.00")
+
+	reconciler := NewReconciler(testPool, testQueries)
+
+	payouts := []ProviderPayout{
+		{
+			ProviderID:    p1,
+			Amount:        decimal.NewFromFloat(100.00),
+			Currency:      repository.CurrencyXLM,
+			WalletAddress: "GAATOM",
+		},
+	}
+
+	batchID, _, err := reconciler.CreateBatch(ctx, payouts)
+	if err != nil {
+		t.Fatalf("CreateBatch: %v", err)
+	}
+
+	defer func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM settlement_entries WHERE batch_id = $1`, batchID)
+		_, _ = testPool.Exec(ctx, `DELETE FROM settlement_batches WHERE id = $1`, batchID)
+	}()
+
+	invalidProviderID := uuid.New()
+	results := []PayoutResult{
+		{
+			ProviderID: invalidProviderID,
+			TxHash:     "",
+			Status:     TransactionSuccess,
+		},
+	}
+
+	err = reconciler.FinalizeBatch(ctx, batchID, results)
+	if err == nil {
+		t.Fatal("expected error for non-existent provider entry in batch")
+	}
+
+	var batchCount int
+	err = testPool.QueryRow(ctx, `SELECT COUNT(*) FROM settlement_batches WHERE id = $1 AND status = 'pending'`, batchID).Scan(&batchCount)
+	if err != nil {
+		t.Fatalf("count batches: %v", err)
+	}
+	if batchCount != 1 {
+		t.Errorf("expected batch to remain pending after rollback, got count = %d", batchCount)
+	}
+
+	var markedCount int
+	err = testPool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM ledger_entries WHERE account_id = $1 AND reference_id IS NOT NULL`,
+		acct1,
+	).Scan(&markedCount)
+	if err != nil {
+		t.Fatalf("count marked ledger entries: %v", err)
+	}
+	if markedCount != 0 {
+		t.Errorf("expected 0 marked ledger entries after rollback, got %d", markedCount)
+	}
+
+	_ = consumer1
+	_ = acct1
+}

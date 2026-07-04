@@ -48,3 +48,15 @@ SELECT le.* FROM ledger_entries le
 JOIN accounts a ON a.id = le.account_id
 WHERE le.id = $1 AND a.owner_id = $2
 LIMIT 1;
+
+-- name: MarkProviderLedgerEntriesSettled :many
+UPDATE ledger_entries le
+SET reference_id = $2, reference_type = $3
+FROM accounts a
+INNER JOIN usage_events ue ON ue.consumer_id = a.owner_id
+WHERE le.account_id = a.id
+  AND ue.provider_id = $1
+  AND ue.status = 'completed'
+  AND le.entry_type = 'deduction'
+  AND le.reference_id IS NULL
+RETURNING le.*;

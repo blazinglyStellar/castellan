@@ -139,6 +139,29 @@ CREATE TABLE usage_events (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE accounts (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_id    UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    balance     NUMERIC(20,10) NOT NULL DEFAULT 0,
+    currency    currency NOT NULL DEFAULT 'XLM',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE ledger_entries (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id    UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    entry_type    entry_type NOT NULL,
+    amount        NUMERIC(20,10) NOT NULL,
+    balance_after NUMERIC(20,10) NOT NULL,
+    currency      currency NOT NULL DEFAULT 'XLM',
+    reference_id  UUID,
+    reference_type TEXT,
+    status        ledger_status NOT NULL DEFAULT 'completed',
+    description   TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE settlement_batches (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     status        batch_status NOT NULL DEFAULT 'pending',
@@ -158,6 +181,7 @@ CREATE TABLE settlement_entries (
     currency        currency NOT NULL DEFAULT 'XLM',
     wallet_address  TEXT NOT NULL,
     status          settlement_entry_status NOT NULL DEFAULT 'pending',
+    tx_hash         TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `

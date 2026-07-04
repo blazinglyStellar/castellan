@@ -592,6 +592,7 @@ type SettlementEntry struct {
 	WalletAddress string                `json:"wallet_address"`
 	Status        SettlementEntryStatus `json:"status"`
 	CreatedAt     time.Time             `json:"created_at"`
+	TxHash        pgtype.Text           `json:"tx_hash"`
 }
 
 type StellarWatcherCursor struct {
