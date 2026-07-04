@@ -50,7 +50,7 @@ func (h *CreditHandler) CreditDeposit(ctx context.Context, op PaymentOperation) 
 	if _, err := uuid.Parse(op.Memo); err != nil {
 		h.log.WarnContext(ctx, "invalid deposit memo",
 			slog.String("tx_hash", op.TxHash),
-			slog.String("memo", op.Memo),
+			slog.String("memo_prefix", memoPrefix(op.Memo)),
 		)
 		return nil
 	}
@@ -62,7 +62,7 @@ func (h *CreditHandler) CreditDeposit(ctx context.Context, op PaymentOperation) 
 		if errors.Is(err, pgx.ErrNoRows) {
 			h.log.WarnContext(ctx, "unknown deposit memo",
 				slog.String("tx_hash", op.TxHash),
-				slog.String("memo", op.Memo),
+				slog.String("memo_prefix", memoPrefix(op.Memo)),
 			)
 			return nil
 		}
@@ -205,11 +205,11 @@ func (h *CreditHandler) CreditDeposit(ctx context.Context, op PaymentOperation) 
 		return fmt.Errorf("commit transaction: %w", err)
 	}
 
-	h.log.InfoContext(ctx, "deposit credited",
-		slog.String("tx_hash", op.TxHash),
+	h.log.LogAttrs(ctx, slog.LevelInfo, "deposit credited",
 		slog.String("consumer_id", user.ID.String()),
 		slog.String("amount", op.Amount.String()),
 		slog.String("outcome", "confirmed"),
+		slog.String("tx_hash", op.TxHash),
 	)
 
 	return nil
@@ -244,4 +244,13 @@ func decimalToNumeric(d decimal.Decimal) (pgtype.Numeric, error) {
 
 func pgtypeUUIDFromUUID(u uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: u, Valid: true}
+}
+
+const memoPrefixLen = 8
+
+func memoPrefix(s string) string {
+	if len(s) > memoPrefixLen {
+		return s[:memoPrefixLen]
+	}
+	return s
 }
