@@ -162,6 +162,88 @@ are logged but do not block the response to the client.
 
 All three require `Authorization: Bearer ca_...` or `st_...`.
 
+## Deposits
+
+Consumers fund their prepaid balance by depositing XLM into Castellan's
+hot wallet on the Stellar network. The deposit flow uses memo-based
+routing: each consumer has a unique UUID memo, and the Deposit Watcher
+polls Horizon to match incoming payments by memo.
+
+### Flow
+
+1. **Get deposit intent.** `GET /api/v1/deposits/intent` (authenticated) returns a
+   SEP-7 URI and a base64-encoded QR code. The response includes the
+   destination hot wallet address, the consumer's unique memo, the
+   minimum amount (5 XLM), and the asset (`XLM`).
+
+2. **Send XLM.** The consumer uses any Stellar wallet that supports SEP-7
+   (e.g., Lobstr, Stellar X, Freighter) to scan the QR or open the URI.
+   The wallet pre-fills the destination, memo, and amount — the consumer
+   just confirms.
+
+3. **Watcher credits.** The Deposit Watcher (background worker, polls
+   Horizon every ~30s) detects the incoming payment, matches the memo
+   UUID to the consumer, and credits their internal balance atomically
+   inside a DB transaction.
+
+4. **Verify.** `GET /api/v1/accounts/me` shows the updated balance.
+   `GET /api/v1/deposits` lists all deposits with their status
+   (`pending`, `confirmed`, or `failed`).
+
+### Memo-based routing (⚠️ critical)
+
+The memo UUID is how Castellan links an on-chain payment to a consumer.
+
+- **Always use the SEP-7 URI or QR code** returned by the intent endpoint.
+  Do not construct a payment manually — a missing or incorrect memo
+  **cannot be matched**.
+- Funds sent without a memo, or with an unrecognized memo, are recorded
+  as `failed` deposits and are **not credited** to any account.
+- There is no automated recovery path for unmatched deposits. Contact
+  support if funds were sent with no or wrong memo.
+
+### Minimum deposit
+
+Deposits below `STELLAR_DEPOSIT_MIN_AMOUNT` (default: **5 XLM**) are
+rejected as dust and recorded with status `failed`. The minimum
+prevents low-value payments from consuming DB writes and watcher
+resources.
+
+### Confirmation timing
+
+The watcher polls Horizon every 30 seconds. After a Stellar payment
+is confirmed on the network, the balance is credited within the next
+poll cycle — typically **under 30 seconds** after network confirmation.
+
+### Endpoint reference
+
+| Action | Method + Path | Description |
+|--------|---------------|-------------|
+| Get intent | `GET /api/v1/deposits/intent` | Returns SEP-7 URI, QR code, memo, destination, min amount |
+| List deposits | `GET /api/v1/deposits` | Returns deposit history for the authenticated consumer |
+
+Both require `Authorization: Bearer ca_...` or `st_...`.
+
+### Watcher architecture
+
+The Deposit Watcher runs as a goroutine inside the API server
+(`cmd/api/main.go`) and can also be started standalone as a background
+worker (`cmd/worker/main.go`). It maintains a cursor in the
+`watcher_cursor` table to resume from the last processed ledger
+sequence after restarts.
+
+Configuration is driven by Stellar env vars (see `.env.example`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `STELLAR_HORIZON` | `https://horizon-testnet.stellar.org` | Horizon endpoint |
+| `STELLAR_NETWORK` | `testnet` | Network target |
+| `STELLAR_HOT_WALLET_ADDRESS` | — | Hot wallet public key |
+| `WALLET_SECRET_KEY` | — | Hot wallet secret seed |
+| `STELLAR_DEPOSIT_MIN_AMOUNT` | `5` | Minimum deposit threshold |
+
+---
+
 ### Security: amounts as strings
 
 Monetary amounts in API responses are serialised as **string-formatted
@@ -422,7 +504,7 @@ See `Makefile` for all commands.
 ```
 castellan/
 ├── cmd/
-│   └── gateway/          # Go server entrypoint
+│   └── api/              # Go server entrypoint
 ├── internal/
 │   ├── database/         # pgx connection pool, health checks
 │   ├── server/           # HTTP server, routes, middleware
