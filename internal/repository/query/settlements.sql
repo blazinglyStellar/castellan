@@ -37,6 +37,11 @@ SELECT * FROM settlement_batches
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2;
 
+-- name: ListFailedSettlementBatches :many
+SELECT * FROM settlement_batches
+WHERE status = 'failed'
+ORDER BY created_at DESC;
+
 -- name: UpdateSettlementBatchStatus :one
 UPDATE settlement_batches
 SET

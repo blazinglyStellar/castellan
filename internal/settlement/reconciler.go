@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 
 	"castellan/internal/repository/db"
@@ -232,4 +233,134 @@ func (r *Reconciler) FinalizeBatch(
 	}
 
 	return nil
+}
+
+func (r *Reconciler) RecoverFailed(
+	ctx context.Context,
+	monitor TransactionMonitor,
+) error {
+	batches, err := r.queries.ListFailedSettlementBatches(ctx)
+	if err != nil {
+		return fmt.Errorf("list failed batches: %w", err)
+	}
+
+	var errs []error
+	for _, batch := range batches {
+		if err := r.recoverBatch(ctx, monitor, batch); err != nil {
+			slog.WarnContext(
+				ctx, "recover batch failed",
+				slog.String("batch_id", batch.ID.String()),
+				slog.String("error", err.Error()),
+			)
+			errs = append(errs, fmt.Errorf("batch %s: %w", batch.ID, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+func (r *Reconciler) recoverBatch(
+	ctx context.Context,
+	monitor TransactionMonitor,
+	batch repository.SettlementBatch,
+) error {
+	entries, err := r.queries.ListSettlementEntriesByBatch(ctx, batch.ID)
+	if err != nil {
+		return fmt.Errorf("list entries: %w", err)
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txQueries := r.queries.WithTx(tx)
+	allResolved := true
+
+	for _, entry := range entries {
+		if entry.Status == repository.SettlementEntryStatusCompleted {
+			continue
+		}
+
+		if entry.Status != repository.SettlementEntryStatusFailed || !entry.TxHash.Valid {
+			allResolved = false
+			continue
+		}
+
+		status, monErr := monitor.MonitorTransaction(ctx, entry.TxHash.String)
+		if monErr != nil {
+			return fmt.Errorf("monitor transaction %s: %w", entry.TxHash.String, monErr)
+		}
+
+		if status == TransactionSuccess {
+			_, updateErr := txQueries.UpdateSettlementEntryStatus(
+				ctx,
+				repository.UpdateSettlementEntryStatusParams{
+					ID:     entry.ID,
+					Status: repository.SettlementEntryStatusCompleted,
+				},
+			)
+			if updateErr != nil {
+				return fmt.Errorf("update entry %s to completed: %w", entry.ID, updateErr)
+			}
+
+			_, markErr := txQueries.MarkProviderLedgerEntriesSettled(
+				ctx,
+				repository.MarkProviderLedgerEntriesSettledParams{
+					ProviderID:    entry.ProviderID,
+					ReferenceID:   pgtype.UUID{Bytes: batch.ID, Valid: true},
+					ReferenceType: pgtype.Text{String: "settlement_batch", Valid: true},
+				},
+			)
+			if markErr != nil {
+				return fmt.Errorf("mark ledger entries for provider %s: %w", entry.ProviderID, markErr)
+			}
+		} else {
+			allResolved = false
+		}
+	}
+
+	if allResolved {
+		_, err = txQueries.UpdateSettlementBatchStatus(
+			ctx,
+			repository.UpdateSettlementBatchStatusParams{
+				ID:     batch.ID,
+				Status: repository.BatchStatusCompleted,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("update batch status: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Reconciler) GetSettlementHistory(
+	ctx context.Context,
+	limit, offset int32,
+) ([]repository.SettlementBatch, map[uuid.UUID][]repository.SettlementEntry, error) {
+	batches, err := r.queries.ListSettlementBatches(ctx, repository.ListSettlementBatchesParams{
+		Limit:  limit,
+		Offset: offset,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("list settlement batches: %w", err)
+	}
+
+	entriesMap := make(map[uuid.UUID][]repository.SettlementEntry, len(batches))
+	for _, batch := range batches {
+		entries, err := r.queries.ListSettlementEntriesByBatch(ctx, batch.ID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list entries for batch %s: %w", batch.ID, err)
+		}
+		entriesMap[batch.ID] = entries
+	}
+
+	return batches, entriesMap, nil
 }

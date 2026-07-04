@@ -34,6 +34,273 @@ func seedProvider(ctx context.Context, t *testing.T, email, payoutAddr string) u
 	return providerID
 }
 
+type mockMonitor struct {
+	status TransactionStatus
+	err    error
+}
+
+func (m *mockMonitor) MonitorTransaction(_ context.Context, _ string) (TransactionStatus, error) {
+	return m.status, m.err
+}
+
+func TestRecoverFailed_SalvagesPreviouslyFailed(t *testing.T) {
+	ctx := context.Background()
+
+	p1 := seedProvider(ctx, t, "recover-p1@example.com", "GA_RECOVER_1")
+	p2 := seedProvider(ctx, t, "recover-p2@example.com", "GA_RECOVER_2")
+
+	consumer1, acct1 := seedConsumerWithAccount(ctx, t, "recover-c1@example.com")
+	consumer2, acct2 := seedConsumerWithAccount(ctx, t, "recover-c2@example.com")
+
+	seedDeductionLedgerEntry(ctx, t, acct1, "15.00")
+	seedDeductionLedgerEntry(ctx, t, acct2, "25.00")
+
+	reconciler := NewReconciler(testPool, testQueries)
+
+	payouts := []ProviderPayout{
+		{
+			ProviderID:    p1,
+			Amount:        decimal.NewFromFloat(15.00),
+			Currency:      repository.CurrencyXLM,
+			WalletAddress: "GA_RECOVER_1",
+		},
+		{
+			ProviderID:    p2,
+			Amount:        decimal.NewFromFloat(25.00),
+			Currency:      repository.CurrencyXLM,
+			WalletAddress: "GA_RECOVER_2",
+		},
+	}
+
+	batchID, entries, err := reconciler.CreateBatch(ctx, payouts)
+	if err != nil {
+		t.Fatalf("CreateBatch: %v", err)
+	}
+
+	results := []PayoutResult{
+		{ProviderID: p1, Status: TransactionFailed},
+		{ProviderID: p2, Status: TransactionFailed},
+	}
+	if err := reconciler.FinalizeBatch(ctx, batchID, results); err != nil {
+		t.Fatalf("FinalizeBatch: %v", err)
+	}
+
+	_, err = testPool.Exec(ctx,
+		`UPDATE settlement_entries SET tx_hash = $1 WHERE id = $2`,
+		"tx_recover_1", entries[0].ID)
+	if err != nil {
+		t.Fatalf("set tx_hash on entry 1: %v", err)
+	}
+	_, err = testPool.Exec(ctx,
+		`UPDATE settlement_entries SET tx_hash = $1 WHERE id = $2`,
+		"tx_recover_2", entries[1].ID)
+	if err != nil {
+		t.Fatalf("set tx_hash on entry 2: %v", err)
+	}
+
+	monitor := &mockMonitor{status: TransactionSuccess}
+	if err := reconciler.RecoverFailed(ctx, monitor); err != nil {
+		t.Fatalf("RecoverFailed: %v", err)
+	}
+
+	batch, err := testQueries.GetSettlementBatchByID(ctx, batchID)
+	if err != nil {
+		t.Fatalf("GetSettlementBatchByID: %v", err)
+	}
+	if batch.Status != repository.BatchStatusCompleted {
+		t.Errorf("batch status = %s, want completed", batch.Status)
+	}
+
+	for _, entry := range entries {
+		got, err := testQueries.GetSettlementEntryByID(ctx, entry.ID)
+		if err != nil {
+			t.Fatalf("GetSettlementEntryByID(%s): %v", entry.ID, err)
+		}
+		if got.Status != repository.SettlementEntryStatusCompleted {
+			t.Errorf("entry %s status = %s, want completed", entry.ID, got.Status)
+		}
+	}
+
+	for _, ledgerAcctID := range []uuid.UUID{acct1, acct2} {
+		ledgerEntries, err := testQueries.ListLedgerEntriesByAccount(
+			ctx,
+			repository.ListLedgerEntriesByAccountParams{
+				AccountID: ledgerAcctID,
+				Limit:     10,
+				Offset:    0,
+			},
+		)
+		if err != nil {
+			t.Fatalf("ListLedgerEntriesByAccount(%s): %v", ledgerAcctID, err)
+		}
+		for _, le := range ledgerEntries {
+			if le.EntryType == repository.EntryTypeDeduction && !le.ReferenceID.Valid {
+				t.Errorf("ledger entry %s reference_id not set after recovery", le.ID)
+			}
+		}
+	}
+
+	_ = consumer1
+	_ = consumer2
+}
+
+func TestRecoverFailed_NoopWhenMonitorStillFails(t *testing.T) {
+	ctx := context.Background()
+
+	p1 := seedProvider(ctx, t, "recover-noop@example.com", "GA_NOOP")
+
+	reconciler := NewReconciler(testPool, testQueries)
+
+	payouts := []ProviderPayout{
+		{
+			ProviderID:    p1,
+			Amount:        decimal.NewFromFloat(10.00),
+			Currency:      repository.CurrencyXLM,
+			WalletAddress: "GA_NOOP",
+		},
+	}
+
+	batchID, entries, err := reconciler.CreateBatch(ctx, payouts)
+	if err != nil {
+		t.Fatalf("CreateBatch: %v", err)
+	}
+
+	results := []PayoutResult{
+		{ProviderID: p1, Status: TransactionFailed},
+	}
+	if err := reconciler.FinalizeBatch(ctx, batchID, results); err != nil {
+		t.Fatalf("FinalizeBatch: %v", err)
+	}
+
+	_, err = testPool.Exec(ctx,
+		`UPDATE settlement_entries SET tx_hash = $1 WHERE id = $2`,
+		"tx_noop", entries[0].ID)
+	if err != nil {
+		t.Fatalf("set tx_hash: %v", err)
+	}
+
+	monitor := &mockMonitor{status: TransactionFailed}
+	if err := reconciler.RecoverFailed(ctx, monitor); err != nil {
+		t.Fatalf("RecoverFailed: %v", err)
+	}
+
+	batch, err := testQueries.GetSettlementBatchByID(ctx, batchID)
+	if err != nil {
+		t.Fatalf("GetSettlementBatchByID: %v", err)
+	}
+	if batch.Status != repository.BatchStatusFailed {
+		t.Errorf("batch status = %s, want failed (unchanged)", batch.Status)
+	}
+
+	got, err := testQueries.GetSettlementEntryByID(ctx, entries[0].ID)
+	if err != nil {
+		t.Fatalf("GetSettlementEntryByID: %v", err)
+	}
+	if got.Status != repository.SettlementEntryStatusFailed {
+		t.Errorf("entry status = %s, want failed (unchanged)", got.Status)
+	}
+}
+
+func TestGetSettlementHistory_ReturnsBatchesWithEntries(t *testing.T) {
+	ctx := context.Background()
+
+	p1 := seedProvider(ctx, t, "history-p1@example.com", "GA_HIST_1")
+	p2 := seedProvider(ctx, t, "history-p2@example.com", "GA_HIST_2")
+
+	reconciler := NewReconciler(testPool, testQueries)
+
+	payouts1 := []ProviderPayout{
+		{
+			ProviderID:    p1,
+			Amount:        decimal.NewFromFloat(10.00),
+			Currency:      repository.CurrencyXLM,
+			WalletAddress: "GA_HIST_1",
+		},
+	}
+	payouts2 := []ProviderPayout{
+		{
+			ProviderID:    p2,
+			Amount:        decimal.NewFromFloat(20.00),
+			Currency:      repository.CurrencyXLM,
+			WalletAddress: "GA_HIST_2",
+		},
+	}
+
+	batchID1, _, err := reconciler.CreateBatch(ctx, payouts1)
+	if err != nil {
+		t.Fatalf("CreateBatch 1: %v", err)
+	}
+	batchID2, _, err := reconciler.CreateBatch(ctx, payouts2)
+	if err != nil {
+		t.Fatalf("CreateBatch 2: %v", err)
+	}
+
+	batches, entriesMap, err := reconciler.GetSettlementHistory(ctx, 10, 0)
+	if err != nil {
+		t.Fatalf("GetSettlementHistory: %v", err)
+	}
+
+	if len(batches) < 2 {
+		t.Errorf("expected at least 2 batches, got %d", len(batches))
+	}
+
+	for _, batchID := range []uuid.UUID{batchID1, batchID2} {
+		entries, ok := entriesMap[batchID]
+		if !ok {
+			t.Errorf("no entries map entry for batch %s", batchID)
+			continue
+		}
+		if len(entries) != 1 {
+			t.Errorf("batch %s has %d entries, want 1", batchID, len(entries))
+		}
+	}
+}
+
+func TestGetSettlementHistory_Pagination(t *testing.T) {
+	ctx := context.Background()
+
+	p1 := seedProvider(ctx, t, "pagination-p1@example.com", "GA_PAGE_1")
+
+	reconciler := NewReconciler(testPool, testQueries)
+
+	for range 3 {
+		payouts := []ProviderPayout{
+			{
+				ProviderID:    p1,
+				Amount:        decimal.NewFromFloat(5.00),
+				Currency:      repository.CurrencyXLM,
+				WalletAddress: "GA_PAGE_1",
+			},
+		}
+		_, _, err := reconciler.CreateBatch(ctx, payouts)
+		if err != nil {
+			t.Fatalf("CreateBatch: %v", err)
+		}
+	}
+
+	batches, entriesMap, err := reconciler.GetSettlementHistory(ctx, 2, 0)
+	if err != nil {
+		t.Fatalf("GetSettlementHistory(limit=2): %v", err)
+	}
+	if len(batches) != 2 {
+		t.Errorf("expected 2 batches with limit=2, got %d", len(batches))
+	}
+
+	batchesPage2, _, err := reconciler.GetSettlementHistory(ctx, 2, 2)
+	if err != nil {
+		t.Fatalf("GetSettlementHistory(offset=2): %v", err)
+	}
+	if len(batchesPage2) != 1 {
+		t.Errorf("expected 1 batch on page 2, got %d", len(batchesPage2))
+	}
+
+	for _, b := range batches {
+		if _, ok := entriesMap[b.ID]; !ok {
+			t.Errorf("missing entries for batch %s", b.ID)
+		}
+	}
+}
+
 func TestCreateBatch_InsertsBatchAndEntries(t *testing.T) {
 	ctx := context.Background()
 

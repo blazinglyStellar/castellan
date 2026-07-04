@@ -220,6 +220,41 @@ func (q *Queries) InsertSettlementEntry(ctx context.Context, arg InsertSettlemen
 	return i, err
 }
 
+const listFailedSettlementBatches = `-- name: ListFailedSettlementBatches :many
+SELECT id, status, total_amount, currency, entry_count, tx_hash, created_at, completed_at FROM settlement_batches
+WHERE status = 'failed'
+ORDER BY created_at DESC
+`
+
+func (q *Queries) ListFailedSettlementBatches(ctx context.Context) ([]SettlementBatch, error) {
+	rows, err := q.db.Query(ctx, listFailedSettlementBatches)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SettlementBatch
+	for rows.Next() {
+		var i SettlementBatch
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.TotalAmount,
+			&i.Currency,
+			&i.EntryCount,
+			&i.TxHash,
+			&i.CreatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSettlementBatches = `-- name: ListSettlementBatches :many
 SELECT id, status, total_amount, currency, entry_count, tx_hash, created_at, completed_at FROM settlement_batches
 ORDER BY created_at DESC
