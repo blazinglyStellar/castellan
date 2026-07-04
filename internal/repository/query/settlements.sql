@@ -11,13 +11,41 @@ SELECT * FROM settlement_batches
 WHERE id = $1
 LIMIT 1;
 
+-- name: GetUnsettledProviderEarnings :many
+SELECT
+    ue.provider_id,
+    SUM(ue.request_cost)::numeric AS total_amount,
+    ue.currency,
+    u.payout_stellar_address
+FROM usage_events ue
+JOIN providers p ON p.id = ue.provider_id
+JOIN users u ON u.id = p.owner_id
+WHERE ue.status = 'completed'
+  AND u.payout_stellar_address IS NOT NULL
+  AND u.payout_stellar_address != ''
+  AND ue.created_at > COALESCE((
+      SELECT MAX(sb.completed_at)
+      FROM settlement_entries se
+      JOIN settlement_batches sb ON sb.id = se.batch_id
+      WHERE se.provider_id = ue.provider_id
+        AND sb.status = 'completed'
+  ), 'epoch'::timestamptz)
+GROUP BY ue.provider_id, ue.currency, u.payout_stellar_address;
+
 -- name: ListSettlementBatches :many
 SELECT * FROM settlement_batches
-ORDER BY created_at DESC;
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2;
 
 -- name: UpdateSettlementBatchStatus :one
 UPDATE settlement_batches
-SET status = $2
+SET
+    status = $2,
+    completed_at = CASE
+        WHEN $2 IN ('completed', 'failed') THEN COALESCE(completed_at, now())
+        WHEN $2 IN ('pending', 'processing') THEN NULL
+        ELSE completed_at
+    END
 WHERE id = $1
 RETURNING *;
 
