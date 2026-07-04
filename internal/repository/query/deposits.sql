@@ -4,6 +4,7 @@ INSERT INTO deposits (
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
 )
+ON CONFLICT (tx_hash) DO NOTHING
 RETURNING *;
 
 -- name: InsertDepositIgnoreConflict :one

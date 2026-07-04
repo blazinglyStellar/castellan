@@ -94,6 +94,7 @@ INSERT INTO deposits (
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
 )
+ON CONFLICT (tx_hash) DO NOTHING
 RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
 `
 
