@@ -1,11 +1,17 @@
 package settlement
 
 import (
+	"context"
+
 	"castellan/internal/repository/db"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
+
+type TransactionMonitor interface {
+	MonitorTransaction(ctx context.Context, txHash string) (TransactionStatus, error)
+}
 
 type TransactionStatus string
 

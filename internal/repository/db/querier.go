@@ -57,6 +57,7 @@ type Querier interface {
 	ListAllProviders(ctx context.Context, status interface{}) ([]Provider, error)
 	ListDepositsByAccount(ctx context.Context, accountID uuid.UUID) ([]Deposit, error)
 	ListEndpointsByProvider(ctx context.Context, arg ListEndpointsByProviderParams) ([]ApiEndpoint, error)
+	ListFailedSettlementBatches(ctx context.Context) ([]SettlementBatch, error)
 	ListKeysByUser(ctx context.Context, userID uuid.UUID) ([]ApiKey, error)
 	ListLedgerEntriesByAccount(ctx context.Context, arg ListLedgerEntriesByAccountParams) ([]LedgerEntry, error)
 	ListLedgerEntriesByAccountAndType(ctx context.Context, arg ListLedgerEntriesByAccountAndTypeParams) ([]LedgerEntry, error)
