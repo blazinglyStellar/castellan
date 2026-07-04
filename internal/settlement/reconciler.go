@@ -9,14 +9,20 @@ import (
 	"castellan/internal/repository/db"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 )
 
 var (
-	ErrNoPayouts       = errors.New("no payouts to settle")
-	ErrMixedCurrencies = errors.New("all payouts must use the same currency")
+	ErrNoPayouts              = errors.New("no payouts to settle")
+	ErrMixedCurrencies        = errors.New("all payouts must use the same currency")
+	ErrBatchNotFound          = errors.New("settlement batch not found")
+	ErrNoResults              = errors.New("no payout results provided")
+	ErrResultProviderMismatch = errors.New("payout result references provider not in batch")
+	ErrDuplicateResult        = errors.New("duplicate payout result for provider")
+	ErrMissingResults         = errors.New("missing payout results for one or more providers")
 )
 
 type Reconciler struct {
@@ -105,4 +111,125 @@ func (r *Reconciler) CreateBatch(
 	}
 
 	return batch.ID, entries, nil
+}
+
+func (r *Reconciler) FinalizeBatch(
+	ctx context.Context,
+	batchID uuid.UUID,
+	results []PayoutResult,
+) error {
+	batch, err := r.queries.GetSettlementBatchByID(ctx, batchID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrBatchNotFound
+		}
+		return fmt.Errorf("get settlement batch: %w", err)
+	}
+
+	if batch.Status == repository.BatchStatusCompleted {
+		return nil
+	}
+
+	if len(results) == 0 {
+		return ErrNoResults
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	txQueries := r.queries.WithTx(tx)
+
+	entries, err := txQueries.ListSettlementEntriesByBatch(ctx, batchID)
+	if err != nil {
+		return fmt.Errorf("list settlement entries: %w", err)
+	}
+
+	expectedProviders := make(map[uuid.UUID]repository.SettlementEntry, len(entries))
+	for _, e := range entries {
+		expectedProviders[e.ProviderID] = e
+	}
+
+	seenProviders := make(map[uuid.UUID]bool, len(results))
+	allSuccess := true
+
+	for _, result := range results {
+		entry, ok := expectedProviders[result.ProviderID]
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrResultProviderMismatch, result.ProviderID)
+		}
+		if seenProviders[result.ProviderID] {
+			return fmt.Errorf("%w: %s", ErrDuplicateResult, result.ProviderID)
+		}
+		seenProviders[result.ProviderID] = true
+
+		switch result.Status {
+		case TransactionSuccess:
+			_, updateErr := txQueries.UpdateSettlementEntryStatus(
+				ctx,
+				repository.UpdateSettlementEntryStatusParams{
+					ID:     entry.ID,
+					Status: repository.SettlementEntryStatusCompleted,
+				},
+			)
+			if updateErr != nil {
+				return fmt.Errorf("update entry %s to completed: %w", entry.ID, updateErr)
+			}
+
+			_, markErr := txQueries.MarkProviderLedgerEntriesSettled(
+				ctx,
+				repository.MarkProviderLedgerEntriesSettledParams{
+					ProviderID:    result.ProviderID,
+					ReferenceID:   pgtype.UUID{Bytes: batchID, Valid: true},
+					ReferenceType: pgtype.Text{String: "settlement_batch", Valid: true},
+				},
+			)
+			if markErr != nil {
+				return fmt.Errorf("mark ledger entries for provider %s: %w", result.ProviderID, markErr)
+			}
+
+		case TransactionFailed:
+			_, updateErr := txQueries.UpdateSettlementEntryStatus(
+				ctx,
+				repository.UpdateSettlementEntryStatusParams{
+					ID:     entry.ID,
+					Status: repository.SettlementEntryStatusFailed,
+				},
+			)
+			if updateErr != nil {
+				return fmt.Errorf("update entry %s to failed: %w", entry.ID, updateErr)
+			}
+
+			allSuccess = false
+
+		case TransactionPending:
+			allSuccess = false
+		}
+	}
+
+	if len(seenProviders) != len(expectedProviders) {
+		return fmt.Errorf("%w: batch %s has %d entries but %d results provided",
+			ErrMissingResults, batchID, len(expectedProviders), len(seenProviders))
+	}
+
+	batchStatus := repository.BatchStatusCompleted
+	if !allSuccess {
+		batchStatus = repository.BatchStatusFailed
+	}
+
+	_, err = txQueries.UpdateSettlementBatchStatus(ctx, repository.UpdateSettlementBatchStatusParams{
+		ID:     batchID,
+		Status: batchStatus,
+	})
+	if err != nil {
+		return fmt.Errorf("update batch status: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
 }

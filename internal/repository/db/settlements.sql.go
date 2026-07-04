@@ -34,8 +34,36 @@ func (q *Queries) GetSettlementBatchByID(ctx context.Context, id uuid.UUID) (Set
 	return i, err
 }
 
+const getSettlementEntryByBatchAndProvider = `-- name: GetSettlementEntryByBatchAndProvider :one
+SELECT id, batch_id, provider_id, amount, currency, wallet_address, status, created_at, tx_hash FROM settlement_entries
+WHERE batch_id = $1 AND provider_id = $2
+LIMIT 1
+`
+
+type GetSettlementEntryByBatchAndProviderParams struct {
+	BatchID    uuid.UUID `json:"batch_id"`
+	ProviderID uuid.UUID `json:"provider_id"`
+}
+
+func (q *Queries) GetSettlementEntryByBatchAndProvider(ctx context.Context, arg GetSettlementEntryByBatchAndProviderParams) (SettlementEntry, error) {
+	row := q.db.QueryRow(ctx, getSettlementEntryByBatchAndProvider, arg.BatchID, arg.ProviderID)
+	var i SettlementEntry
+	err := row.Scan(
+		&i.ID,
+		&i.BatchID,
+		&i.ProviderID,
+		&i.Amount,
+		&i.Currency,
+		&i.WalletAddress,
+		&i.Status,
+		&i.CreatedAt,
+		&i.TxHash,
+	)
+	return i, err
+}
+
 const getSettlementEntryByID = `-- name: GetSettlementEntryByID :one
-SELECT id, batch_id, provider_id, amount, currency, wallet_address, status, created_at FROM settlement_entries
+SELECT id, batch_id, provider_id, amount, currency, wallet_address, status, created_at, tx_hash FROM settlement_entries
 WHERE id = $1
 LIMIT 1
 `
@@ -52,6 +80,7 @@ func (q *Queries) GetSettlementEntryByID(ctx context.Context, id uuid.UUID) (Set
 		&i.WalletAddress,
 		&i.Status,
 		&i.CreatedAt,
+		&i.TxHash,
 	)
 	return i, err
 }
@@ -155,7 +184,7 @@ INSERT INTO settlement_entries (
 ) VALUES (
     $1, $2, $3, $4, $5, $6
 )
-RETURNING id, batch_id, provider_id, amount, currency, wallet_address, status, created_at
+RETURNING id, batch_id, provider_id, amount, currency, wallet_address, status, created_at, tx_hash
 `
 
 type InsertSettlementEntryParams struct {
@@ -186,6 +215,7 @@ func (q *Queries) InsertSettlementEntry(ctx context.Context, arg InsertSettlemen
 		&i.WalletAddress,
 		&i.Status,
 		&i.CreatedAt,
+		&i.TxHash,
 	)
 	return i, err
 }
@@ -231,7 +261,7 @@ func (q *Queries) ListSettlementBatches(ctx context.Context, arg ListSettlementB
 }
 
 const listSettlementEntriesByBatch = `-- name: ListSettlementEntriesByBatch :many
-SELECT id, batch_id, provider_id, amount, currency, wallet_address, status, created_at FROM settlement_entries
+SELECT id, batch_id, provider_id, amount, currency, wallet_address, status, created_at, tx_hash FROM settlement_entries
 WHERE batch_id = $1
 ORDER BY created_at DESC
 `
@@ -254,6 +284,7 @@ func (q *Queries) ListSettlementEntriesByBatch(ctx context.Context, batchID uuid
 			&i.WalletAddress,
 			&i.Status,
 			&i.CreatedAt,
+			&i.TxHash,
 		); err != nil {
 			return nil, err
 		}
@@ -303,7 +334,7 @@ const updateSettlementEntryStatus = `-- name: UpdateSettlementEntryStatus :one
 UPDATE settlement_entries
 SET status = $2
 WHERE id = $1
-RETURNING id, batch_id, provider_id, amount, currency, wallet_address, status, created_at
+RETURNING id, batch_id, provider_id, amount, currency, wallet_address, status, created_at, tx_hash
 `
 
 type UpdateSettlementEntryStatusParams struct {
@@ -323,6 +354,7 @@ func (q *Queries) UpdateSettlementEntryStatus(ctx context.Context, arg UpdateSet
 		&i.WalletAddress,
 		&i.Status,
 		&i.CreatedAt,
+		&i.TxHash,
 	)
 	return i, err
 }

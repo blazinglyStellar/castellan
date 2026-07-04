@@ -67,6 +67,11 @@ SELECT * FROM settlement_entries
 WHERE batch_id = $1
 ORDER BY created_at DESC;
 
+-- name: GetSettlementEntryByBatchAndProvider :one
+SELECT * FROM settlement_entries
+WHERE batch_id = $1 AND provider_id = $2
+LIMIT 1;
+
 -- name: UpdateSettlementEntryStatus :one
 UPDATE settlement_entries
 SET status = $2

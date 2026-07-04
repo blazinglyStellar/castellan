@@ -269,6 +269,57 @@ func (q *Queries) ListLedgerEntriesByAccountAndType(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const markProviderLedgerEntriesSettled = `-- name: MarkProviderLedgerEntriesSettled :many
+UPDATE ledger_entries le
+SET reference_id = $2, reference_type = $3
+FROM accounts a
+INNER JOIN usage_events ue ON ue.consumer_id = a.owner_id
+WHERE le.account_id = a.id
+  AND ue.provider_id = $1
+  AND ue.status = 'completed'
+  AND le.entry_type = 'deduction'
+  AND le.reference_id IS NULL
+RETURNING le.id, le.account_id, le.entry_type, le.amount, le.balance_after, le.currency, le.reference_id, le.reference_type, le.status, le.description, le.created_at
+`
+
+type MarkProviderLedgerEntriesSettledParams struct {
+	ProviderID    uuid.UUID   `json:"provider_id"`
+	ReferenceID   pgtype.UUID `json:"reference_id"`
+	ReferenceType pgtype.Text `json:"reference_type"`
+}
+
+func (q *Queries) MarkProviderLedgerEntriesSettled(ctx context.Context, arg MarkProviderLedgerEntriesSettledParams) ([]LedgerEntry, error) {
+	rows, err := q.db.Query(ctx, markProviderLedgerEntriesSettled, arg.ProviderID, arg.ReferenceID, arg.ReferenceType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LedgerEntry
+	for rows.Next() {
+		var i LedgerEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.EntryType,
+			&i.Amount,
+			&i.BalanceAfter,
+			&i.Currency,
+			&i.ReferenceID,
+			&i.ReferenceType,
+			&i.Status,
+			&i.Description,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateLedgerEntryStatus = `-- name: UpdateLedgerEntryStatus :one
 UPDATE ledger_entries
 SET status = $2
