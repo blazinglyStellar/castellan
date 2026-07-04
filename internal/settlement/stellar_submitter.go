@@ -277,7 +277,8 @@ func jitteredDelay(attempt int) time.Duration {
 		base = float64(retryMaxDelay)
 	}
 
-	jitter := rand.Float64() * base * 0.1 //nolint:gosec,mnd
+	// #nosec G404 — weak RNG acceptable for retry jitter
+	jitter := rand.Float64() * base * 0.1 //nolint:mnd
 
 	return time.Duration(base + jitter)
 }
