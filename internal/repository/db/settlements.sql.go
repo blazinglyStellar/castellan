@@ -56,6 +56,60 @@ func (q *Queries) GetSettlementEntryByID(ctx context.Context, id uuid.UUID) (Set
 	return i, err
 }
 
+const getUnsettledProviderEarnings = `-- name: GetUnsettledProviderEarnings :many
+SELECT
+    ue.provider_id,
+    SUM(ue.request_cost)::numeric AS total_amount,
+    ue.currency,
+    u.payout_stellar_address
+FROM usage_events ue
+JOIN providers p ON p.id = ue.provider_id
+JOIN users u ON u.id = p.owner_id
+WHERE ue.status = 'completed'
+  AND u.payout_stellar_address IS NOT NULL
+  AND u.payout_stellar_address != ''
+  AND ue.created_at > COALESCE((
+      SELECT MAX(sb.completed_at)
+      FROM settlement_entries se
+      JOIN settlement_batches sb ON sb.id = se.batch_id
+      WHERE se.provider_id = ue.provider_id
+        AND sb.status = 'completed'
+  ), 'epoch'::timestamptz)
+GROUP BY ue.provider_id, ue.currency, u.payout_stellar_address
+`
+
+type GetUnsettledProviderEarningsRow struct {
+	ProviderID           uuid.UUID      `json:"provider_id"`
+	TotalAmount          pgtype.Numeric `json:"total_amount"`
+	Currency             Currency       `json:"currency"`
+	PayoutStellarAddress pgtype.Text    `json:"payout_stellar_address"`
+}
+
+func (q *Queries) GetUnsettledProviderEarnings(ctx context.Context) ([]GetUnsettledProviderEarningsRow, error) {
+	rows, err := q.db.Query(ctx, getUnsettledProviderEarnings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUnsettledProviderEarningsRow
+	for rows.Next() {
+		var i GetUnsettledProviderEarningsRow
+		if err := rows.Scan(
+			&i.ProviderID,
+			&i.TotalAmount,
+			&i.Currency,
+			&i.PayoutStellarAddress,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertSettlementBatch = `-- name: InsertSettlementBatch :one
 INSERT INTO settlement_batches (
     status, total_amount, currency, entry_count, tx_hash
@@ -139,10 +193,16 @@ func (q *Queries) InsertSettlementEntry(ctx context.Context, arg InsertSettlemen
 const listSettlementBatches = `-- name: ListSettlementBatches :many
 SELECT id, status, total_amount, currency, entry_count, tx_hash, created_at, completed_at FROM settlement_batches
 ORDER BY created_at DESC
+LIMIT $1 OFFSET $2
 `
 
-func (q *Queries) ListSettlementBatches(ctx context.Context) ([]SettlementBatch, error) {
-	rows, err := q.db.Query(ctx, listSettlementBatches)
+type ListSettlementBatchesParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+func (q *Queries) ListSettlementBatches(ctx context.Context, arg ListSettlementBatchesParams) ([]SettlementBatch, error) {
+	rows, err := q.db.Query(ctx, listSettlementBatches, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +267,13 @@ func (q *Queries) ListSettlementEntriesByBatch(ctx context.Context, batchID uuid
 
 const updateSettlementBatchStatus = `-- name: UpdateSettlementBatchStatus :one
 UPDATE settlement_batches
-SET status = $2
+SET
+    status = $2,
+    completed_at = CASE
+        WHEN $2 IN ('completed', 'failed') THEN COALESCE(completed_at, now())
+        WHEN $2 IN ('pending', 'processing') THEN NULL
+        ELSE completed_at
+    END
 WHERE id = $1
 RETURNING id, status, total_amount, currency, entry_count, tx_hash, created_at, completed_at
 `

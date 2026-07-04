@@ -16,15 +16,6 @@ INSERT INTO deposits (
 ON CONFLICT (tx_hash) DO NOTHING
 RETURNING *;
 
--- name: InsertDepositIgnoreConflict :one
-INSERT INTO deposits (
-    account_id, from_address, amount, currency, memo, tx_hash, status
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7
-)
-ON CONFLICT (tx_hash) DO NOTHING
-RETURNING *;
-
 -- name: GetDepositByID :one
 SELECT * FROM deposits
 WHERE id = $1
