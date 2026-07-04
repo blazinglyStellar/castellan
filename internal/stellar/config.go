@@ -21,6 +21,15 @@ type Config struct {
 	MinDepositAmount decimal.Decimal
 }
 
+func (c Config) NetworkPassphrase() string {
+	switch c.Network {
+	case "pubnet":
+		return "Public Global Stellar Network ; September 2015"
+	default:
+		return "Test SDF Network ; September 2015"
+	}
+}
+
 func DefaultConfig() Config {
 	minDep := decimal.RequireFromString(defaultMinDepositAmt)
 	return Config{

@@ -55,7 +55,7 @@ test:
 # Integration Tests (mirrors integration-testing.yml)
 itest:
 	@echo "Running integration tests..."
-	@go test -v -tags=integration ./internal/provider/... ./internal/database/... ./internal/gateway/... ./internal/ledger/...
+	@go test -v -tags=integration ./internal/provider/... ./internal/database/... ./internal/gateway/... ./internal/ledger/... ./internal/settlement/...
 
 # Security checks (mirrors security.yml: govulncheck + gosec)
 security:

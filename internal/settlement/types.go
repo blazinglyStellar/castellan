@@ -1,10 +1,10 @@
 package settlement
 
 import (
+	"castellan/internal/repository/db"
+
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-
-	"castellan/internal/repository/db"
 )
 
 type TransactionStatus string
