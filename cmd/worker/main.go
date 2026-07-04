@@ -48,7 +48,8 @@ func run() error {
 	queries := repository.New(dbSvc.Pool())
 	stellarCfg := stellar.ConfigFromEnv()
 
-	watcher := deposit.NewWatcher(queries, stellarCfg, dbSvc.Pool(), slog.Default())
+	creditHandler := deposit.NewCreditHandler(dbSvc.Pool(), stellarCfg)
+	watcher := deposit.NewWatcher(queries, stellarCfg, creditHandler)
 	go func() {
 		if err := watcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("watcher error", slog.String("error", err.Error()))
