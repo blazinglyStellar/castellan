@@ -1,9 +1,11 @@
 package deposit
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -219,5 +221,36 @@ func TestCreditDeposit_GetOrCreateAccountError(t *testing.T) {
 	err := h.CreditDeposit(context.Background(), validOp())
 	if err == nil {
 		t.Fatal("expected error for get-or-create-account failure, got nil")
+	}
+}
+
+func TestCreditDeposit_LogSanitization(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	q := &mockCreditQuerier{
+		getUserByDepositMemoFunc: func(_ context.Context, memo pgtype.Text) (repository.User, error) {
+			return repository.User{}, pgx.ErrNoRows
+		},
+	}
+	h := &CreditHandler{
+		queries: q,
+		cfg:     testCfg,
+		log:     logger,
+	}
+
+	op := validOp()
+	op.Memo = "not-a-uuid"
+
+	_ = h.CreditDeposit(context.Background(), op)
+
+	output := buf.String()
+	forbidden := []string{"WALLET_SECRET_KEY", "SecretKey", "secret_key"}
+	for _, s := range forbidden {
+		if strings.Contains(output, s) {
+			t.Errorf("log output contains forbidden string %q", s)
+		}
 	}
 }

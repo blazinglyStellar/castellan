@@ -17,12 +17,14 @@ import (
 	"time"
 
 	"castellan/internal/auth"
+	"castellan/internal/deposit"
 	"castellan/internal/gateway"
 	gatewaycontext "castellan/internal/gateway/context"
 	"castellan/internal/provider"
 	"castellan/internal/proxy"
 	"castellan/internal/repository/db"
 	"castellan/internal/server/middleware"
+	"castellan/internal/stellar"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -160,6 +162,7 @@ CREATE TYPE currency AS ENUM ('XLM', 'USDC');
 CREATE TYPE entry_type AS ENUM ('deposit', 'reservation', 'deduction', 'refund', 'settlement');
 CREATE TYPE ledger_status AS ENUM ('pending', 'completed', 'failed', 'cancelled');
 CREATE TYPE usage_status AS ENUM ('pending', 'reserved', 'completed', 'refunded', 'failed');
+CREATE TYPE deposit_status AS ENUM ('pending', 'confirmed', 'failed');
 
 CREATE TABLE users (
     id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -241,6 +244,25 @@ CREATE TABLE usage_events (
     status        usage_status NOT NULL DEFAULT 'pending',
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE deposits (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id      UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    from_address    TEXT NOT NULL,
+    amount          NUMERIC(20,10) NOT NULL,
+    currency        currency NOT NULL DEFAULT 'XLM',
+    memo            TEXT,
+    tx_hash         TEXT NOT NULL UNIQUE,
+    status          deposit_status NOT NULL DEFAULT 'pending',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    confirmed_at    TIMESTAMPTZ
+);
+
+CREATE INDEX idx_deposits_account ON deposits (account_id);
+CREATE INDEX idx_deposits_tx_hash ON deposits (tx_hash);
+CREATE INDEX idx_deposits_status ON deposits (status);
+
+ALTER TABLE deposits ADD COLUMN IF NOT EXISTS reason TEXT;
 
 CREATE TYPE session_token_status AS ENUM ('active', 'revoked', 'expired');
 
@@ -1269,5 +1291,273 @@ func TestGatewayRateLimit_ConsumerIsolation(t *testing.T) {
 	rec = doRequest(rawKeyB)
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("consumer B request 2: expected 429; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// seedDepositUser creates a user with a deposit_memo, an active API key, and an account,
+// returning the seed data plus the raw key for authentication.
+func seedDepositUser(ctx context.Context, t *testing.T, balance string) (seedData, string) {
+	t.Helper()
+
+	userID := uuid.New()
+	rawKey := "ca_deposit-test-key-" + userID.String()
+	memo := uuid.New().String()
+
+	_, err := testPG.Exec(ctx,
+		`INSERT INTO users (id, email, deposit_memo) VALUES ($1, $2, $3)`,
+		userID, fmt.Sprintf("deposit-%s@example.com", userID.String()), memo)
+	if err != nil {
+		t.Fatalf("seed deposit user: %v", err)
+	}
+
+	apiKeyID := uuid.New()
+	_, err = testPG.Exec(ctx,
+		`INSERT INTO api_keys (id, user_id, key_hash, status) VALUES ($1, $2, $3, 'active')`,
+		apiKeyID, userID, auth.HashKey(rawKey))
+	if err != nil {
+		t.Fatalf("seed deposit api_key: %v", err)
+	}
+
+	accountID := uuid.New()
+	_, err = testPG.Exec(ctx,
+		`INSERT INTO accounts (id, owner_id, balance) VALUES ($1, $2, $3)`,
+		accountID, userID, balance)
+	if err != nil {
+		t.Fatalf("seed deposit account: %v", err)
+	}
+
+	return seedData{
+		UserID:    userID,
+		APIKeyID:  apiKeyID,
+		AccountID: accountID,
+	}, rawKey
+}
+
+// buildDepositHandler creates a deposit.Handler wrapped with real auth middleware,
+// matching the production wiring in routes.go.
+func buildDepositHandler() *deposit.Handler {
+	svc := deposit.NewService(testQueries, stellar.Config{
+		HotWalletAddress: "GABCDEF12345",
+		MinDepositAmount: decimal.NewFromInt(5),
+	})
+	return deposit.NewHandler(svc)
+}
+
+// seedDeposit inserts a single deposit row for the given account.
+func seedDeposit(ctx context.Context, t *testing.T, accountID uuid.UUID, txHash, amount, status, memo string) {
+	t.Helper()
+
+	_, err := testPG.Exec(ctx, `
+		INSERT INTO deposits (account_id, from_address, amount, currency, memo, tx_hash, status)
+		VALUES ($1, $2, $3, 'XLM', $4, $5, $6::deposit_status)
+		ON CONFLICT (tx_hash) DO NOTHING`,
+		accountID, "GABCDEF12345", amount, memo, txHash, status)
+	if err != nil {
+		t.Fatalf("seed deposit: %v", err)
+	}
+}
+
+func authHandler() func(http.Handler) http.Handler {
+	sessionSvc := auth.NewSessionService(testQueries)
+	return middleware.AuthCheck(
+		middleware.KeyValidatorFunc(testQueries.GetKeyByHash),
+		middleware.SessionValidatorFunc(sessionSvc.ValidateSessionToken),
+	)
+}
+
+func TestDepositIntent_Success(t *testing.T) {
+	ctx := context.Background()
+	seed, rawKey := seedDepositUser(ctx, t, "1000.00")
+
+	handler := authHandler()(http.HandlerFunc(buildDepositHandler().DepositIntent))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deposits/intent", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp deposit.IntentResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.SEP7URI == "" {
+		t.Error("sep7_uri is empty")
+	}
+	if resp.QRCode == "" {
+		t.Error("qr_code is empty")
+	}
+	if resp.Memo == "" {
+		t.Error("memo is empty")
+	}
+	if resp.Destination != "GABCDEF12345" {
+		t.Errorf("destination = %q, want %q", resp.Destination, "GABCDEF12345")
+	}
+	if resp.MinAmount != "5" {
+		t.Errorf("minimum_amount = %q, want %q", resp.MinAmount, "5")
+	}
+	if resp.Asset != "XLM" {
+		t.Errorf("asset = %q, want %q", resp.Asset, "XLM")
+	}
+
+	// Verify the deposit_memo was set in the database
+	var dbMemo string
+	err := testPG.QueryRow(ctx, `SELECT deposit_memo FROM users WHERE id = $1`, seed.UserID).Scan(&dbMemo)
+	if err != nil {
+		t.Fatalf("query deposit_memo: %v", err)
+	}
+	if dbMemo == "" {
+		t.Error("deposit_memo is empty in database")
+	}
+}
+
+func TestDepositIntent_MemoStable(t *testing.T) {
+	ctx := context.Background()
+	_, rawKey := seedDepositUser(ctx, t, "1000.00")
+
+	handler := authHandler()(http.HandlerFunc(buildDepositHandler().DepositIntent))
+
+	var firstMemo string
+	for range 3 {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/deposits/intent", nil)
+		req.Header.Set("Authorization", "Bearer "+rawKey)
+
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200; got %d, body: %s", rec.Code, rec.Body.String())
+		}
+
+		var resp deposit.IntentResponse
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+
+		if firstMemo == "" {
+			firstMemo = resp.Memo
+		} else if resp.Memo != firstMemo {
+			t.Errorf("memo changed: got %q, want %q", resp.Memo, firstMemo)
+		}
+	}
+}
+
+func TestDepositIntent_Unauthenticated(t *testing.T) {
+	handler := authHandler()(http.HandlerFunc(buildDepositHandler().DepositIntent))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deposits/intent", nil)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["error"] != "authentication required" {
+		t.Errorf("error = %q, want %q", body["error"], "authentication required")
+	}
+}
+
+func TestDepositHistory_ScopedToConsumer(t *testing.T) {
+	ctx := context.Background()
+
+	// Consumer A — seed user and deposits
+	seedA, rawKeyA := seedDepositUser(ctx, t, "1000.00")
+	seedDeposit(ctx, t, seedA.AccountID, "txhash-a1", "100", "confirmed", "memo-a1")
+	seedDeposit(ctx, t, seedA.AccountID, "txhash-a2", "50", "pending", "memo-a2")
+
+	// Consumer B — seed user, no deposits
+	_, rawKeyB := seedDepositUser(ctx, t, "500.00")
+
+	handler := authHandler()(http.HandlerFunc(buildDepositHandler().ListDeposits))
+
+	doList := func(rawKey string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/deposits", nil)
+		req.Header.Set("Authorization", "Bearer "+rawKey)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Consumer A — should see 2 deposits
+	recA := doList(rawKeyA)
+	if recA.Code != http.StatusOK {
+		t.Fatalf("consumer A: expected 200; got %d, body: %s", recA.Code, recA.Body.String())
+	}
+	var depositsA []deposit.Response
+	if err := json.NewDecoder(recA.Body).Decode(&depositsA); err != nil {
+		t.Fatalf("consumer A decode: %v", err)
+	}
+	if len(depositsA) != 2 {
+		t.Fatalf("consumer A: expected 2 deposits, got %d", len(depositsA))
+	}
+
+	// Consumer B — should see 0 deposits
+	recB := doList(rawKeyB)
+	if recB.Code != http.StatusOK {
+		t.Fatalf("consumer B: expected 200; got %d, body: %s", recB.Code, recB.Body.String())
+	}
+	var depositsB []deposit.Response
+	if err := json.NewDecoder(recB.Body).Decode(&depositsB); err != nil {
+		t.Fatalf("consumer B decode: %v", err)
+	}
+	if len(depositsB) != 0 {
+		t.Fatalf("consumer B: expected 0 deposits, got %d", len(depositsB))
+	}
+}
+
+func TestDepositHistory_Empty(t *testing.T) {
+	ctx := context.Background()
+	_, rawKey := seedDepositUser(ctx, t, "1000.00")
+
+	handler := authHandler()(http.HandlerFunc(buildDepositHandler().ListDeposits))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deposits", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var deposits []deposit.Response
+	if err := json.NewDecoder(rec.Body).Decode(&deposits); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(deposits) != 0 {
+		t.Errorf("expected empty list, got %d deposits", len(deposits))
+	}
+}
+
+func TestDepositHistory_Unauthenticated(t *testing.T) {
+	handler := authHandler()(http.HandlerFunc(buildDepositHandler().ListDeposits))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deposits", nil)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401; got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["error"] != "authentication required" {
+		t.Errorf("error = %q, want %q", body["error"], "authentication required")
 	}
 }
