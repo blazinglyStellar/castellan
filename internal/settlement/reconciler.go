@@ -71,7 +71,7 @@ func (r *Reconciler) CreateBatch(
 		Status:      repository.BatchStatusPending,
 		TotalAmount: totalNumeric,
 		Currency:    batchCurrency,
-		EntryCount:  int32(len(payouts)), //nolint:gosec
+		EntryCount:  int32(len(payouts)), // #nosec G115 — bounds checked above
 		TxHash:      pgtype.Text{Valid: false},
 	})
 	if err != nil {
