@@ -11,7 +11,7 @@ Usage-based API monetization gateway (Stellar settlement, PostgreSQL ledger, Red
 | `internal/server/` | `NewServer()`, `RegisterRoutes()`, middleware chain |
 | `internal/server/middleware/` | BalanceCheck → Reservation → UsageCapture → Proxy (pipeline order) |
 | `internal/proxy/` | `httputil.ReverseProxy` + jittered retry round tripper |
-| `internal/database/` | pgxpool singleton, `BLUEPRINT_DB_*` env vars |
+| `internal/database/` | pgxpool singleton, `DB_*` env vars |
 | `internal/repository/db/` | **sqlc-generated** (package `repository`), checked in |
 | `internal/repository/query/` | sqlc source `.sql` files |
 | `internal/provider/` | `DBResolver` — resolves upstream base URL |
@@ -61,9 +61,8 @@ Middleware uses `func(http.Handler) http.Handler`. Function adapters (`BalanceCh
 
 ## Gotchas
 
-- **Env prefix mismatch (WILL FAIL at runtime).** Code reads `BLUEPRINT_DB_*` (`BLUEPRINT_DB_DATABASE`, etc.) but `.env.example` has `DB_*`. You must either rename the env vars in `.env` or update the code.
 - **`PORT` has no default fallback.** `strconv.Atoi(os.Getenv("PORT"))` — if unset/empty, Atoi returns 0 → random port. `.env.example` sets `PORT=8080` but the app doesn't default to it.
-- **CI integration-testing.yml is broken** in two ways: (1) runs `./integration/...` — that directory doesn't exist; Makefile's paths are correct. (2) passes `DB_*` env vars but code reads `BLUEPRINT_DB_*`. Both must be fixed for CI to pass.
+- **CI integration-testing.yml is broken:** runs `./integration/...` — that directory doesn't exist; Makefile's paths are correct.
 - **`internal/database/database_test.go`** uses testcontainers but has NO `//go:build integration` tag, unlike every other testcontainers test. `make test` will try Docker.
 - **NoopLedger** — deprecated, removed in #102.
 - **No auth middleware** — API key auth documented but not wired. Integration tests inject mock auth.

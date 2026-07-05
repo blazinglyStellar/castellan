@@ -244,6 +244,90 @@ Configuration is driven by Stellar env vars (see `.env.example`):
 
 ---
 
+## Settlement
+
+Castellan aggregates per-provider usage earnings and pays them out to
+provider Stellar wallets in periodic batches. This keeps on-chain
+transaction costs low — one Stellar payment per batch instead of one per
+usage event.
+
+### Settlement cycle
+
+Each settlement cycle follows three phases:
+
+1. **Aggregate.** Query all unsettled usage events grouped by provider.
+   Sum `request_cost` per provider to determine gross earnings since the
+   last settlement.
+
+2. **Submit.** Create a `settlement_batch` with individual
+   `settlement_entry` rows per provider. Submit a Stellar payment
+   transaction for each entry with `amount ≥ SETTLEMENT_MIN_THRESHOLD`.
+   The `tx_hash` is recorded for on-chain reconciliation.
+
+3. **Reconcile.** Mark the batch entries as settled in the ledger.
+   Corresponding `settlement` ledger entries are created with
+   `entry_type='settlement'` to maintain a complete audit trail.
+
+If a provider's total is below `SETTLEMENT_MIN_THRESHOLD`, their
+earnings are carried forward to the next cycle. This prevents dust
+transactions.
+
+### Worker
+
+The background worker (`cmd/worker/main.go`) runs two processes
+concurrently as goroutines:
+
+- **Deposit Watcher** — polls Stellar Horizon for incoming payments,
+  credits consumer balances.
+- **Settlement Runner** — runs the settlement cycle on a configurable
+  interval (`SETTLEMENT_INTERVAL`, default `5m`).
+
+```bash
+# Start the worker standalone (requires DB + env vars):
+make run-worker
+
+# Or build a binary:
+make build-worker
+```
+
+When using Docker Compose, the `settlement-worker` service starts
+automatically alongside the API and database.
+
+### Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SETTLEMENT_INTERVAL` | `5m` | How often the settlement cycle runs |
+| `SETTLEMENT_MIN_THRESHOLD` | `0` | Minimum XLM total to trigger a batch payout |
+
+See `.env.example` for the full list of Stellar and settlement
+environment variables.
+
+### Settlement history API
+
+Earnings history is available via the authenticated settlement endpoint:
+
+| Action | Method + Path | Description |
+|---|---|---|
+| List settlements | `GET /api/v1/settlements` | Paginated settlement history with per-batch totals and status |
+
+Query params: `?limit=` (default 50, max 100), `?offset=`
+
+```bash
+curl http://localhost:8080/api/v1/settlements?limit=10&offset=0 \
+  -H "Authorization: Bearer ca_..."
+```
+
+### ⚠️ Security: wallet secret key
+
+The `WALLET_SECRET_KEY` environment variable controls the hot wallet
+that holds and distributes funds. It must **never** be committed to
+version control, logged, or exposed in error messages. Always set it
+via secure means (Docker secrets, vault, or your orchestrator's
+secret store).
+
+---
+
 ### Security: amounts as strings
 
 Monetary amounts in API responses are serialised as **string-formatted
@@ -465,22 +549,21 @@ make seed
 | **Settlement** | Stellar network (XLM), SEP-7 URIs |
 | **Frontend** | Next.js 15 (App Router), Tailwind CSS, shadcn/ui, React Query |
 | **Logging** | zap structured JSON logging |
-| **Infrastructure** | Docker Compose (Postgres, Redis, Gateway) |
+| **Infrastructure** | Docker Compose (Postgres, Redis, API, Settlement Worker) |
 
 ---
 
 ## Getting Started
 
 ```bash
-# Start infrastructure (Postgres + Redis)
+# Start everything (Postgres + Redis + API + Settlement Worker)
 make docker-run
 
 # Run database migrations
 DATABASE_URL="postgres://castellan:castellan@localhost:5432/castellan?sslmode=disable" \
   goose -s -dir migrations postgres "$DATABASE_URL" up
 
-# Start the gateway server (default :8080)
-make run
+# (The API gateway runs inside Docker — no separate make run needed)
 
 # Run unit tests
 make test
@@ -504,7 +587,8 @@ See `Makefile` for all commands.
 ```
 castellan/
 ├── cmd/
-│   └── api/              # Go server entrypoint
+│   ├── api/              # Go server entrypoint
+│   └── worker/           # Background worker (deposit watcher + settlement)
 ├── internal/
 │   ├── database/         # pgx connection pool, health checks
 │   ├── server/           # HTTP server, routes, middleware
@@ -512,6 +596,6 @@ castellan/
 ├── migrations/           # Goose SQL migrations
 ├── dashboard/            # Next.js 15 web dashboard
 ├── docs/                 # PRD, MVP spec, architecture docs
-├── docker-compose.yml    # Postgres + Redis for local dev
+├── docker-compose.yml    # Postgres + Redis + API + Settlement Worker for local dev
 └── sqlc.yaml             # sqlc codegen config
 ```
