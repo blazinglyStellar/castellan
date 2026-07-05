@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	"castellan/internal/repository/db"
@@ -20,10 +21,13 @@ import (
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 )
 
+var ErrTxSequenceConsumed = errors.New("transaction sequence already consumed on Stellar, status unknown")
+
 const (
-	retryMaxAttempts = 3
-	retryBaseDelay   = 200 * time.Millisecond
-	retryMaxDelay    = 3 * time.Second
+	retryMaxAttempts     = 3
+	retryBaseDelay       = 200 * time.Millisecond
+	retryMaxDelay        = 3 * time.Second
+	hashLookupMaxResults = 50
 )
 
 type StellarSubmitter struct {
@@ -98,6 +102,18 @@ func (s *StellarSubmitter) SubmitPayouts(
 
 		txHash, subErr := s.submitSinglePayout(ctx, fullKP, payout)
 		if subErr != nil {
+			if errors.Is(subErr, ErrTxSequenceConsumed) {
+				s.log.WarnContext(ctx, "payout sequence consumed, marking as pending for recovery",
+					slog.String("provider_id", payout.ProviderID.String()),
+					slog.String("entry_id", entry.ID.String()),
+				)
+
+				result.Error = subErr.Error()
+				result.Status = TransactionPending
+				results = append(results, result)
+				continue
+			}
+
 			if updateErr := s.setEntryStatus(ctx, entry.ID, repository.SettlementEntryStatusFailed, ""); updateErr != nil {
 				s.log.ErrorContext(
 					ctx, "failed to mark entry as failed",
@@ -140,7 +156,39 @@ func (s *StellarSubmitter) submitSinglePayout(
 		Asset:       txnbuild.NativeAsset{},
 	}
 
-	var txHash string
+	account, err := s.horizon.AccountDetail(horizonclient.AccountRequest{
+		AccountID: s.stellarCfg.HotWalletAddress,
+	})
+	if err != nil {
+		return "", fmt.Errorf("load source account: %w", err)
+	}
+
+	seqNum, err := account.GetSequenceNumber()
+	if err != nil {
+		return "", fmt.Errorf("get sequence number: %w", err)
+	}
+
+	sourceAccount := txnbuild.NewSimpleAccount(
+		s.stellarCfg.HotWalletAddress,
+		seqNum,
+	)
+
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount: &sourceAccount,
+		Operations:    []txnbuild.Operation{paymentOp},
+		BaseFee:       txnbuild.MinBaseFee,
+		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+	})
+	if err != nil {
+		return "", fmt.Errorf("build transaction: %w", err)
+	}
+
+	networkPassphrase := s.stellarCfg.NetworkPassphrase()
+	tx, err = tx.Sign(networkPassphrase, kp)
+	if err != nil {
+		return "", fmt.Errorf("sign transaction: %w", err)
+	}
+
 	var lastErr error
 
 	for attempt := range retryMaxAttempts {
@@ -160,59 +208,120 @@ func (s *StellarSubmitter) submitSinglePayout(
 			}
 		}
 
-		account, err := s.horizon.AccountDetail(horizonclient.AccountRequest{
-			AccountID: s.stellarCfg.HotWalletAddress,
-		})
-		if err != nil {
-			lastErr = fmt.Errorf("load source account: %w", err)
-			continue
-		}
-
-		seqNum, err := account.GetSequenceNumber()
-		if err != nil {
-			lastErr = fmt.Errorf("get sequence number: %w", err)
-			continue
-		}
-
-		sourceAccount := txnbuild.NewSimpleAccount(
-			s.stellarCfg.HotWalletAddress,
-			seqNum,
-		)
-
-		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-			SourceAccount: &sourceAccount,
-			Operations:    []txnbuild.Operation{paymentOp},
-			BaseFee:       txnbuild.MinBaseFee,
-			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
-		})
-		if err != nil {
-			lastErr = fmt.Errorf("build transaction: %w", err)
-			continue
-		}
-
-		networkPassphrase := s.stellarCfg.NetworkPassphrase()
-		tx, err = tx.Sign(networkPassphrase, kp)
-		if err != nil {
-			lastErr = fmt.Errorf("sign transaction: %w", err)
-			continue
-		}
-
 		resp, err := s.horizon.SubmitTransaction(tx)
 		if err != nil {
+			if isTxBadSeq(err) {
+				if attempt == 0 {
+					s.log.WarnContext(ctx, "sequence already consumed by concurrent process, rebuilding tx",
+						slog.String("provider_id", payout.ProviderID.String()),
+						slog.Int64("sequence", seqNum),
+					)
+
+					account, loadErr := s.horizon.AccountDetail(horizonclient.AccountRequest{
+						AccountID: s.stellarCfg.HotWalletAddress,
+					})
+					if loadErr != nil {
+						lastErr = fmt.Errorf("re-fetch account after tx_bad_seq: %w", loadErr)
+						continue
+					}
+
+					newSeq, seqErr := account.GetSequenceNumber()
+					if seqErr != nil {
+						lastErr = fmt.Errorf("re-fetch sequence after tx_bad_seq: %w", seqErr)
+						continue
+					}
+
+					newSource := txnbuild.NewSimpleAccount(s.stellarCfg.HotWalletAddress, newSeq)
+					newTx, buildErr := txnbuild.NewTransaction(txnbuild.TransactionParams{
+						SourceAccount: &newSource,
+						Operations:    []txnbuild.Operation{paymentOp},
+						BaseFee:       txnbuild.MinBaseFee,
+						Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+					})
+					if buildErr != nil {
+						lastErr = fmt.Errorf("rebuild tx after tx_bad_seq: %w", buildErr)
+						continue
+					}
+
+					newTx, signErr := newTx.Sign(networkPassphrase, kp)
+					if signErr != nil {
+						lastErr = fmt.Errorf("re-sign tx after tx_bad_seq: %w", signErr)
+						continue
+					}
+
+					tx = newTx
+					seqNum = newSeq
+					lastErr = fmt.Errorf("sequence consumed by concurrent process, rebuilt tx with seq %d", newSeq)
+					continue
+				}
+
+				s.log.WarnContext(ctx, "sequence already consumed, recovering tx hash",
+					slog.String("provider_id", payout.ProviderID.String()),
+					slog.Int("attempt", attempt),
+					slog.Int64("sequence", seqNum),
+				)
+
+				hash, findErr := s.findTxHashBySequence(ctx, payout, seqNum)
+				if findErr != nil {
+					return "", fmt.Errorf("%w: %w", ErrTxSequenceConsumed, findErr)
+				}
+
+				return hash, nil
+			}
+
 			lastErr = fmt.Errorf("submit transaction: %w", err)
 			continue
 		}
 
-		txHash = resp.Hash
-		lastErr = nil
-		break
+		return resp.Hash, nil
 	}
 
-	if lastErr != nil {
-		return "", lastErr
+	return "", lastErr
+}
+
+func (s *StellarSubmitter) findTxHashBySequence(ctx context.Context, payout ProviderPayout, seqNum int64) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("context cancelled during hash lookup: %w", err)
 	}
 
-	return txHash, nil
+	txReq := horizonclient.TransactionRequest{
+		ForAccount: s.stellarCfg.HotWalletAddress,
+		Order:      "desc",
+		Limit:      hashLookupMaxResults,
+	}
+
+	txs, err := s.horizon.Transactions(txReq)
+	if err != nil {
+		return "", fmt.Errorf("query account transactions: %w", err)
+	}
+
+	for _, tx := range txs.Embedded.Records {
+		if tx.AccountSequence == seqNum && tx.Successful && tx.Account == s.stellarCfg.HotWalletAddress {
+			return tx.Hash, nil
+		}
+	}
+
+	s.log.WarnContext(ctx, "no successful transaction found for sequence",
+		slog.Int64("sequence", seqNum),
+		slog.String("destination", payout.WalletAddress),
+		slog.String("amount", payout.Amount.String()),
+	)
+
+	return "", fmt.Errorf("no successful transaction found for sequence %d", seqNum)
+}
+
+func isTxBadSeq(err error) bool {
+	var hErr *horizonclient.Error
+	if !errors.As(err, &hErr) {
+		return false
+	}
+
+	codes, resultErr := hErr.ResultCodes()
+	if resultErr != nil {
+		return false
+	}
+
+	return strings.Contains(codes.TransactionCode, "tx_bad_seq")
 }
 
 func (s *StellarSubmitter) MonitorTransaction(

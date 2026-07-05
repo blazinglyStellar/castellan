@@ -426,17 +426,17 @@ func TestSubmitSinglePayout_SignsWithHotWallet(t *testing.T) {
 func TestSubmitSinglePayout_RetryOnTransientError(t *testing.T) {
 	t.Parallel()
 
-	attempts := 0
+	var submitCount int
 	horizon := &mockHorizonClient{
 		accountDetailFunc: func(_ horizonclient.AccountRequest) (hProtocol.Account, error) {
-			attempts++
 			return hProtocol.Account{
 				AccountID: testSubmitterCfg.HotWalletAddress,
-				Sequence:  int64(attempts),
+				Sequence:  1234,
 			}, nil
 		},
 		submitTransactionFunc: func(tx *txnbuild.Transaction) (hProtocol.Transaction, error) {
-			if attempts < 3 {
+			submitCount++
+			if submitCount < retryMaxAttempts {
 				return hProtocol.Transaction{}, errors.New("horizon timeout")
 			}
 			return hProtocol.Transaction{Hash: "retry-success-hash"}, nil
@@ -466,16 +466,16 @@ func TestSubmitSinglePayout_RetryOnTransientError(t *testing.T) {
 func TestSubmitSinglePayout_RetryExhausted(t *testing.T) {
 	t.Parallel()
 
-	attempts := 0
+	var submitCount int
 	horizon := &mockHorizonClient{
 		accountDetailFunc: func(_ horizonclient.AccountRequest) (hProtocol.Account, error) {
 			return hProtocol.Account{
 				AccountID: testSubmitterCfg.HotWalletAddress,
-				Sequence:  int64(attempts),
+				Sequence:  1234,
 			}, nil
 		},
 		submitTransactionFunc: func(tx *txnbuild.Transaction) (hProtocol.Transaction, error) {
-			attempts++
+			submitCount++
 			return hProtocol.Transaction{}, errors.New("persistent horizon error")
 		},
 	}
@@ -495,8 +495,8 @@ func TestSubmitSinglePayout_RetryExhausted(t *testing.T) {
 		t.Fatal("expected error after exhausting retries, got nil")
 	}
 
-	if attempts != 3 {
-		t.Errorf("expected 3 attempts, got %d", attempts)
+	if submitCount != retryMaxAttempts {
+		t.Errorf("expected %d attempts, got %d", retryMaxAttempts, submitCount)
 	}
 }
 
@@ -552,8 +552,8 @@ func TestSubmitPayouts_FailureDoesNotAbortBatch(t *testing.T) {
 		t.Errorf("payout3 status = %q, want %q", results[2].Status, TransactionSuccess)
 	}
 
-	if attemptCount < 4 {
-		t.Errorf("expected at least 4 total submission attempts (1 success + 1 fail + 3 retries), got %d", attemptCount)
+	if attemptCount < 5 {
+		t.Errorf("expected at least 5 total submission attempts (1+3+1), got %d", attemptCount)
 	}
 }
 
