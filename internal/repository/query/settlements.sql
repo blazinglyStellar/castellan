@@ -32,6 +32,9 @@ WHERE ue.status = 'completed'
   ), 'epoch'::timestamptz)
 GROUP BY ue.provider_id, ue.currency, u.payout_stellar_address;
 
+-- name: CountSettlementBatches :one
+SELECT COUNT(*) FROM settlement_batches;
+
 -- name: ListSettlementBatches :many
 SELECT * FROM settlement_batches
 ORDER BY created_at DESC

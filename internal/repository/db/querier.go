@@ -15,6 +15,7 @@ type Querier interface {
 	ConfirmDeposit(ctx context.Context, id uuid.UUID) (Deposit, error)
 	CountLedgerEntriesByAccount(ctx context.Context, accountID uuid.UUID) (int64, error)
 	CountLedgerEntriesByAccountAndType(ctx context.Context, arg CountLedgerEntriesByAccountAndTypeParams) (int64, error)
+	CountSettlementBatches(ctx context.Context) (int64, error)
 	CreateEndpoint(ctx context.Context, arg CreateEndpointParams) (ApiEndpoint, error)
 	CreateProvider(ctx context.Context, arg CreateProviderParams) (Provider, error)
 	CreateUsageEvent(ctx context.Context, arg CreateUsageEventParams) (CreateUsageEventRow, error)
