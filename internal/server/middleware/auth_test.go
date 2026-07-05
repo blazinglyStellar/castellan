@@ -46,6 +46,12 @@ type authRejectTestCase struct {
 	wantError   string
 }
 
+type authCookieRejectTestCase struct {
+	rawToken    string
+	mockSession *mockSessionValidator
+	wantError   string
+}
+
 func runRejectedTest(t *testing.T, tt authRejectTestCase) {
 	t.Helper()
 	called := false
@@ -62,6 +68,36 @@ func runRejectedTest(t *testing.T, tt authRejectTestCase) {
 
 	if recorder.Code != tt.wantStatus {
 		t.Fatalf("expected status %d; got %d", tt.wantStatus, recorder.Code)
+	}
+	if called {
+		t.Fatal("expected downstream handler not to be called")
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected valid JSON response body: %v", err)
+	}
+	if body["error"] != tt.wantError {
+		t.Fatalf("expected error %q; got %q", tt.wantError, body["error"])
+	}
+}
+
+func runRejectedCookieTest(t *testing.T, tt authCookieRejectTestCase) {
+	t.Helper()
+	called := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
+	setCookie(request, tt.rawToken)
+
+	AuthCheck(&mockKeyValidator{}, tt.mockSession)(handler).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d; got %d", http.StatusUnauthorized, recorder.Code)
 	}
 	if called {
 		t.Fatal("expected downstream handler not to be called")
@@ -286,102 +322,26 @@ func TestAuthCheckCookieSession(t *testing.T) {
 	}
 }
 
-func TestAuthCheckRevokedSessionCookie(t *testing.T) {
-	called := false
-	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-	})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
-	setCookie(request, "revoked-session-token")
-
-	mock := &mockKeyValidator{}
-	mockSession := &mockSessionValidator{
-		err: auth.ErrSessionNotActive,
-	}
-	AuthCheck(mock, mockSession)(handler).ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusUnauthorized {
-		t.Fatalf("expected status %d; got %d", http.StatusUnauthorized, recorder.Code)
-	}
-	if called {
-		t.Fatal("expected downstream handler not to be called")
+func TestAuthCheckSessionCookieErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		rawCookie string
+		err       error
+		wantError string
+	}{
+		{name: "revoked", rawCookie: "revoked-session-token", err: auth.ErrSessionNotActive, wantError: "session revoked"},
+		{name: "expired", rawCookie: "expired-session-token", err: auth.ErrSessionExpired, wantError: "session expired"},
+		{name: "unknown", rawCookie: "unknown-session-token", err: auth.ErrSessionNotFound, wantError: "invalid session"},
 	}
 
-	var body map[string]string
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatalf("expected valid JSON response body: %v", err)
-	}
-	if body["error"] != "session revoked" {
-		t.Fatalf("expected error %q; got %q", "session revoked", body["error"])
-	}
-}
-
-func TestAuthCheckExpiredSessionCookie(t *testing.T) {
-	called := false
-	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-	})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
-	setCookie(request, "expired-session-token")
-
-	mock := &mockKeyValidator{}
-	mockSession := &mockSessionValidator{
-		err: auth.ErrSessionExpired,
-	}
-	AuthCheck(mock, mockSession)(handler).ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusUnauthorized {
-		t.Fatalf("expected status %d; got %d", http.StatusUnauthorized, recorder.Code)
-	}
-	if called {
-		t.Fatal("expected downstream handler not to be called")
-	}
-
-	var body map[string]string
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatalf("expected valid JSON response body: %v", err)
-	}
-	if body["error"] != "session expired" {
-		t.Fatalf("expected error %q; got %q", "session expired", body["error"])
-	}
-}
-
-func TestAuthCheckUnknownSessionCookie(t *testing.T) {
-	called := false
-	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-	})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
-	setCookie(request, "unknown-session-token")
-
-	mock := &mockKeyValidator{}
-	mockSession := &mockSessionValidator{
-		err: auth.ErrSessionNotFound,
-	}
-	AuthCheck(mock, mockSession)(handler).ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusUnauthorized {
-		t.Fatalf("expected status %d; got %d", http.StatusUnauthorized, recorder.Code)
-	}
-	if called {
-		t.Fatal("expected downstream handler not to be called")
-	}
-
-	var body map[string]string
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatalf("expected valid JSON response body: %v", err)
-	}
-	if body["error"] != "invalid session" {
-		t.Fatalf("expected error %q; got %q", "invalid session", body["error"])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runRejectedCookieTest(t, authCookieRejectTestCase{
+				rawToken:    tt.rawCookie,
+				mockSession: &mockSessionValidator{err: tt.err},
+				wantError:   tt.wantError,
+			})
+		})
 	}
 }
 

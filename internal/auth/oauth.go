@@ -15,6 +15,8 @@ import (
 	"github.com/markbates/goth/providers/google"
 )
 
+const cookieStoreMaxAge = 86400 * 7 // 7 days in seconds
+
 type OAuthHandler struct {
 	queries        repository.Querier
 	sessionService *SessionService
@@ -41,7 +43,7 @@ func InitGoth(dashboardURL string) {
 	)
 
 	store := sessions.NewCookieStore([]byte(os.Getenv("SESSION_STORE_SECRET")))
-	store.MaxAge(86400 * 7)
+	store.MaxAge(cookieStoreMaxAge)
 	store.Options.Path = "/"
 	store.Options.HttpOnly = true
 	store.Options.Secure = os.Getenv("APP_ENV") != "local"

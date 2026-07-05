@@ -76,13 +76,12 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin == "" || origin == dashboardURL {
-			w.Header().Set("Access-Control-Allow-Origin", dashboardURL)
-		} else {
+		if origin != "" && origin != dashboardURL {
 			w.Header().Set("Vary", "Origin")
 			http.Error(w, "origin not allowed", http.StatusForbidden)
 			return
 		}
+		w.Header().Set("Access-Control-Allow-Origin", dashboardURL)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")

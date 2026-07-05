@@ -11,13 +11,13 @@ import (
 	"github.com/google/uuid"
 )
 
-type AuthHandler struct {
+type Handler struct {
 	sessionService *SessionService
 	queries        repository.Querier
 }
 
-func NewAuthHandler(sessionService *SessionService, queries repository.Querier) *AuthHandler {
-	return &AuthHandler{sessionService: sessionService, queries: queries}
+func NewHandler(sessionService *SessionService, queries repository.Querier) *Handler {
+	return &Handler{sessionService: sessionService, queries: queries}
 }
 
 type meResponse struct {
@@ -26,7 +26,7 @@ type meResponse struct {
 	CreatedAt string `json:"created_at"`
 }
 
-func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
@@ -58,7 +58,7 @@ type logoutResponse struct {
 	Message string `json:"message"`
 }
 
-func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	rawToken, err := ReadSessionCookie(r)
 	if err != nil {
 		writeJSON(w, http.StatusOK, logoutResponse{Message: "logged out"})

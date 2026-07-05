@@ -452,5 +452,3 @@ func TestRotateKeyHandler_Unauthenticated(t *testing.T) {
 		t.Fatalf("expected 401, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 }
-
-

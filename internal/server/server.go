@@ -46,7 +46,7 @@ type Server struct {
 	keyHandler        *auth.KeyHandler
 	keyValidator      middleware.KeyValidator
 	sessionValidator  middleware.SessionValidator
-	authHandler       *auth.AuthHandler
+	authHandler       *auth.Handler
 	oauthHandler      *auth.OAuthHandler
 	providerHandler   *provider.Handler
 	endpointHandler   *provider.EndpointHandler
@@ -218,7 +218,7 @@ func NewServer() (*http.Server, error) {
 		keyHandler:        auth.NewKeyHandler(keySvc),
 		keyValidator:      keyValidator,
 		sessionValidator:  sessionValidator,
-		authHandler:       auth.NewAuthHandler(sessionSvc, queries),
+		authHandler:       auth.NewHandler(sessionSvc, queries),
 		oauthHandler:      auth.NewOAuthHandler(queries, sessionSvc, dashboardURL),
 		providerHandler:   provider.NewProviderHandler(providerSvc),
 		endpointHandler:   provider.NewEndpointHandler(endpointSvc),

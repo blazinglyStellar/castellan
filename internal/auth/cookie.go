@@ -14,7 +14,7 @@ var errCookieNotFound = errors.New("session cookie not found")
 func SetSessionCookie(w http.ResponseWriter, token string, ttl time.Duration) {
 	secure := os.Getenv("APP_ENV") != "local"
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // Secure set dynamically based on APP_ENV
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
@@ -27,7 +27,7 @@ func SetSessionCookie(w http.ResponseWriter, token string, ttl time.Duration) {
 }
 
 func ClearSessionCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // Secure set dynamically based on APP_ENV
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",

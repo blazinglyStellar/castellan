@@ -23,8 +23,10 @@ var (
 	ErrSessionExpired   = errors.New("session has expired")
 )
 
-const sessionTokenBytes = 32
-const defaultSessionTTL = 7 * 24 * time.Hour
+const (
+	sessionTokenBytes = 32
+	defaultSessionTTL = 7 * 24 * time.Hour
+)
 
 type SessionService struct {
 	queries repository.Querier
