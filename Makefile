@@ -27,6 +27,16 @@ vet:
 # Run the application
 run:
 	@go run cmd/api/main.go
+
+# Print docs URL
+docs:
+	@echo "OpenAPI spec: docs/openapi.yaml"
+	@echo "Scalar UI:   http://localhost:${PORT}/docs"
+
+# Lint the OpenAPI spec with redocly (requires node)
+validate-docs:
+	npx --yes @redocly/cli lint docs/openapi.yaml
+
 # Create DB container
 docker-run:
 	@docker compose up --build
@@ -86,4 +96,4 @@ watch:
 		Write-Output 'Watching...'; \
 	}"
 
-.PHONY: all ci ci-full build lint vet test itest security trivy-scan run clean watch docker-run docker-down build-worker run-worker
+.PHONY: all ci ci-full build lint vet test itest security trivy-scan run clean watch docker-run docker-down build-worker run-worker docs validate-docs
