@@ -46,6 +46,12 @@ type authRejectTestCase struct {
 	wantError   string
 }
 
+type authCookieRejectTestCase struct {
+	rawToken    string
+	mockSession *mockSessionValidator
+	wantError   string
+}
+
 func runRejectedTest(t *testing.T, tt authRejectTestCase) {
 	t.Helper()
 	called := false
@@ -76,6 +82,43 @@ func runRejectedTest(t *testing.T, tt authRejectTestCase) {
 	}
 }
 
+func runRejectedCookieTest(t *testing.T, tt authCookieRejectTestCase) {
+	t.Helper()
+	called := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
+	setCookie(request, tt.rawToken)
+
+	AuthCheck(&mockKeyValidator{}, tt.mockSession)(handler).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d; got %d", http.StatusUnauthorized, recorder.Code)
+	}
+	if called {
+		t.Fatal("expected downstream handler not to be called")
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected valid JSON response body: %v", err)
+	}
+	if body["error"] != tt.wantError {
+		t.Fatalf("expected error %q; got %q", tt.wantError, body["error"])
+	}
+}
+
+func setCookie(r *http.Request, token string) {
+	r.AddCookie(&http.Cookie{
+		Name:  "session_token",
+		Value: token,
+	})
+}
+
 func TestAuthCheckMissingHeader(t *testing.T) {
 	called := false
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -100,8 +143,8 @@ func TestAuthCheckMissingHeader(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("expected valid JSON response body: %v", err)
 	}
-	if body["error"] != "missing authorization header" {
-		t.Fatalf("expected error %q; got %q", "missing authorization header", body["error"])
+	if body["error"] != "authentication required" {
+		t.Fatalf("expected error %q; got %q", "authentication required", body["error"])
 	}
 }
 
@@ -236,7 +279,7 @@ func TestAuthCheckValidKey(t *testing.T) {
 	}
 }
 
-func TestAuthCheckValidSessionToken(t *testing.T) {
+func TestAuthCheckCookieSession(t *testing.T) {
 	userID := uuid.New()
 	tokenID := uuid.New()
 
@@ -252,21 +295,18 @@ func TestAuthCheckValidSessionToken(t *testing.T) {
 		if consumer.ConsumerID != userID.String() {
 			t.Errorf("expected ConsumerID %q; got %q", userID.String(), consumer.ConsumerID)
 		}
-		if consumer.APIKeyID != tokenID.String() {
-			t.Errorf("expected APIKeyID %q; got %q", tokenID.String(), consumer.APIKeyID)
-		}
 	})
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
-	request.Header.Set("Authorization", "Bearer st_valid-session-token")
+	setCookie(request, "valid-session-token")
 
 	mock := &mockKeyValidator{}
 	mockSession := &mockSessionValidator{
 		token: &repository.SessionToken{
 			ID:        tokenID,
 			UserID:    userID,
-			TokenHash: auth.HashToken("st_valid-session-token"),
+			TokenHash: auth.HashToken("valid-session-token"),
 			Status:    repository.SessionTokenStatusActive,
 			ExpiresAt: time.Now().UTC().Add(time.Hour),
 			CreatedAt: time.Now().UTC(),
@@ -282,46 +322,30 @@ func TestAuthCheckValidSessionToken(t *testing.T) {
 	}
 }
 
-func TestAuthCheckRevokedSessionToken(t *testing.T) {
-	runRejectedTest(t, authRejectTestCase{
-		rawKey: "st_revoked-session-token",
-		mock:   &mockKeyValidator{},
-		mockSession: &mockSessionValidator{
-			err: auth.ErrSessionTokenNotActive,
-		},
-		wantStatus: http.StatusUnauthorized,
-		wantError:  "session token revoked",
-	})
-}
+func TestAuthCheckSessionCookieErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		rawCookie string
+		err       error
+		wantError string
+	}{
+		{name: "revoked", rawCookie: "revoked-session-token", err: auth.ErrSessionNotActive, wantError: "session revoked"},
+		{name: "expired", rawCookie: "expired-session-token", err: auth.ErrSessionExpired, wantError: "session expired"},
+		{name: "unknown", rawCookie: "unknown-session-token", err: auth.ErrSessionNotFound, wantError: "invalid session"},
+	}
 
-func TestAuthCheckExpiredSessionToken(t *testing.T) {
-	runRejectedTest(t, authRejectTestCase{
-		rawKey: "st_expired-session-token",
-		mock:   &mockKeyValidator{},
-		mockSession: &mockSessionValidator{
-			err: auth.ErrSessionTokenExpired,
-		},
-		wantStatus: http.StatusUnauthorized,
-		wantError:  "session token expired",
-	})
-}
-
-func TestAuthCheckUnknownSessionToken(t *testing.T) {
-	runRejectedTest(t, authRejectTestCase{
-		rawKey: "st_unknown-session-token",
-		mock:   &mockKeyValidator{},
-		mockSession: &mockSessionValidator{
-			err: auth.ErrSessionTokenNotFound,
-		},
-		wantStatus: http.StatusUnauthorized,
-		wantError:  "invalid session token",
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runRejectedCookieTest(t, authCookieRejectTestCase{
+				rawToken:    tt.rawCookie,
+				mockSession: &mockSessionValidator{err: tt.err},
+				wantError:   tt.wantError,
+			})
+		})
+	}
 }
 
 func TestAuthCheckRawKeyNotLogged(t *testing.T) {
-	// NOTE: this test mutates the global slog default logger to capture output.
-	// It must not run in parallel with TestAuthCheckRawSessionTokenNotLogged or
-	// any other test that calls slog.SetDefault, to avoid data races.
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	original := slog.Default()
@@ -364,10 +388,7 @@ func TestAuthCheckRawKeyNotLogged(t *testing.T) {
 	}
 }
 
-func TestAuthCheckRawSessionTokenNotLogged(t *testing.T) {
-	// NOTE: this test mutates the global slog default logger to capture output.
-	// It must not run in parallel with TestAuthCheckRawKeyNotLogged or any other
-	// test that calls slog.SetDefault, to avoid data races.
+func TestAuthCheckRawSessionCookieNotLogged(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	original := slog.Default()
@@ -378,10 +399,10 @@ func TestAuthCheckRawSessionTokenNotLogged(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	rawToken := "st_super-secret-session-token-that-must-not-appear-in-logs"
+	rawToken := "super-secret-session-token-that-must-not-appear-in-logs"
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
-	request.Header.Set("Authorization", "Bearer "+rawToken)
+	setCookie(request, rawToken)
 
 	userID := uuid.New()
 	tokenID := uuid.New()

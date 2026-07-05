@@ -32,7 +32,6 @@ import (
 	"castellan/internal/stellar"
 )
 
-// Server wires together database, resolver, proxy, ledger, and middleware dependencies.
 type Server struct {
 	port int
 
@@ -47,7 +46,8 @@ type Server struct {
 	keyHandler        *auth.KeyHandler
 	keyValidator      middleware.KeyValidator
 	sessionValidator  middleware.SessionValidator
-	sessionHandler    *auth.SessionHandler
+	authHandler       *auth.Handler
+	oauthHandler      *auth.OAuthHandler
 	providerHandler   *provider.Handler
 	endpointHandler   *provider.EndpointHandler
 	accountHandler    *accounts.Handler
@@ -61,9 +61,6 @@ type Server struct {
 	windowSeconds int
 }
 
-// NewServer creates an http.Server with all dependencies wired: database pool,
-// sqlc queries, provider resolver, reverse proxy, Redis rate limiter, ledger,
-// and the full middleware chain.
 func NewServer() (*http.Server, error) {
 	port, _ := strconv.Atoi(os.Getenv("PORT"))
 
@@ -186,8 +183,11 @@ func NewServer() (*http.Server, error) {
 	sessionSvc := auth.NewSessionService(queries)
 
 	sessionValidator := middleware.SessionValidatorFunc(func(ctx context.Context, rawToken string) (*repository.SessionToken, error) {
-		return sessionSvc.ValidateSessionToken(ctx, rawToken)
+		return sessionSvc.ValidateSession(ctx, rawToken)
 	})
+
+	dashboardURL := os.Getenv("DASHBOARD_URL")
+	auth.InitGoth(dashboardURL)
 
 	providerSvc := provider.NewProviderService(queries)
 	endpointSvc := provider.NewEndpointService(queries)
@@ -218,7 +218,8 @@ func NewServer() (*http.Server, error) {
 		keyHandler:        auth.NewKeyHandler(keySvc),
 		keyValidator:      keyValidator,
 		sessionValidator:  sessionValidator,
-		sessionHandler:    auth.NewSessionHandler(sessionSvc),
+		authHandler:       auth.NewHandler(sessionSvc, queries),
+		oauthHandler:      auth.NewOAuthHandler(queries, sessionSvc, dashboardURL),
 		providerHandler:   provider.NewProviderHandler(providerSvc),
 		endpointHandler:   provider.NewEndpointHandler(endpointSvc),
 		accountHandler:    accounts.NewHandler(accountSvc),

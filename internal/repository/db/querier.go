@@ -47,6 +47,8 @@ type Querier interface {
 	GetUnsettledProviderEarnings(ctx context.Context) ([]GetUnsettledProviderEarningsRow, error)
 	GetUsageEventByRequestID(ctx context.Context, requestID string) (UsageEvent, error)
 	GetUserByDepositMemo(ctx context.Context, depositMemo pgtype.Text) (User, error)
+	GetUserByEmail(ctx context.Context, email string) (User, error)
+	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetWatcherCursor(ctx context.Context) (StellarWatcherCursor, error)
 	InsertDeposit(ctx context.Context, arg InsertDepositParams) (Deposit, error)
 	InsertDepositIgnoreConflict(ctx context.Context, arg InsertDepositIgnoreConflictParams) (Deposit, error)
@@ -82,6 +84,7 @@ type Querier interface {
 	UpdateSessionTokenStatus(ctx context.Context, arg UpdateSessionTokenStatusParams) (SessionToken, error)
 	UpdateSettlementBatchStatus(ctx context.Context, arg UpdateSettlementBatchStatusParams) (SettlementBatch, error)
 	UpdateSettlementEntryStatus(ctx context.Context, arg UpdateSettlementEntryStatusParams) (SettlementEntry, error)
+	UpsertUserByEmail(ctx context.Context, email string) (User, error)
 	UpsertWatcherCursor(ctx context.Context, cursor string) error
 }
 

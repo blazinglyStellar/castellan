@@ -45,3 +45,61 @@ func (q *Queries) GetUserByDepositMemo(ctx context.Context, depositMemo pgtype.T
 	)
 	return i, err
 }
+
+const getUserByEmail = `-- name: GetUserByEmail :one
+SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at FROM users WHERE email = $1 LIMIT 1
+`
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.DepositMemo,
+		&i.PayoutStellarAddress,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at FROM users WHERE id = $1 LIMIT 1
+`
+
+func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.DepositMemo,
+		&i.PayoutStellarAddress,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertUserByEmail = `-- name: UpsertUserByEmail :one
+INSERT INTO users (email)
+VALUES ($1)
+ON CONFLICT (email) DO UPDATE
+  SET updated_at = NOW()
+RETURNING id, email, deposit_memo, payout_stellar_address, created_at, updated_at
+`
+
+func (q *Queries) UpsertUserByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRow(ctx, upsertUserByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.DepositMemo,
+		&i.PayoutStellarAddress,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
