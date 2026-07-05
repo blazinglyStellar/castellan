@@ -28,6 +28,7 @@ import (
 	"castellan/internal/proxy"
 	"castellan/internal/repository/db"
 	"castellan/internal/server/middleware"
+	"castellan/internal/settlement"
 	"castellan/internal/stellar"
 )
 
@@ -35,24 +36,25 @@ import (
 type Server struct {
 	port int
 
-	db               database.Service
-	proxy            *proxy.Proxy
-	balance          middleware.BalanceChecker
-	pricingResolver  middleware.EndpointPricingResolver
-	usageRepo        middleware.UsageEventRepository
-	rateLimiter      gateway.RateLimiter
-	redisClient      *redis.Client
-	ledger           gateway.LedgerService
-	keyHandler       *auth.KeyHandler
-	keyValidator     middleware.KeyValidator
-	sessionValidator middleware.SessionValidator
-	sessionHandler   *auth.SessionHandler
-	providerHandler  *provider.Handler
-	endpointHandler  *provider.EndpointHandler
-	accountHandler   *accounts.Handler
-	depositHandler   *deposit.Handler
-	creditHandler    *deposit.CreditHandler
-	watcher          *deposit.Watcher
+	db                database.Service
+	proxy             *proxy.Proxy
+	balance           middleware.BalanceChecker
+	pricingResolver   middleware.EndpointPricingResolver
+	usageRepo         middleware.UsageEventRepository
+	rateLimiter       gateway.RateLimiter
+	redisClient       *redis.Client
+	ledger            gateway.LedgerService
+	keyHandler        *auth.KeyHandler
+	keyValidator      middleware.KeyValidator
+	sessionValidator  middleware.SessionValidator
+	sessionHandler    *auth.SessionHandler
+	providerHandler   *provider.Handler
+	endpointHandler   *provider.EndpointHandler
+	accountHandler    *accounts.Handler
+	depositHandler    *deposit.Handler
+	creditHandler     *deposit.CreditHandler
+	watcher           *deposit.Watcher
+	settlementHandler *settlement.Handler
 
 	stellarConfig stellar.Config
 
@@ -200,28 +202,32 @@ func NewServer() (*http.Server, error) {
 		}
 	}()
 
+	settlementReconciler := settlement.NewReconciler(databaseService.Pool(), queries)
+	settlementHandler := settlement.NewHandler(settlementReconciler)
+
 	srv := &Server{
-		port:             port,
-		db:               databaseService,
-		proxy:            pxy,
-		balance:          balancer,
-		pricingResolver:  pricingResolver,
-		usageRepo:        usageRepo,
-		rateLimiter:      rateLimiter,
-		redisClient:      rdb,
-		ledger:           ledger.NewPostgresLedger(databaseService.Pool()),
-		keyHandler:       auth.NewKeyHandler(keySvc),
-		keyValidator:     keyValidator,
-		sessionValidator: sessionValidator,
-		sessionHandler:   auth.NewSessionHandler(sessionSvc),
-		providerHandler:  provider.NewProviderHandler(providerSvc),
-		endpointHandler:  provider.NewEndpointHandler(endpointSvc),
-		accountHandler:   accounts.NewHandler(accountSvc),
-		depositHandler:   deposit.NewHandler(depositSvc),
-		creditHandler:    creditHandler,
-		watcher:          watcher,
-		stellarConfig:    stellarCfg,
-		windowSeconds:    windowSeconds,
+		port:              port,
+		db:                databaseService,
+		proxy:             pxy,
+		balance:           balancer,
+		pricingResolver:   pricingResolver,
+		usageRepo:         usageRepo,
+		rateLimiter:       rateLimiter,
+		redisClient:       rdb,
+		ledger:            ledger.NewPostgresLedger(databaseService.Pool()),
+		keyHandler:        auth.NewKeyHandler(keySvc),
+		keyValidator:      keyValidator,
+		sessionValidator:  sessionValidator,
+		sessionHandler:    auth.NewSessionHandler(sessionSvc),
+		providerHandler:   provider.NewProviderHandler(providerSvc),
+		endpointHandler:   provider.NewEndpointHandler(endpointSvc),
+		accountHandler:    accounts.NewHandler(accountSvc),
+		depositHandler:    deposit.NewHandler(depositSvc),
+		creditHandler:     creditHandler,
+		watcher:           watcher,
+		settlementHandler: settlementHandler,
+		stellarConfig:     stellarCfg,
+		windowSeconds:     windowSeconds,
 	}
 
 	httpServer := &http.Server{

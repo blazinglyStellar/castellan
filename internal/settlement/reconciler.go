@@ -364,3 +364,11 @@ func (r *Reconciler) GetSettlementHistory(
 
 	return batches, entriesMap, nil
 }
+
+func (r *Reconciler) CountSettlementBatches(ctx context.Context) (int64, error) {
+	count, err := r.queries.CountSettlementBatches(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("count settlement batches: %w", err)
+	}
+	return count, nil
+}

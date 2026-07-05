@@ -40,6 +40,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.Handle("GET /api/v1/accounts/me/entries/{id}", http.HandlerFunc(s.accountHandler.GetEntry))
 	mux.Handle("GET /api/v1/deposits/intent", s.authMiddleware(http.HandlerFunc(s.depositHandler.DepositIntent)))
 	mux.Handle("GET /api/v1/deposits", s.authMiddleware(http.HandlerFunc(s.depositHandler.ListDeposits)))
+	mux.Handle("GET /api/v1/settlements", s.authMiddleware(http.HandlerFunc(s.settlementHandler.ListSettlements)))
 	s.GatewayRoutes(mux)
 
 	var handler http.Handler = mux

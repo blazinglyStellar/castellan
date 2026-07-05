@@ -12,6 +12,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countSettlementBatches = `-- name: CountSettlementBatches :one
+SELECT COUNT(*) FROM settlement_batches
+`
+
+func (q *Queries) CountSettlementBatches(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countSettlementBatches)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getSettlementBatchByID = `-- name: GetSettlementBatchByID :one
 SELECT id, status, total_amount, currency, entry_count, tx_hash, created_at, completed_at FROM settlement_batches
 WHERE id = $1
