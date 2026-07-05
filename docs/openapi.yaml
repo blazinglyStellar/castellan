@@ -5,10 +5,12 @@ info:
   description: |
     Usage-based API monetization gateway with Stellar settlement.
 
-    Authentication uses `Authorization: Bearer <token>`. Two token types are
-    accepted:
-      - **API keys** — prefixed `ca_`, long-lived, used for server-to-server
-      - **Session tokens** — prefixed `st_`, short-lived, used by the dashboard
+    Two authentication schemes are used:
+      - **API keys** — prefixed `ca_`, long-lived, passed via
+        `Authorization: Bearer ca_<key>`, used for server-to-server / gateway
+      - **OAuth session** — dashboard users authenticate via Google or GitHub
+        OAuth; the backend sets an httpOnly `session_token` cookie. No bearer
+        header is needed for browser requests to the management API.
 
 servers:
   - url: http://localhost:8080
@@ -61,7 +63,7 @@ paths:
     get:
       operationId: listKeys
       summary: List all API keys for the authenticated consumer
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       responses:
         "200":
           description: List of API keys
@@ -78,7 +80,7 @@ paths:
     post:
       operationId: createKey
       summary: Create a new API key
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       requestBody:
         required: true
         content:
@@ -102,7 +104,7 @@ paths:
     post:
       operationId: revokeKey
       summary: Revoke an API key
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: id
           in: path
@@ -130,7 +132,7 @@ paths:
     post:
       operationId: rotateKey
       summary: Rotate an API key (revoke old, return new)
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: id
           in: path
@@ -156,77 +158,98 @@ paths:
           $ref: "#/components/responses/InternalError"
 
   # ──────────────────────────────────────────────
-  #   Sessions
+  #   OAuth
   # ──────────────────────────────────────────────
-  /api/v1/sessions:
-    post:
-      operationId: createSession
-      summary: Create a new session token
-      security: [{ BearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateSessionRequest"
-      responses:
-        "201":
-          description: Created session token
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CreateSessionResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "500":
-          $ref: "#/components/responses/InternalError"
+  /auth/{provider}/login:
     get:
-      operationId: listSessions
-      summary: List all session tokens for the authenticated consumer
-      security: [{ BearerAuth: [] }]
-      responses:
-        "200":
-          description: List of session tokens
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/SessionToken"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /api/v1/sessions/{id}/revoke:
-    post:
-      operationId: revokeSession
-      summary: Revoke a session token
-      security: [{ BearerAuth: [] }]
+      operationId: oauthLogin
+      summary: Initiate OAuth login
+      description: |
+        Redirects the user to the OAuth provider (google or github) for
+        authentication. On success the provider redirects to the callback
+        endpoint.
       parameters:
-        - name: id
+        - name: provider
           in: path
           required: true
           schema:
             type: string
-            format: uuid
-          description: Session token ID
+            enum: [google, github]
+          description: OAuth provider
+      security: []
+      responses:
+        "302":
+          description: Redirect to OAuth provider
+        "400":
+          description: Unsupported provider
+  /auth/{provider}/callback:
+    get:
+      operationId: oauthCallback
+      summary: OAuth callback
+      description: |
+        Handles the OAuth provider callback — exchanges the authorization
+        code for user info, upserts the user by email, creates a session,
+        sets the `session_token` cookie, and redirects to the dashboard.
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, github]
+          description: OAuth provider
+      security: []
+      responses:
+        "302":
+          description: Redirect to dashboard after successful login
+        "401":
+          description: Authentication failed
+        "500":
+          description: Internal error
+
+  # ──────────────────────────────────────────────
+  #   Auth (session management)
+  # ──────────────────────────────────────────────
+  /api/v1/auth/me:
+    get:
+      operationId: getMe
+      summary: Get the current user
+      description: |
+        Returns the authenticated user's profile. The session is read from
+        the `session_token` cookie — no Authorization header is needed for
+        browser requests.
+      security: [{ CookieAuth: [] }]
       responses:
         "200":
-          description: Revoked session token
+          description: Current user
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RevokeSessionResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
+                $ref: "#/components/schemas/UserResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      summary: Log the current user out
+      description: |
+        Revokes the session and clears the `session_token` cookie.
+      security: [{ CookieAuth: [] }]
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: logged out
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   # ──────────────────────────────────────────────
   #   Providers
@@ -235,7 +258,7 @@ paths:
     post:
       operationId: createProvider
       summary: Register a new upstream provider
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       requestBody:
         required: true
         content:
@@ -258,7 +281,7 @@ paths:
     get:
       operationId: listProviders
       summary: List all providers for the authenticated consumer
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       responses:
         "200":
           description: List of providers
@@ -276,7 +299,7 @@ paths:
     get:
       operationId: getProvider
       summary: Get a provider by ID
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: id
           in: path
@@ -303,7 +326,7 @@ paths:
     patch:
       operationId: updateProvider
       summary: Partially update a provider's name or base URL
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: id
           in: path
@@ -337,7 +360,7 @@ paths:
     patch:
       operationId: updateProviderStatus
       summary: Update a provider's status
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: id
           in: path
@@ -370,7 +393,7 @@ paths:
     delete:
       operationId: deleteProvider
       summary: Delete a provider and all its endpoints
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: id
           in: path
@@ -398,7 +421,7 @@ paths:
     post:
       operationId: createEndpoint
       summary: Register a new endpoint under a provider
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: providerId
           in: path
@@ -433,7 +456,7 @@ paths:
     get:
       operationId: listEndpoints
       summary: List all endpoints for a provider
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: providerId
           in: path
@@ -470,7 +493,7 @@ paths:
     get:
       operationId: getEndpoint
       summary: Get an endpoint by ID
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: id
           in: path
@@ -497,7 +520,7 @@ paths:
     patch:
       operationId: updateEndpoint
       summary: Partially update an endpoint's configuration
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: id
           in: path
@@ -532,7 +555,7 @@ paths:
     delete:
       operationId: deleteEndpoint
       summary: Delete an endpoint
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: id
           in: path
@@ -556,7 +579,7 @@ paths:
     patch:
       operationId: updateEndpointStatus
       summary: Update an endpoint's status
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: id
           in: path
@@ -594,7 +617,7 @@ paths:
     get:
       operationId: getAccount
       summary: Get the authenticated consumer's account
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       responses:
         "200":
           description: Account details
@@ -612,7 +635,7 @@ paths:
     get:
       operationId: listEntries
       summary: List ledger entries for the authenticated consumer
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: type
           in: query
@@ -657,7 +680,7 @@ paths:
     get:
       operationId: getEntry
       summary: Get a specific ledger entry
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: id
           in: path
@@ -689,7 +712,7 @@ paths:
     get:
       operationId: depositIntent
       summary: Get deposit instructions (SEP-7 URI + QR code)
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       responses:
         "200":
           description: Deposit intent details
@@ -705,7 +728,7 @@ paths:
     get:
       operationId: listDeposits
       summary: List deposit history
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       responses:
         "200":
           description: List of deposits
@@ -727,7 +750,7 @@ paths:
     get:
       operationId: listSettlements
       summary: List settlement batch history
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: limit
           in: query
@@ -859,13 +882,19 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: "ca_<key> or st_<token>"
+      bearerFormat: "ca_<key>"
       description: |
-        Authenticate via `Authorization: Bearer <token>`.
+        API key authentication via `Authorization: Bearer ca_<key>`.
 
-        Two token types are accepted:
-        - **API keys** — prefix `ca_`, e.g. `ca_f8a2b1c3d4e5...`
-        - **Session tokens** — prefix `st_`, e.g. `st_a1b2c3d4e5f6...`
+        Used for server-to-server and gateway proxy requests.
+        Keys are prefixed with `ca_`, e.g. `ca_f8a2b1c3d4e5...`.
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: session_token
+      description: |
+        OAuth session cookie. Set by the backend after a successful OAuth
+        login (Google / GitHub). Used for browser dashboard requests.
 
   responses:
     BadRequest:
@@ -993,86 +1022,23 @@ components:
           nullable: true
       required: [id, label, status, created_at]
 
-    # ── Sessions ────────────────────────────────
-    CreateSessionRequest:
-      type: object
-      properties:
-        label:
-          type: string
-          description: Human-readable label for the session
-          example: Dashboard Session
-        scope:
-          type: string
-          nullable: true
-          description: Optional scope restriction
-        ttl:
-          type: string
-          description: |
-            Time-to-live as a Go duration string
-            (e.g. `1h`, `24h`, `7d`). Defaults to `1h`.
-          example: 24h
-      required: [label]
-
-    CreateSessionResponse:
-      type: object
-      properties:
-        token:
-          type: string
-          description: The raw session token (shown once)
-          example: st_a1b2c3d4e5f6a7b8c9d0e1f2
-        id:
-          type: string
-          format: uuid
-        label:
-          type: string
-        scope:
-          type: string
-          nullable: true
-        expires_at:
-          type: string
-          format: date-time
-      required: [token, id, label, scope, expires_at]
-
-    SessionToken:
+    # ── Auth ────────────────────────────────────
+    UserResponse:
       type: object
       properties:
         id:
           type: string
           format: uuid
-        user_id:
+          description: User ID
+        email:
           type: string
-          format: uuid
-        label:
-          type: string
-          nullable: true
-        scope:
-          type: string
-          nullable: true
-        status:
-          type: string
-          enum: [active, revoked, expired]
-        expires_at:
-          type: string
-          format: date-time
+          format: email
+          description: User email (from OAuth provider)
         created_at:
           type: string
           format: date-time
-      required: [id, user_id, label, scope, status, expires_at, created_at]
-
-    RevokeSessionResponse:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        label:
-          type: string
-        status:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-      required: [id, label, status]
+          description: Account creation timestamp
+      required: [id, email, created_at]
 
     # ── Providers ───────────────────────────────
     CreateProviderRequest:

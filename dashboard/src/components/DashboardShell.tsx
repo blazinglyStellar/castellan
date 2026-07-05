@@ -2,8 +2,9 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/lib/auth-context"
 import {
   LayoutDashboard,
   Cable,
@@ -39,7 +40,9 @@ interface DashboardShellProps {
 
 export function DashboardShell({ children, role = "both" }: DashboardShellProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
+  const { user, logout } = useAuth()
   const isProvider = role === "provider" || role === "both"
   const isConsumer = role === "consumer" || role === "both"
   const filteredNav = navItems.filter((item) => {
@@ -47,6 +50,15 @@ export function DashboardShell({ children, role = "both" }: DashboardShellProps)
     if (item.href === "/dashboard/usage" || item.href === "/dashboard/deposit") return isConsumer || isProvider
     return true
   })
+
+  const initials = user?.email
+    ? user.email.slice(0, 2).toUpperCase()
+    : "CA"
+
+  const handleLogout = async () => {
+    await logout()
+    router.push("/login")
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -59,7 +71,7 @@ export function DashboardShell({ children, role = "both" }: DashboardShellProps)
         <div className="flex h-14 items-center gap-2 border-b px-4">
           {!collapsed && (
             <Link href="/dashboard" className="text-lg font-bold tracking-tight">
-              <span className="text-primary">Flow</span>Gate
+              <span className="text-primary">Castellan</span>
             </Link>
           )}
           <Button
@@ -97,16 +109,21 @@ export function DashboardShell({ children, role = "both" }: DashboardShellProps)
         <div className="p-3">
           <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
             <Avatar className="h-8 w-8">
-              <AvatarFallback>CA</AvatarFallback>
+              <AvatarFallback>{initials}</AvatarFallback>
             </Avatar>
-            {!collapsed && (
+            {!collapsed && user && (
               <div className="flex-1 truncate">
-                <p className="text-sm font-medium truncate">user@castellan.io</p>
+                <p className="text-sm font-medium truncate">{user.email}</p>
                 <p className="text-xs text-muted-foreground capitalize">{role}</p>
               </div>
             )}
           </div>
-          <Button variant="ghost" size="sm" className={cn("mt-2 w-full justify-start gap-2 text-muted-foreground", collapsed && "justify-center px-0")}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn("mt-2 w-full justify-start gap-2 text-muted-foreground", collapsed && "justify-center px-0")}
+            onClick={handleLogout}
+          >
             <LogOut className="h-4 w-4" />
             {!collapsed && "Sign Out"}
           </Button>

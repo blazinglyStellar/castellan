@@ -1,0 +1,78 @@
+package auth
+
+import (
+	"log/slog"
+	"net/http"
+	"time"
+
+	gatewaycontext "castellan/internal/gateway/context"
+	"castellan/internal/repository/db"
+
+	"github.com/google/uuid"
+)
+
+type AuthHandler struct {
+	sessionService *SessionService
+	queries        repository.Querier
+}
+
+func NewAuthHandler(sessionService *SessionService, queries repository.Querier) *AuthHandler {
+	return &AuthHandler{sessionService: sessionService, queries: queries}
+}
+
+type meResponse struct {
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	CreatedAt string `json:"created_at"`
+}
+
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		return
+	}
+
+	userID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "invalid consumer id", slog.String("error", err.Error()))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid identity"})
+		return
+	}
+
+	user, err := h.queries.GetUserByID(r.Context(), userID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "failed to lookup user", slog.String("error", err.Error()))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "internal error"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, meResponse{
+		ID:        user.ID.String(),
+		Email:     user.Email,
+		CreatedAt: user.CreatedAt.Format(time.RFC3339),
+	})
+}
+
+type logoutResponse struct {
+	Message string `json:"message"`
+}
+
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	rawToken, err := ReadSessionCookie(r)
+	if err != nil {
+		writeJSON(w, http.StatusOK, logoutResponse{Message: "logged out"})
+		return
+	}
+
+	if err := h.sessionService.RevokeSession(r.Context(), rawToken); err != nil {
+		slog.WarnContext(
+			r.Context(), "session revoke failed",
+			slog.String("error", err.Error()),
+		)
+	}
+
+	ClearSessionCookie(w)
+
+	writeJSON(w, http.StatusOK, logoutResponse{Message: "logged out"})
+}
