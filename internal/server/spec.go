@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"sync"
@@ -9,11 +10,11 @@ import (
 var (
 	openapiOnce sync.Once
 	openapiSpec []byte
-	openapiErr  error
+	errOpenapi  error
 )
 
 func loadOpenapiSpec() {
-	openapiSpec, openapiErr = os.ReadFile("docs/openapi.yaml")
+	openapiSpec, errOpenapi = os.ReadFile("docs/openapi.yaml")
 }
 
 var scalarHTML = []byte(`<!doctype html>
@@ -41,15 +42,20 @@ var scalarHTML = []byte(`<!doctype html>
 
 func openapiHandler(w http.ResponseWriter, _ *http.Request) {
 	openapiOnce.Do(loadOpenapiSpec)
-	if openapiErr != nil {
+	if errOpenapi != nil {
 		http.Error(w, "openapi spec not found", http.StatusNotFound)
+
 		return
 	}
 	w.Header().Set("Content-Type", "application/x-yaml")
-	w.Write(openapiSpec)
+	if _, err := w.Write(openapiSpec); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
 }
 
 func docsHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(scalarHTML)
+	if _, err := w.Write(scalarHTML); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
 }
