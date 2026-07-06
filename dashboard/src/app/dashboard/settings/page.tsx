@@ -1,18 +1,21 @@
 "use client"
 
 import { useState } from "react"
-import { AlertCircle, Save } from "lucide-react"
+import { AlertCircle, Save, Copy, Check, Sun, Moon } from "lucide-react"
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { PageHeader } from "@/components/PageHeader"
 import { DataTable } from "@/components/DataTable"
 import { EmptyState } from "@/components/EmptyState"
@@ -34,10 +37,12 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
   const [stellarAddress, setStellarAddress] = useState(MOCK_SETTINGS.stellarAddress)
+  const [saved, setSaved] = useState(false)
   const [keyDialogOpen, setKeyDialogOpen] = useState(false)
   const [newKeyLabel, setNewKeyLabel] = useState("")
   const [newKeyResult, setNewKeyResult] = useState("")
   const [showKeyModal, setShowKeyModal] = useState(false)
+  const [theme, setTheme] = useState<"dark" | "light">("dark")
 
   if (error) {
     return (
@@ -49,74 +54,137 @@ export default function SettingsPage() {
     )
   }
 
+  const handleSavePayout = () => {
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
   const handleGenerateKey = (e: React.FormEvent) => {
     e.preventDefault()
-    setNewKeyResult(`fg_${newKeyLabel.toLowerCase().replace(/\s+/g, "_")}_${Math.random().toString(36).slice(2, 10)}`)
+    const key = `fg_${newKeyLabel.toLowerCase().replace(/\s+/g, "_")}_${Math.random().toString(36).slice(2, 14)}`
+    setNewKeyResult(key)
     setKeyDialogOpen(false)
     setShowKeyModal(true)
     setNewKeyLabel("")
   }
 
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark"
+    setTheme(next)
+    document.documentElement.classList.toggle("dark", next === "dark")
+  }
+
   return (
     <div className="space-y-6">
-      <PageHeader title="Settings" />
+      <PageHeader title="Settings" description="Manage your account and preferences." />
       <Tabs defaultValue="profile">
-        <TabsList>
+        <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="payout">Payout Address</TabsTrigger>
           <TabsTrigger value="deposit">Deposit Info</TabsTrigger>
           <TabsTrigger value="api-keys">API Keys</TabsTrigger>
+          <TabsTrigger value="notifications" disabled>Notifications</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="profile">
+        <TabsContent value="profile" className="mt-6">
           <Card>
-            <CardHeader><CardTitle className="text-base">Profile</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
+            <CardHeader>
+              <CardTitle className="text-base">Profile</CardTitle>
+              <CardDescription>Your account information from OAuth.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
               {loading ? (
-                <div className="space-y-3"><Skeleton className="h-9 w-full" /><Skeleton className="h-9 w-full" /></div>
+                <div className="space-y-4"><Skeleton className="h-16 w-16 rounded-full" /><Skeleton className="h-9 w-full" /><Skeleton className="h-9 w-full" /></div>
               ) : (
                 <>
+                  <div className="flex items-center gap-4">
+                    <Avatar className="h-16 w-16">
+                      <AvatarFallback className="text-lg">CA</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-medium">{MOCK_SETTINGS.email}</p>
+                      <p className="text-xs text-muted-foreground">Connected with Google</p>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <Label>Email</Label>
                     <Input value={MOCK_SETTINGS.email} readOnly className="bg-muted" />
                   </div>
+
                   <div className="space-y-2">
-                    <Label>Role</Label>
-                    <Input value={MOCK_SETTINGS.role.charAt(0).toUpperCase() + MOCK_SETTINGS.role.slice(1)} readOnly className="bg-muted" />
+                    <Label>Roles</Label>
+                    <div className="flex gap-2">
+                      <Badge variant="secondary" className="capitalize">Provider</Badge>
+                      <Badge variant="secondary" className="capitalize">Consumer</Badge>
+                    </div>
                   </div>
-                  <Button><Save className="h-4 w-4" />Save</Button>
+
+                  <Separator />
+
+                  <div className="space-y-3">
+                    <Label>Theme</Label>
+                    <div className="flex gap-2">
+                      <Button
+                        variant={theme === "dark" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => { setTheme("dark"); document.documentElement.classList.add("dark") }}
+                        className="gap-2"
+                      >
+                        <Moon className="h-4 w-4" /> Dark
+                      </Button>
+                      <Button
+                        variant={theme === "light" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => { setTheme("light"); document.documentElement.classList.remove("dark") }}
+                        className="gap-2"
+                      >
+                        <Sun className="h-4 w-4" /> Light
+                      </Button>
+                    </div>
+                  </div>
                 </>
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="payout">
+        <TabsContent value="payout" className="mt-6">
           <Card>
-            <CardHeader><CardTitle className="text-base">Payout Address</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-base">Payout Address</CardTitle>
+              <CardDescription>Set your Stellar wallet address for receiving payouts.</CardDescription>
+            </CardHeader>
             <CardContent className="space-y-4">
               {loading ? (
-                <div className="space-y-3"><Skeleton className="h-9 w-full" /></div>
+                <Skeleton className="h-9 w-full" />
               ) : (
                 <>
                   <div className="space-y-2">
                     <Label htmlFor="stellar">Stellar Address</Label>
-                    <Input id="stellar" value={stellarAddress} onChange={(e) => setStellarAddress(e.target.value)} />
-                    <p className="text-xs text-muted-foreground">Payouts are sent bi-weekly to this Stellar address.</p>
+                    <Input id="stellar" value={stellarAddress} onChange={(e) => setStellarAddress(e.target.value)} className="font-mono text-sm" />
+                    <p className="text-xs text-muted-foreground">
+                      Payouts are processed bi-weekly. Address must be a valid Stellar account.
+                    </p>
                   </div>
-                  <Button><Save className="h-4 w-4" />Save</Button>
+                  <Button onClick={handleSavePayout}>
+                    {saved ? <><Check className="mr-1.5 h-4 w-4" /> Saved</> : <><Save className="mr-1.5 h-4 w-4" /> Save</>}
+                  </Button>
                 </>
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="deposit">
+        <TabsContent value="deposit" className="mt-6">
           <Card>
-            <CardHeader><CardTitle className="text-base">Deposit Info</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-base">Deposit Info</CardTitle>
+              <CardDescription>Your deposit details for receiving XLM.</CardDescription>
+            </CardHeader>
             <CardContent className="space-y-4">
               {loading ? (
-                <div className="space-y-3"><Skeleton className="h-9 w-full" /><Skeleton className="h-20 w-full" /></div>
+                <div className="space-y-3"><Skeleton className="h-9 w-full" /><Skeleton className="h-9 w-full" /></div>
               ) : (
                 <>
                   <div className="space-y-2">
@@ -126,8 +194,15 @@ export default function SettingsPage() {
                       <CopyButton text={MOCK_SETTINGS.depositMemo} />
                     </div>
                   </div>
-                  <div className="rounded-lg bg-muted p-4">
-                    <p className="text-sm text-muted-foreground">{MOCK_SETTINGS.depositInstructions}</p>
+                  <div className="space-y-2">
+                    <Label>Deposit Address</Label>
+                    <div className="flex items-center gap-2">
+                      <Input value={MOCK_SETTINGS.stellarAddress} readOnly className="bg-muted font-mono text-xs" />
+                      <CopyButton text={MOCK_SETTINGS.stellarAddress} />
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-warning/10 border border-warning/30 p-3">
+                    <p className="text-xs text-warning">Minimum deposit: 5 XLM</p>
                   </div>
                 </>
               )}
@@ -135,11 +210,14 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="api-keys">
+        <TabsContent value="api-keys" className="mt-6">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">API Keys</CardTitle>
+                <div>
+                  <CardTitle className="text-base">API Keys</CardTitle>
+                  <CardDescription>Manage your API keys for authentication.</CardDescription>
+                </div>
                 <Dialog open={keyDialogOpen} onOpenChange={setKeyDialogOpen}>
                   <DialogTrigger asChild>
                     <Button size="sm">Generate New Key</Button>
@@ -185,6 +263,21 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="notifications" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Notifications</CardTitle>
+              <CardDescription>Configure notification preferences (coming soon).</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EmptyState
+                title="Coming soon"
+                description="Email and notification preferences will be available in a future update."
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       <Dialog open={showKeyModal} onOpenChange={setShowKeyModal}>
@@ -199,7 +292,11 @@ export default function SettingsPage() {
             <code className="flex-1 break-all text-sm font-mono">{newKeyResult}</code>
             <CopyButton text={newKeyResult} />
           </div>
-          <p className="text-xs text-destructive">Make sure to copy your API key now. You won&apos;t be able to see it again!</p>
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+            <p className="text-xs text-destructive font-medium">
+              This key will not be shown again after you close this dialog.
+            </p>
+          </div>
           <DialogFooter>
             <Button onClick={() => setShowKeyModal(false)}>Done</Button>
           </DialogFooter>
