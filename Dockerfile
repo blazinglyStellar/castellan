@@ -1,25 +1,12 @@
-# ---- Builder ----
-FROM golang:1.26-alpine AS builder
-
-WORKDIR /app
-
+# syntax=docker/dockerfile:1
+FROM alpine:3.21 AS base
 RUN apk upgrade --no-cache
 
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . ./
-RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/castellan-api ./cmd/api/ && \
-    CGO_ENABLED=0 GOOS=linux go build -o /bin/castellan-worker ./cmd/worker/
-
-# ---- Runtime ----
-FROM alpine:3.21
-
-RUN apk upgrade --no-cache
-
-COPY --from=builder /bin/castellan-api /bin/castellan-api
-COPY --from=builder /bin/castellan-worker /bin/castellan-worker
-
+FROM base AS api
+COPY bin/castellan-api /bin/castellan-api
 EXPOSE 8080
-
 CMD ["/bin/castellan-api"]
+
+FROM base AS worker
+COPY bin/castellan-worker /bin/castellan-worker
+CMD ["/bin/castellan-worker"]

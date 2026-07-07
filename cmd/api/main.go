@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"castellan/internal/server"
+
+	_ "github.com/joho/godotenv/autoload"
 )
 
 func gracefulShutdown(apiServer *http.Server, done chan bool) {

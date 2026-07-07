@@ -187,7 +187,11 @@ func NewServer() (*http.Server, error) {
 	})
 
 	dashboardURL := os.Getenv("DASHBOARD_URL")
-	auth.InitGoth(dashboardURL)
+	apiBaseURL := os.Getenv("API_BASE_URL")
+	if apiBaseURL == "" {
+		apiBaseURL = "http://localhost:8080"
+	}
+	auth.InitGoth(dashboardURL, apiBaseURL)
 
 	providerSvc := provider.NewProviderService(queries)
 	endpointSvc := provider.NewEndpointService(queries)

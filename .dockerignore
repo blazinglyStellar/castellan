@@ -3,6 +3,7 @@
 
 # Frontend (separate deployment)
 dashboard/
+dashboard-*/
 
 # Secrets
 .env

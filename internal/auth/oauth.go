@@ -31,15 +31,15 @@ func NewOAuthHandler(queries repository.Querier, sessionService *SessionService,
 	}
 }
 
-func InitGoth(dashboardURL string) {
+func InitGoth(dashboardURL string, apiBaseURL string) {
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
 	googleSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 	githubClientID := os.Getenv("GITHUB_CLIENT_ID")
 	githubSecret := os.Getenv("GITHUB_CLIENT_SECRET")
 
 	goth.UseProviders(
-		google.New(googleClientID, googleSecret, dashboardURL+"/auth/google/callback"),
-		github.New(githubClientID, githubSecret, dashboardURL+"/auth/github/callback"),
+		google.New(googleClientID, googleSecret, apiBaseURL+"/auth/google/callback"),
+		github.New(githubClientID, githubSecret, apiBaseURL+"/auth/github/callback"),
 	)
 
 	store := sessions.NewCookieStore([]byte(os.Getenv("SESSION_STORE_SECRET")))
@@ -59,6 +59,10 @@ func (h *OAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	q := r.URL.Query()
+	q.Set("provider", provider)
+	r.URL.RawQuery = q.Encode()
+
 	gothic.BeginAuthHandler(w, r)
 }
 
@@ -68,6 +72,10 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unsupported provider", http.StatusBadRequest)
 		return
 	}
+
+	q := r.URL.Query()
+	q.Set("provider", provider)
+	r.URL.RawQuery = q.Encode()
 
 	user, err := gothic.CompleteUserAuth(w, r)
 	if err != nil {
@@ -111,5 +119,5 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 
 	SetSessionCookie(w, rawToken, 7*24*time.Hour)
 
-	http.Redirect(w, r, h.dashboardURL+"/dashboard", http.StatusFound)
+	http.Redirect(w, r, h.dashboardURL+"/login", http.StatusFound)
 }

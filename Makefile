@@ -37,9 +37,16 @@ docs:
 validate-docs:
 	npx --yes @redocly/cli lint docs/openapi.yaml
 
-# Create DB container
-docker-run:
-	@docker compose up --build
+# Cross-compile both binaries for linux/amd64 (Docker runtime target)
+build-linux:
+	@echo "Building linux binaries..."
+	@mkdir -p bin
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/castellan-api ./cmd/api/
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/castellan-worker ./cmd/worker/
+
+# Create DB container (builds binaries on host first — no Docker OOM)
+docker-run: clean build-linux
+	@docker compose up --build -d
 
 # Seed the database with sample data
 seed:
@@ -74,7 +81,7 @@ security:
 	@gosec -confidence medium ./...
 
 # Trivy vulnerability scan (mirrors trivy.yml; requires Docker + trivy CLI)
-trivy-scan:
+trivy-scan: build-linux
 	@echo "Running Trivy scan..."
 	@docker build -t castellan:ci .
 	@trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed castellan:ci
@@ -82,7 +89,7 @@ trivy-scan:
 # Clean the binary
 clean:
 	@echo "Cleaning..."
-	@rm -f main
+	@rm -f main bin/castellan-api bin/castellan-worker
 
 # Live Reload
 watch:
@@ -96,4 +103,4 @@ watch:
 		Write-Output 'Watching...'; \
 	}"
 
-.PHONY: all ci ci-full build lint vet test itest security trivy-scan run clean watch docker-run docker-down build-worker run-worker docs validate-docs
+.PHONY: all ci ci-full build lint vet test itest security trivy-scan run clean watch docker-run docker-down build-linux build-worker run-worker docs validate-docs
