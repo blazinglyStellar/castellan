@@ -147,6 +147,11 @@ export interface Provider {
   updated_at: string;
 }
 
+export interface CreateProviderRequest {
+  name: string;
+  base_url: string;
+}
+
 // ── Endpoints ──
 
 export interface Endpoint {

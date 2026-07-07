@@ -16,6 +16,7 @@ const navItems: NavItem[] = [
   { label: "Analytics", href: "/analytics", roles: ["provider"] },
   { label: "Usage", href: "/usage", roles: ["provider"] },
   { label: "Settlements", href: "/provider/settlements", roles: ["provider"] },
+  { label: "Providers", href: "/provider/providers", roles: ["provider"] },
   { label: "My APIs", href: "/provider/apis", roles: ["provider"] },
   { label: "API Keys", href: "/provider/api-keys", roles: ["provider"] },
   { label: "Overview", href: "/consumer/overview", roles: ["consumer"] },

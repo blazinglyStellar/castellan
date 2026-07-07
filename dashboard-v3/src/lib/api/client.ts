@@ -1,6 +1,7 @@
 import type {
   AccountResponse,
   BalanceResponse,
+  CreateProviderRequest,
   CursorParams,
   DashboardMeResponse,
   DepositListResponse,
@@ -131,6 +132,21 @@ export function getSettlements(params?: SettlementParams): Promise<SettlementLis
 
 export function getProviders(): Promise<Provider[]> {
   return api.get<Provider[]>("/api/v1/providers");
+}
+
+export function createProvider(data: CreateProviderRequest): Promise<Provider> {
+  return api.post<Provider>("/api/v1/providers", data);
+}
+
+export function deleteProvider(id: string): Promise<void> {
+  return api.del<void>(`/api/v1/providers/${encodeURIComponent(id)}`);
+}
+
+export function updateProviderStatus(id: string, status: string): Promise<Provider> {
+  return api.patch<Provider>(
+    `/api/v1/providers/${encodeURIComponent(id)}/status`,
+    { status }
+  );
 }
 
 export function getProviderEndpoints(providerId: string): Promise<Endpoint[]> {
