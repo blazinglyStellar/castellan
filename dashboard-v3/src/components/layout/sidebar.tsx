@@ -13,13 +13,13 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: "Overview", href: "/provider/overview", roles: ["provider"] },
-  { label: "Usage", href: "/provider/usage", roles: ["provider"] },
+  { label: "Usage", href: "/usage", roles: ["provider"] },
   { label: "Settlements", href: "/provider/settlements", roles: ["provider"] },
   { label: "My APIs", href: "/provider/apis", roles: ["provider"] },
   { label: "API Keys", href: "/provider/api-keys", roles: ["provider"] },
   { label: "Overview", href: "/consumer/overview", roles: ["consumer"] },
   { label: "Deposit", href: "/consumer/deposit", roles: ["consumer"] },
-  { label: "Usage", href: "/consumer/usage", roles: ["consumer"] },
+  { label: "Usage", href: "/usage", roles: ["consumer"] },
   { label: "API Keys", href: "/consumer/api-keys", roles: ["consumer"] },
 ];
 
