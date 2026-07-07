@@ -1,3 +1,20 @@
+import type {
+  AccountResponse,
+  BalanceResponse,
+  CursorParams,
+  DashboardMeResponse,
+  DepositListResponse,
+  EarningsResponse,
+  Endpoint,
+  EntryParams,
+  IntentResponse,
+  ListEntriesResponse,
+  Provider,
+  SettlementListResponse,
+  UsageListResponse,
+  UsageParams,
+} from "./types";
+
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -69,3 +86,82 @@ class ApiClient {
 }
 
 export const api = new ApiClient();
+
+// ── Dashboard ──
+
+export function getDashboardMe(): Promise<DashboardMeResponse> {
+  return api.get<DashboardMeResponse>("/api/v1/me");
+}
+
+// ── Balance ──
+
+export function getBalance(): Promise<BalanceResponse> {
+  return api.get<BalanceResponse>("/api/v1/balance");
+}
+
+// ── Usage ──
+
+export function getUsage(params?: UsageParams): Promise<UsageListResponse> {
+  const qs = buildQueryString(params);
+  return api.get<UsageListResponse>(`/api/v1/usage${qs}`);
+}
+
+// ── Deposits ──
+
+export function getDeposits(params?: CursorParams): Promise<DepositListResponse> {
+  const qs = buildQueryString(params);
+  return api.get<DepositListResponse>(`/api/v1/deposits${qs}`);
+}
+
+// ── Earnings ──
+
+export function getEarnings(): Promise<EarningsResponse> {
+  return api.get<EarningsResponse>("/api/v1/earnings");
+}
+
+// ── Settlements ──
+
+export function getSettlements(params?: CursorParams): Promise<SettlementListResponse> {
+  const qs = buildQueryString(params);
+  return api.get<SettlementListResponse>(`/api/v1/settlements${qs}`);
+}
+
+// ── Providers ──
+
+export function getProviders(): Promise<Provider[]> {
+  return api.get<Provider[]>("/api/v1/providers");
+}
+
+export function getProviderEndpoints(providerId: string): Promise<Endpoint[]> {
+  return api.get<Endpoint[]>(`/api/v1/providers/${encodeURIComponent(providerId)}/endpoints`);
+}
+
+// ── Account ──
+
+export function getAccount(): Promise<AccountResponse> {
+  return api.get<AccountResponse>("/api/v1/accounts/me");
+}
+
+export function getAccountEntries(params?: EntryParams): Promise<ListEntriesResponse> {
+  const qs = buildQueryString(params);
+  return api.get<ListEntriesResponse>(`/api/v1/accounts/me/entries${qs}`);
+}
+
+// ── Deposit Intent ──
+
+export function getDepositIntent(): Promise<IntentResponse> {
+  return api.get<IntentResponse>("/api/v1/deposits/intent");
+}
+
+// ── Helpers ──
+
+function buildQueryString(params?: object): string {
+  if (!params) return "";
+  const entries = Object.entries(params).filter(
+    ([, v]) => v !== undefined && v !== null
+  );
+  if (entries.length === 0) return "";
+  return "?" + new URLSearchParams(
+    entries.map(([k, v]) => [k, String(v)])
+  ).toString();
+}

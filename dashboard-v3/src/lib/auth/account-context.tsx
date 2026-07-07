@@ -46,7 +46,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       setUser({
         id: profile.id,
         email: profile.email,
-        role: profile.role || "consumer",
+        role: (profile.role === "provider" ? "provider" : "consumer"),
         accountId: profile.id,
       });
     } catch (err) {

@@ -154,7 +154,7 @@ export interface Endpoint {
   provider_id: string;
   route: string;
   method: string;
-  price_amount: number;
+  price_amount: string;
   currency: string;
   rate_limit: number | null;
   status: string;
@@ -187,3 +187,23 @@ export interface CursorParams {
   cursor?: string;
   limit?: number;
 }
+
+export interface UsageParams extends CursorParams {
+  role?: "provider" | "consumer";
+  start_date?: string;
+  end_date?: string;
+  endpoint_id?: string;
+  status_code?: number;
+}
+
+export interface EntryParams {
+  limit?: number;
+  offset?: number;
+  type?: string;
+}
+
+export type BalanceResponse = Balance;
+export type EarningsResponse = Earnings;
+export type UsageListResponse = PaginatedResponse<UsageEvent>;
+export type DepositListResponse = PaginatedResponse<Deposit>;
+export type SettlementListResponse = PaginatedResponse<SettlementBatch>;
