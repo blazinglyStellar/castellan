@@ -24,6 +24,7 @@ const navItems: NavItem[] = [
   { label: "Deposit", href: "/consumer/deposit", roles: ["consumer"] },
   { label: "Usage", href: "/usage", roles: ["consumer"] },
   { label: "API Keys", href: "/consumer/api-keys", roles: ["consumer"] },
+  { label: "Settings", href: "/settings", roles: ["provider", "consumer"] },
 ];
 
 export function Sidebar() {

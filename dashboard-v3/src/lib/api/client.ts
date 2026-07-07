@@ -1,6 +1,9 @@
 import type {
   AccountResponse,
+  ApiKey,
   BalanceResponse,
+  CreateApiKeyResponse,
+  CreateEndpointRequest,
   CreateProviderRequest,
   CursorParams,
   DashboardMeResponse,
@@ -151,6 +154,45 @@ export function updateProviderStatus(id: string, status: string): Promise<Provid
 
 export function getProviderEndpoints(providerId: string): Promise<Endpoint[]> {
   return api.get<Endpoint[]>(`/api/v1/providers/${encodeURIComponent(providerId)}/endpoints`);
+}
+
+export function createEndpoint(
+  providerId: string,
+  data: CreateEndpointRequest
+): Promise<Endpoint> {
+  return api.post<Endpoint>(
+    `/api/v1/providers/${encodeURIComponent(providerId)}/endpoints`,
+    data
+  );
+}
+
+export function deleteEndpoint(id: string): Promise<void> {
+  return api.del<void>(`/api/v1/endpoints/${encodeURIComponent(id)}`);
+}
+
+export function updateEndpointStatus(id: string, status: string): Promise<Endpoint> {
+  return api.patch<Endpoint>(
+    `/api/v1/endpoints/${encodeURIComponent(id)}/status`,
+    { status }
+  );
+}
+
+// ── API Keys ──
+
+export function getApiKeys(): Promise<ApiKey[]> {
+  return api.get<ApiKey[]>("/api/v1/keys");
+}
+
+export function createApiKey(label?: string): Promise<CreateApiKeyResponse> {
+  return api.post<CreateApiKeyResponse>("/api/v1/keys", label ? { label } : undefined);
+}
+
+export function revokeApiKey(id: string): Promise<void> {
+  return api.post<void>(`/api/v1/keys/${encodeURIComponent(id)}/revoke`);
+}
+
+export function rotateApiKey(id: string): Promise<CreateApiKeyResponse> {
+  return api.post<CreateApiKeyResponse>(`/api/v1/keys/${encodeURIComponent(id)}/rotate`);
 }
 
 // ── Account ──

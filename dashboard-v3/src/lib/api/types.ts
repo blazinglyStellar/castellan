@@ -154,6 +154,14 @@ export interface CreateProviderRequest {
 
 // ── Endpoints ──
 
+export interface CreateEndpointRequest {
+  route: string;
+  method: string;
+  price_amount: string;
+  currency: string;
+  rate_limit?: number;
+}
+
 export interface Endpoint {
   id: string;
   provider_id: string;

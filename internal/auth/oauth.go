@@ -31,7 +31,7 @@ func NewOAuthHandler(queries repository.Querier, sessionService *SessionService,
 	}
 }
 
-func InitGoth(dashboardURL string, apiBaseURL string) {
+func InitGoth(_ string, apiBaseURL string) {
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
 	googleSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 	githubClientID := os.Getenv("GITHUB_CLIENT_ID")

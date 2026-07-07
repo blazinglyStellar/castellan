@@ -1,18 +1,27 @@
 "use client";
 
 import { useState } from "react";
+import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Inbox, RefreshCw, Trash2, Power, PowerOff, List } from "lucide-react";
+import {
+  Plus,
+  Inbox,
+  RefreshCw,
+  Trash2,
+  Power,
+  PowerOff,
+  ArrowLeft,
+} from "lucide-react";
 import Link from "next/link";
 
 import { useAccount } from "@/lib/auth/account-context";
 import {
-  getProviders,
-  createProvider,
-  deleteProvider,
-  updateProviderStatus,
+  getProviderEndpoints,
+  createEndpoint,
+  deleteEndpoint,
+  updateEndpointStatus,
 } from "@/lib/api/client";
-import type { Provider, CreateProviderRequest } from "@/lib/api/types";
+import type { Endpoint, CreateEndpointRequest } from "@/lib/api/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,6 +35,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -34,18 +50,21 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-export default function ProvidersPage() {
+export default function EndpointsPage() {
   const { isLoading: isAccountLoading } = useAccount();
+  const params = useParams();
+  const providerId = params.id as string;
 
   const {
-    data: providers,
+    data: endpoints,
     isLoading,
     isError,
     error,
     refetch,
   } = useQuery({
-    queryKey: ["providers"],
-    queryFn: getProviders,
+    queryKey: ["endpoints", providerId],
+    queryFn: () => getProviderEndpoints(providerId),
+    enabled: !!providerId,
   });
 
   if (isAccountLoading) {
@@ -64,29 +83,37 @@ export default function ProvidersPage() {
     return (
       <ErrorState
         message={
-          error instanceof Error ? error.message : "Failed to load providers"
+          error instanceof Error ? error.message : "Failed to load endpoints"
         }
         onRetry={() => refetch()}
       />
     );
   }
 
-  const hasProviders = providers && providers.length > 0;
+  const hasEndpoints = endpoints && endpoints.length > 0;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Providers</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage your registered API providers.
-          </p>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/provider/providers"
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Endpoints</h1>
+            <p className="text-sm text-muted-foreground">
+              Configure endpoint routes, pricing, and rate limits.
+            </p>
+          </div>
         </div>
-        <CreateProviderDialog />
+        <CreateEndpointDialog providerId={providerId} />
       </div>
 
-      {hasProviders ? (
-        <ProvidersTable providers={providers} />
+      {hasEndpoints ? (
+        <EndpointsTable endpoints={endpoints} />
       ) : (
         <EmptyState />
       )}
@@ -94,86 +121,85 @@ export default function ProvidersPage() {
   );
 }
 
-function ProvidersTable({ providers }: { providers: Provider[] }) {
+function EndpointsTable({ endpoints }: { endpoints: Endpoint[] }) {
   const queryClient = useQueryClient();
 
   const deleteMutation = useMutation({
-    mutationFn: deleteProvider,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["providers"] }),
+    mutationFn: deleteEndpoint,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["endpoints"] }),
   });
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
-      updateProviderStatus(id, status),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["providers"] }),
+      updateEndpointStatus(id, status),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["endpoints"] }),
   });
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center gap-2">
         <CardTitle className="text-sm font-medium">
-          Registered Providers
+          Configured Endpoints
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Base URL</TableHead>
+              <TableHead>Method</TableHead>
+              <TableHead>Route</TableHead>
+              <TableHead>Price</TableHead>
+              <TableHead>Currency</TableHead>
+              <TableHead>Rate Limit</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Created</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {providers.map((provider) => (
-              <TableRow key={provider.id}>
-                <TableCell className="font-medium">
-                  {provider.name}
+            {endpoints.map((ep) => (
+              <TableRow key={ep.id}>
+                <TableCell>
+                  <MethodBadge method={ep.method} />
                 </TableCell>
-                <TableCell className="max-w-[240px] truncate font-mono text-xs text-muted-foreground">
-                  {provider.base_url}
+                <TableCell className="max-w-[200px] truncate font-mono text-xs">
+                  {ep.route}
+                </TableCell>
+                <TableCell className="font-mono text-xs">
+                  {ep.price_amount}
+                </TableCell>
+                <TableCell className="font-mono text-xs">
+                  {ep.currency}
+                </TableCell>
+                <TableCell className="font-mono text-xs">
+                  {ep.rate_limit ?? "—"}
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={provider.status} />
+                  <StatusBadge status={ep.status} />
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                  {timeAgo(provider.created_at)}
+                  {timeAgo(ep.created_at)}
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-1">
-                    <Link
-                      href={`/provider/providers/${provider.id}/endpoints`}
-                    >
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="View Endpoints"
-                      >
-                        <List className="h-4 w-4 text-muted-foreground" />
-                      </Button>
-                    </Link>
                     <Button
                       variant="ghost"
                       size="icon"
                       title={
-                        provider.status === "active"
-                          ? "Deactivate"
-                          : "Activate"
+                        ep.status === "active" ? "Deactivate" : "Activate"
                       }
                       onClick={() =>
                         statusMutation.mutate({
-                          id: provider.id,
+                          id: ep.id,
                           status:
-                            provider.status === "active"
-                              ? "inactive"
-                              : "active",
+                            ep.status === "active" ? "inactive" : "active",
                         })
                       }
                       disabled={statusMutation.isPending}
                     >
-                      {provider.status === "active" ? (
+                      {ep.status === "active" ? (
                         <PowerOff className="h-4 w-4 text-muted-foreground" />
                       ) : (
                         <Power className="h-4 w-4 text-muted-foreground" />
@@ -183,7 +209,7 @@ function ProvidersTable({ providers }: { providers: Provider[] }) {
                       variant="ghost"
                       size="icon"
                       title="Delete"
-                      onClick={() => deleteMutation.mutate(provider.id)}
+                      onClick={() => deleteMutation.mutate(ep.id)}
                       disabled={deleteMutation.isPending}
                     >
                       <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
@@ -199,26 +225,43 @@ function ProvidersTable({ providers }: { providers: Provider[] }) {
   );
 }
 
-function CreateProviderDialog() {
+function CreateEndpointDialog({
+  providerId,
+}: {
+  providerId: string;
+}) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
+  const [route, setRoute] = useState("");
+  const [method, setMethod] = useState("GET");
+  const [priceAmount, setPriceAmount] = useState("");
+  const [currency, setCurrency] = useState("XLM");
+  const [rateLimit, setRateLimit] = useState("");
 
   const mutation = useMutation({
-    mutationFn: (data: CreateProviderRequest) => createProvider(data),
+    mutationFn: (data: CreateEndpointRequest) =>
+      createEndpoint(providerId, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["providers"] });
+      queryClient.invalidateQueries({ queryKey: ["endpoints"] });
       setOpen(false);
-      setName("");
-      setBaseUrl("");
+      setRoute("");
+      setMethod("GET");
+      setPriceAmount("");
+      setCurrency("XLM");
+      setRateLimit("");
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !baseUrl.trim()) return;
-    mutation.mutate({ name: name.trim(), base_url: baseUrl.trim() });
+    if (!route.trim() || !priceAmount.trim() || !currency.trim()) return;
+    mutation.mutate({
+      route: route.trim(),
+      method,
+      price_amount: priceAmount.trim(),
+      currency: currency.trim(),
+      rate_limit: rateLimit ? Number(rateLimit) : undefined,
+    });
   };
 
   return (
@@ -226,33 +269,70 @@ function CreateProviderDialog() {
       <DialogTrigger asChild>
         <Button size="sm">
           <Plus className="mr-2 h-4 w-4" />
-          Add Provider
+          Add Endpoint
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add Provider</DialogTitle>
+          <DialogTitle>Add Endpoint</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Name</Label>
+            <Label htmlFor="method">Method</Label>
+            <Select value={method} onValueChange={setMethod}>
+              <SelectTrigger id="method">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="route">Route</Label>
             <Input
-              id="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="My API Service"
+              id="route"
+              value={route}
+              onChange={(e) => setRoute(e.target.value)}
+              placeholder="/v1/chat/completions"
               required
             />
           </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="priceAmount">Price Amount</Label>
+              <Input
+                id="priceAmount"
+                value={priceAmount}
+                onChange={(e) => setPriceAmount(e.target.value)}
+                placeholder="0.01"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="currency">Currency</Label>
+              <Input
+                id="currency"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                placeholder="XLM"
+                required
+              />
+            </div>
+          </div>
           <div className="space-y-2">
-            <Label htmlFor="baseUrl">Base URL</Label>
+            <Label htmlFor="rateLimit">Rate Limit (requests/s, optional)</Label>
             <Input
-              id="baseUrl"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.example.com"
-              type="url"
-              required
+              id="rateLimit"
+              type="number"
+              min="0"
+              value={rateLimit}
+              onChange={(e) => setRateLimit(e.target.value)}
+              placeholder="100"
             />
           </div>
           <div className="flex justify-end gap-2">
@@ -265,7 +345,7 @@ function CreateProviderDialog() {
               Cancel
             </Button>
             <Button type="submit" size="sm" disabled={mutation.isPending}>
-              {mutation.isPending ? "Adding..." : "Add Provider"}
+              {mutation.isPending ? "Adding..." : "Add Endpoint"}
             </Button>
           </div>
         </form>
@@ -280,9 +360,12 @@ function LoadingSkeleton() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <Skeleton className="h-7 w-24" />
-          <Skeleton className="mt-1 h-4 w-56" />
+        <div className="flex items-center gap-4">
+          <Skeleton className="h-5 w-5 rounded" />
+          <div>
+            <Skeleton className="h-7 w-24" />
+            <Skeleton className="mt-1 h-4 w-64" />
+          </div>
         </div>
         <Skeleton className="h-9 w-32 rounded-md" />
       </div>
@@ -297,8 +380,11 @@ function LoadingSkeleton() {
                 key={i}
                 className="flex items-center gap-4 border-t px-4 py-3"
               >
-                <Skeleton className="h-3 w-28" />
-                <Skeleton className="h-3 w-44" />
+                <Skeleton className="h-4 w-12 rounded" />
+                <Skeleton className="h-3 w-36" />
+                <Skeleton className="h-3 w-14" />
+                <Skeleton className="h-3 w-10" />
+                <Skeleton className="h-3 w-10" />
                 <Skeleton className="h-4 w-16 rounded" />
                 <Skeleton className="h-3 w-20" />
                 <Skeleton className="h-8 w-16" />
@@ -338,10 +424,10 @@ function EmptyState() {
         <Inbox className="h-8 w-8 text-muted-foreground" />
         <div>
           <p className="text-sm font-medium text-foreground">
-            No providers yet
+            No endpoints yet
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Add your first provider to start publishing APIs.
+            Add your first endpoint to define pricing and rate limits.
           </p>
         </div>
       </CardContent>
@@ -350,6 +436,28 @@ function EmptyState() {
 }
 
 // ── Helpers ──
+
+function MethodBadge({ method }: { method: string }) {
+  const colorMap: Record<string, string> = {
+    GET: "text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-950",
+    POST: "text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-950",
+    PUT: "text-orange-600 bg-orange-100 dark:text-orange-400 dark:bg-orange-950",
+    PATCH:
+      "text-purple-600 bg-purple-100 dark:text-purple-400 dark:bg-purple-950",
+    DELETE: "text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-950",
+  };
+
+  return (
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold uppercase ${
+        colorMap[method.toUpperCase()] ||
+        "text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-800"
+      }`}
+    >
+      {method}
+    </span>
+  );
+}
 
 function StatusBadge({ status }: { status: string }) {
   let color: string;

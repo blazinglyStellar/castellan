@@ -15,6 +15,7 @@ const routeTitles: Record<string, string> = {
   "/consumer/overview": "Overview",
   "/consumer/deposit": "Deposit",
   "/consumer/api-keys": "API Keys",
+  "/settings": "Settings",
 };
 
 export default function DashboardLayout({

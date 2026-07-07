@@ -1,6 +1,7 @@
 "use client";
 
 import { useAccount } from "@/lib/auth/account-context";
+import { ApiKeysView } from "@/components/api-keys/api-keys-view";
 
 export default function ConsumerApiKeysPage() {
   const { isLoading } = useAccount();
@@ -14,9 +15,11 @@ export default function ConsumerApiKeysPage() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <h2 className="text-lg font-medium text-foreground">API Keys</h2>
-      <p className="mt-1 text-sm text-muted-foreground">Coming soon</p>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">API Keys</h1>
+      </div>
+      <ApiKeysView />
     </div>
   );
 }
