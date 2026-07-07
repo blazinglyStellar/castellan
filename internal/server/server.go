@@ -30,6 +30,7 @@ import (
 	"castellan/internal/server/middleware"
 	"castellan/internal/settlement"
 	"castellan/internal/stellar"
+	"castellan/internal/usage"
 )
 
 type Server struct {
@@ -55,6 +56,7 @@ type Server struct {
 	creditHandler     *deposit.CreditHandler
 	watcher           *deposit.Watcher
 	settlementHandler *settlement.Handler
+	usageHandler      *usage.Handler
 
 	stellarConfig stellar.Config
 
@@ -208,6 +210,8 @@ func NewServer() (*http.Server, error) {
 
 	settlementReconciler := settlement.NewReconciler(databaseService.Pool(), queries)
 	settlementHandler := settlement.NewHandler(settlementReconciler)
+	usageSvc := usage.NewService(queries)
+	usageHandler := usage.NewHandler(usageSvc)
 
 	srv := &Server{
 		port:              port,
@@ -231,6 +235,7 @@ func NewServer() (*http.Server, error) {
 		creditHandler:     creditHandler,
 		watcher:           watcher,
 		settlementHandler: settlementHandler,
+		usageHandler:      usageHandler,
 		stellarConfig:     stellarCfg,
 		windowSeconds:     windowSeconds,
 	}

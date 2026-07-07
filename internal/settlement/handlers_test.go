@@ -18,23 +18,20 @@ import (
 type mockLister struct {
 	batches    []repository.SettlementBatch
 	entriesMap map[uuid.UUID][]repository.SettlementEntry
-	total      int64
 	err        error
 }
 
-func (m *mockLister) GetSettlementHistory(
-	ctx context.Context,
-	limit, offset int32,
+func (m *mockLister) GetSettlementHistoryByOwner(
+	_ context.Context,
+	_ uuid.UUID,
+	_ time.Time,
+	_ uuid.UUID,
+	_ int32,
 ) ([]repository.SettlementBatch, map[uuid.UUID][]repository.SettlementEntry, error) {
 	if m.err != nil {
 		return nil, nil, m.err
 	}
-
 	return m.batches, m.entriesMap, nil
-}
-
-func (m *mockLister) CountSettlementBatches(ctx context.Context) (int64, error) {
-	return m.total, nil
 }
 
 func authenticatedRequest(target string) *http.Request {
@@ -45,7 +42,6 @@ func authenticatedRequest(target string) *http.Request {
 			IsAuthenticated: true,
 		}),
 	)
-
 	return req
 }
 
@@ -55,12 +51,10 @@ func unauthenticatedRequest(target string) *http.Request {
 
 func makeNumeric(t *testing.T, s string) pgtype.Numeric {
 	t.Helper()
-
 	var n pgtype.Numeric
 	if err := n.Scan(s); err != nil {
 		t.Fatalf("scan numeric %s: %v", s, err)
 	}
-
 	return n
 }
 
@@ -94,31 +88,26 @@ func TestListSettlements_Success(t *testing.T) {
 	mock := &mockLister{
 		batches:    []repository.SettlementBatch{batch},
 		entriesMap: map[uuid.UUID][]repository.SettlementEntry{batchID: {entry}},
-		total:      1,
 	}
 
 	h := &Handler{lister: mock}
 	rec := httptest.NewRecorder()
-	h.ListSettlements(rec, authenticatedRequest("/api/v1/settlements?limit=10&offset=0"))
+	h.ListSettlements(rec, authenticatedRequest("/api/v1/settlements?limit=10"))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp listSettlementsResponse
+	var resp settlementListResponse
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if resp.Total != 1 {
-		t.Errorf("expected total 1, got %d", resp.Total)
+	if len(resp.Data) != 1 {
+		t.Fatalf("expected 1 batch, got %d", len(resp.Data))
 	}
 
-	if len(resp.Batches) != 1 {
-		t.Fatalf("expected 1 batch, got %d", len(resp.Batches))
-	}
-
-	batchResp := resp.Batches[0]
+	batchResp := resp.Data[0]
 	if batchResp.ID != batchID.String() {
 		t.Errorf("expected batch id %s, got %s", batchID.String(), batchResp.ID)
 	}
@@ -164,7 +153,6 @@ func TestListSettlements_EmptyList(t *testing.T) {
 	mock := &mockLister{
 		batches:    []repository.SettlementBatch{},
 		entriesMap: map[uuid.UUID][]repository.SettlementEntry{},
-		total:      0,
 	}
 
 	h := &Handler{lister: mock}
@@ -175,16 +163,13 @@ func TestListSettlements_EmptyList(t *testing.T) {
 		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp listSettlementsResponse
+	var resp settlementListResponse
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if resp.Total != 0 {
-		t.Errorf("expected total 0, got %d", resp.Total)
-	}
-	if len(resp.Batches) != 0 {
-		t.Errorf("expected 0 batches, got %d", len(resp.Batches))
+	if len(resp.Data) != 0 {
+		t.Errorf("expected 0 batches, got %d", len(resp.Data))
 	}
 }
 
@@ -199,8 +184,6 @@ func TestListSettlements_InvalidParams(t *testing.T) {
 		{"non-numeric limit", "limit=abc", http.StatusBadRequest},
 		{"negative limit", "limit=-1", http.StatusBadRequest},
 		{"limit exceeds max", "limit=101", http.StatusBadRequest},
-		{"non-numeric offset", "offset=abc", http.StatusBadRequest},
-		{"negative offset", "offset=-1", http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -229,7 +212,6 @@ func TestListSettlements_DefaultPagination(t *testing.T) {
 	mock := &mockLister{
 		batches:    []repository.SettlementBatch{},
 		entriesMap: map[uuid.UUID][]repository.SettlementEntry{},
-		total:      0,
 	}
 
 	h := &Handler{lister: mock}

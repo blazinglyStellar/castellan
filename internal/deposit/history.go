@@ -5,19 +5,30 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
-	"castellan/internal/gateway/context"
+	"castellan/internal/repository/db"
+
+	gatewaycontext "castellan/internal/gateway/context"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
-// Response is the JSON representation of a single deposit.
-type Response struct {
+const (
+	defaultLimit     = 50
+	maxLimit         = 100
+	cursorPartsCount = 2
+)
+
+// DepositItem is the JSON representation of a single deposit in the list.
+type DepositItem struct { //nolint:revive
 	ID          string  `json:"id"`
 	Amount      string  `json:"amount"`
 	Currency    string  `json:"currency"`
+	Memo        string  `json:"memo,omitempty"`
 	TxHash      string  `json:"tx_hash"`
 	Status      string  `json:"status"`
 	FromAddress string  `json:"from_address"`
@@ -25,25 +36,41 @@ type Response struct {
 	ConfirmedAt *string `json:"confirmed_at,omitempty"`
 }
 
-// ListDeposits retrieves all deposits for the authenticated consumer's account.
-func (s *Service) ListDeposits(ctx context.Context, userID uuid.UUID) ([]Response, error) {
+// DepositListResponse is the cursor-paginated deposit list.
+type DepositListResponse struct { //nolint:revive
+	Data       []DepositItem `json:"data"`
+	NextCursor *string       `json:"next_cursor"`
+}
+
+// ListDepositsCursor retrieves deposits with cursor pagination.
+func (s *Service) ListDepositsCursor(ctx context.Context, userID uuid.UUID, cursorTs time.Time, cursorID uuid.UUID, limit int32) (*DepositListResponse, error) {
 	account, err := s.queries.GetAccountByOwnerID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return []Response{}, nil
+			return &DepositListResponse{Data: []DepositItem{}}, nil
 		}
-
 		return nil, fmt.Errorf("get account: %w", err)
 	}
 
-	deposits, err := s.queries.ListDepositsByAccount(ctx, account.ID)
+	rows, err := s.queries.ListDepositsByAccountCursor(ctx, repository.ListDepositsByAccountCursorParams{
+		AccountID: account.ID,
+		Limit:     limit + 1,
+		Column3:   cursorTs,
+		Column4:   cursorID,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list deposits: %w", err)
 	}
 
-	resp := make([]Response, len(deposits))
+	count := len(rows)
+	hasNext := count > int(limit)
+	if hasNext {
+		count = int(limit)
+	}
 
-	for i, d := range deposits {
+	items := make([]DepositItem, count)
+	for i := range count {
+		d := rows[i]
 		amount, err := numericToDecimal(d.Amount)
 		if err != nil {
 			return nil, fmt.Errorf("convert deposit amount: %w", err)
@@ -55,10 +82,16 @@ func (s *Service) ListDeposits(ctx context.Context, userID uuid.UUID) ([]Respons
 			confirmedAt = &s
 		}
 
-		resp[i] = Response{
+		memo := ""
+		if d.Memo.Valid {
+			memo = d.Memo.String
+		}
+
+		items[i] = DepositItem{
 			ID:          d.ID.String(),
 			Amount:      amount.String(),
 			Currency:    string(d.Currency),
+			Memo:        memo,
 			TxHash:      d.TxHash,
 			Status:      string(d.Status),
 			FromAddress: d.FromAddress,
@@ -67,7 +100,17 @@ func (s *Service) ListDeposits(ctx context.Context, userID uuid.UUID) ([]Respons
 		}
 	}
 
-	return resp, nil
+	var nextCursor *string
+	if hasNext && len(items) > 0 {
+		last := items[len(items)-1]
+		cursor := last.CreatedAt + "|" + last.ID
+		nextCursor = &cursor
+	}
+
+	return &DepositListResponse{
+		Data:       items,
+		NextCursor: nextCursor,
+	}, nil
 }
 
 func (h *Handler) ListDeposits(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +128,23 @@ func (h *Handler) ListDeposits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deposits, err := h.service.ListDeposits(r.Context(), userID)
+	limit := int32(defaultLimit)
+	if l := r.URL.Query().Get("limit"); l != "" {
+		v, err := strconv.ParseInt(l, 10, 32)
+		if err != nil || v < 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid limit"})
+
+			return
+		}
+		limit = int32(v)
+		if limit > maxLimit {
+			limit = maxLimit
+		}
+	}
+
+	cursorTs, cursorID := parseCursor(r.URL.Query().Get("cursor"))
+
+	deposits, err := h.service.ListDepositsCursor(r.Context(), userID, cursorTs, cursorID, limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to list deposits"})
 
@@ -93,4 +152,23 @@ func (h *Handler) ListDeposits(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, deposits)
+}
+
+func parseCursor(s string) (time.Time, uuid.UUID) {
+	if s == "" {
+		return time.Time{}, uuid.UUID{}
+	}
+	parts := strings.SplitN(s, "|", cursorPartsCount)
+	if len(parts) != cursorPartsCount {
+		return time.Time{}, uuid.UUID{}
+	}
+	t, err := time.Parse(time.RFC3339, parts[0])
+	if err != nil {
+		return time.Time{}, uuid.UUID{}
+	}
+	id, err := uuid.Parse(parts[1])
+	if err != nil {
+		return time.Time{}, uuid.UUID{}
+	}
+	return t, id
 }

@@ -3,9 +3,9 @@ package settlement
 import (
 	"context"
 	"encoding/json"
-	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	gatewaycontext "castellan/internal/gateway/context"
@@ -20,18 +20,22 @@ const msgAuthRequired = "authentication required"
 
 const maxLimit = 100
 
-type batchResponse struct {
-	ID          string          `json:"id"`
-	Status      string          `json:"status"`
-	TotalAmount string          `json:"total_amount"`
-	Currency    string          `json:"currency"`
-	EntryCount  int32           `json:"entry_count"`
-	CreatedAt   string          `json:"created_at"`
-	CompletedAt *string         `json:"completed_at,omitempty"`
-	Entries     []entryResponse `json:"entries"`
+const defaultLimit = 20
+
+const cursorPartsCount = 2
+
+type settlementBatchItem struct {
+	ID          string                `json:"id"`
+	Status      string                `json:"status"`
+	TotalAmount string                `json:"total_amount"`
+	Currency    string                `json:"currency"`
+	EntryCount  int32                 `json:"entry_count"`
+	CreatedAt   string                `json:"created_at"`
+	CompletedAt *string               `json:"completed_at,omitempty"`
+	Entries     []settlementEntryItem `json:"entries"`
 }
 
-type entryResponse struct {
+type settlementEntryItem struct {
 	ID            string `json:"id"`
 	ProviderID    string `json:"provider_id"`
 	Amount        string `json:"amount"`
@@ -41,21 +45,20 @@ type entryResponse struct {
 	CreatedAt     string `json:"created_at"`
 }
 
-type listSettlementsResponse struct {
-	Batches []batchResponse `json:"batches"`
-	Total   int64           `json:"total"`
+type settlementListResponse struct {
+	Data       []settlementBatchItem `json:"data"`
+	NextCursor *string               `json:"next_cursor"`
 }
 
-type Lister interface {
-	GetSettlementHistory(ctx context.Context, limit, offset int32) ([]repository.SettlementBatch, map[uuid.UUID][]repository.SettlementEntry, error)
-	CountSettlementBatches(ctx context.Context) (int64, error)
+type OwnerLister interface {
+	GetSettlementHistoryByOwner(ctx context.Context, providerID uuid.UUID, cursorTs time.Time, cursorID uuid.UUID, limit int32) ([]repository.SettlementBatch, map[uuid.UUID][]repository.SettlementEntry, error)
 }
 
 type Handler struct {
-	lister Lister
+	lister OwnerLister
 }
 
-func NewHandler(lister Lister) *Handler {
+func NewHandler(lister OwnerLister) *Handler {
 	return &Handler{lister: lister}
 }
 
@@ -67,59 +70,46 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 20
-	offset := 0
+	userID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
 
+		return
+	}
+
+	limit := int32(defaultLimit)
 	if l := r.URL.Query().Get("limit"); l != "" {
-		v, err := strconv.Atoi(l)
-		if err != nil || v < 0 {
+		v, err := strconv.ParseInt(l, 10, 32)
+		if err != nil || v < 1 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid limit"})
 
 			return
 		}
-		if v > maxLimit {
-			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "limit exceeds maximum of 100"})
-
-			return
+		limit = int32(v)
+		if limit > maxLimit {
+			limit = maxLimit
 		}
-		limit = v
 	}
 
-	if o := r.URL.Query().Get("offset"); o != "" {
-		v, err := strconv.Atoi(o)
-		if err != nil || v < 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid offset"})
+	cursorTs, cursorID := parseCursor(r.URL.Query().Get("cursor"))
 
-			return
-		}
-		if v > math.MaxInt32 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "offset too large"})
-
-			return
-		}
-		offset = v
-	}
-
-	batches, entriesMap, err := h.lister.GetSettlementHistory(r.Context(), int32(limit), int32(offset))
+	batches, entriesMap, err := h.lister.GetSettlementHistoryByOwner(r.Context(), userID, cursorTs, cursorID, limit+1)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to retrieve settlement history"})
 
 		return
 	}
 
-	total, err := h.lister.CountSettlementBatches(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to count settlement batches"})
-
-		return
+	count := len(batches)
+	hasNext := count > int(limit)
+	if hasNext {
+		count = int(limit)
 	}
 
-	resp := listSettlementsResponse{
-		Batches: make([]batchResponse, 0, len(batches)),
-		Total:   total,
-	}
+	items := make([]settlementBatchItem, 0, count)
+	for i := range count {
+		batch := batches[i]
 
-	for _, batch := range batches {
 		totalAmount := "0"
 		if d, err := NumericToDecimal(batch.TotalAmount); err == nil {
 			totalAmount = d.String()
@@ -132,7 +122,7 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 		}
 
 		entries := entriesMap[batch.ID]
-		entryResponses := make([]entryResponse, 0, len(entries))
+		entryItems := make([]settlementEntryItem, 0, len(entries))
 
 		for _, entry := range entries {
 			amount := "0"
@@ -140,7 +130,7 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 				amount = d.String()
 			}
 
-			entryResponses = append(entryResponses, entryResponse{
+			entryItems = append(entryItems, settlementEntryItem{
 				ID:            entry.ID.String(),
 				ProviderID:    entry.ProviderID.String(),
 				Amount:        amount,
@@ -151,7 +141,7 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		resp.Batches = append(resp.Batches, batchResponse{
+		items = append(items, settlementBatchItem{
 			ID:          batch.ID.String(),
 			Status:      string(batch.Status),
 			TotalAmount: totalAmount,
@@ -159,11 +149,40 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 			EntryCount:  batch.EntryCount,
 			CreatedAt:   batch.CreatedAt.UTC().Format(time.RFC3339),
 			CompletedAt: completedAt,
-			Entries:     entryResponses,
+			Entries:     entryItems,
 		})
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	var nextCursor *string
+	if hasNext && len(items) > 0 {
+		last := items[len(items)-1]
+		cursor := last.CreatedAt + "|" + last.ID
+		nextCursor = &cursor
+	}
+
+	writeJSON(w, http.StatusOK, settlementListResponse{
+		Data:       items,
+		NextCursor: nextCursor,
+	})
+}
+
+func parseCursor(s string) (time.Time, uuid.UUID) {
+	if s == "" {
+		return time.Time{}, uuid.UUID{}
+	}
+	parts := strings.SplitN(s, "|", cursorPartsCount)
+	if len(parts) != cursorPartsCount {
+		return time.Time{}, uuid.UUID{}
+	}
+	t, err := time.Parse(time.RFC3339, parts[0])
+	if err != nil {
+		return time.Time{}, uuid.UUID{}
+	}
+	id, err := uuid.Parse(parts[1])
+	if err != nil {
+		return time.Time{}, uuid.UUID{}
+	}
+	return t, id
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

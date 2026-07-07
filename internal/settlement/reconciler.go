@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"time"
 
 	"castellan/internal/repository/db"
 
@@ -371,4 +372,33 @@ func (r *Reconciler) CountSettlementBatches(ctx context.Context) (int64, error) 
 		return 0, fmt.Errorf("count settlement batches: %w", err)
 	}
 	return count, nil
+}
+
+func (r *Reconciler) GetSettlementHistoryByOwner(
+	ctx context.Context,
+	providerID uuid.UUID,
+	cursorTs time.Time,
+	cursorID uuid.UUID,
+	limit int32,
+) ([]repository.SettlementBatch, map[uuid.UUID][]repository.SettlementEntry, error) {
+	batches, err := r.queries.ListSettlementBatchesByProvider(ctx, repository.ListSettlementBatchesByProviderParams{
+		ProviderID: providerID,
+		Limit:      limit,
+		Column3:    cursorTs,
+		Column4:    cursorID,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("list settlement batches by provider: %w", err)
+	}
+
+	entriesMap := make(map[uuid.UUID][]repository.SettlementEntry, len(batches))
+	for _, batch := range batches {
+		entries, err := r.queries.ListSettlementEntriesByBatch(ctx, batch.ID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list entries for batch %s: %w", batch.ID, err)
+		}
+		entriesMap[batch.ID] = entries
+	}
+
+	return batches, entriesMap, nil
 }

@@ -143,6 +143,44 @@ func (s *Service) ListEntries(ctx context.Context, accountID uuid.UUID, entryTyp
 	return resp, nil
 }
 
+type BalanceResponse struct {
+	Balance          string `json:"balance"`
+	Currency         string `json:"currency"`
+	AvailableBalance string `json:"available_balance"`
+}
+
+func (s *Service) GetBalance(ctx context.Context, ownerID uuid.UUID) (*BalanceResponse, error) {
+	account, err := s.queries.GetAccountByOwnerID(ctx, ownerID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get account: %w", err)
+	}
+
+	balance, err := numericToDecimal(account.Balance)
+	if err != nil {
+		return nil, fmt.Errorf("convert balance: %w", err)
+	}
+
+	reservations, err := s.queries.GetActiveReservationsSum(ctx, account.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get active reservations: %w", err)
+	}
+	reservationsDec, err := numericToDecimal(reservations)
+	if err != nil {
+		return nil, fmt.Errorf("convert reservations: %w", err)
+	}
+
+	available := balance.Sub(reservationsDec)
+
+	return &BalanceResponse{
+		Balance:          balance.String(),
+		Currency:         string(account.Currency),
+		AvailableBalance: available.String(),
+	}, nil
+}
+
 func (s *Service) GetEntry(ctx context.Context, entryID, ownerID uuid.UUID) (*EntryResponse, error) {
 	entry, err := s.queries.GetLedgerEntryByIDAndOwner(ctx, repository.GetLedgerEntryByIDAndOwnerParams{
 		ID:      entryID,
