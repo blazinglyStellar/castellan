@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api/client";
-import type { UserProfile } from "@/lib/api/types";
+import type { User } from "@/lib/api/types";
 
 export function LoginForm() {
   const router = useRouter();
@@ -18,7 +18,7 @@ export function LoginForm() {
 
     async function checkSession() {
       try {
-        const profile = await api.get<UserProfile>("/api/v1/auth/me");
+        const profile = await api.get<User>("/api/v1/auth/me");
         if (!cancelled && profile?.id) {
           const redirect = searchParams.get("redirect") || "/";
           router.push(redirect);

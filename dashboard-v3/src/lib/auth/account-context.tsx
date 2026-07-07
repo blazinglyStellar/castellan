@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { api, ApiError } from "@/lib/api/client";
-import type { UserProfile } from "@/lib/api/types";
+import type { DashboardMeResponse } from "@/lib/api/types";
 
 interface AccountUser {
   id: string;
@@ -39,7 +39,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true);
       setError(null);
-      const profile = await api.get<UserProfile>("/api/v1/auth/me");
+      const profile = await api.get<DashboardMeResponse>("/api/v1/me");
       if (!profile.id) {
         throw new Error("Invalid user profile");
       }
