@@ -188,6 +188,10 @@ export interface CursorParams {
   limit?: number;
 }
 
+export interface SettlementParams extends CursorParams {
+  status?: string;
+}
+
 export interface UsageParams extends CursorParams {
   role?: "provider" | "consumer";
   start_date?: string;

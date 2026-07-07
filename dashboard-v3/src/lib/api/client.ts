@@ -11,6 +11,7 @@ import type {
   ListEntriesResponse,
   Provider,
   SettlementListResponse,
+  SettlementParams,
   UsageListResponse,
   UsageParams,
 } from "./types";
@@ -121,7 +122,7 @@ export function getEarnings(): Promise<EarningsResponse> {
 
 // ── Settlements ──
 
-export function getSettlements(params?: CursorParams): Promise<SettlementListResponse> {
+export function getSettlements(params?: SettlementParams): Promise<SettlementListResponse> {
   const qs = buildQueryString(params);
   return api.get<SettlementListResponse>(`/api/v1/settlements${qs}`);
 }
