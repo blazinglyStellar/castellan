@@ -2,10 +2,14 @@
 
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { TrendingUp, Clock, Inbox, RefreshCw, DollarSign } from "lucide-react";
+import { TrendingUp, Clock, DollarSign } from "lucide-react";
+
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 import { useAccount } from "@/lib/auth/account-context";
 import { getEarnings, getUsage } from "@/lib/api/client";
+import { formatAmount } from "@/lib/format";
 import type { UsageEvent } from "@/lib/api/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -122,7 +126,14 @@ export default function AnalyticsPage() {
     return (
       <div className="space-y-6">
         <Header role={resolvedRole} startDate={startDate} endDate={endDate} onStartDateChange={setStartDate} onEndDateChange={setEndDate} roleToggle={role} onRoleToggle={setRole} />
-        <EmptyState role={resolvedRole} />
+        <EmptyState
+          title="No analytics data yet"
+          description={
+            resolvedRole === "provider"
+              ? "Earnings and usage data will appear once API calls are processed."
+              : "Usage data will appear once you start making API calls."
+          }
+        />
       </div>
     );
   }
@@ -334,40 +345,6 @@ function LoadingSkeleton() {
   );
 }
 
-function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div className="flex flex-col items-center gap-4 py-20">
-      <p className="text-sm text-muted-foreground">{message}</p>
-      <Button variant="outline" size="sm" onClick={onRetry}>
-        <RefreshCw className="mr-2 h-3 w-3" />
-        Retry
-      </Button>
-    </div>
-  );
-}
 
-function EmptyState({ role }: { role: string }) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
-        <Inbox className="h-8 w-8 text-muted-foreground" />
-        <div>
-          <p className="text-sm font-medium text-foreground">
-            No analytics data yet
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {role === "provider"
-              ? "Earnings and usage data will appear once API calls are processed."
-              : "Usage data will appear once you start making API calls."}
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
-function formatAmount(amount: string): string {
-  const num = parseFloat(amount);
-  if (isNaN(num)) return "0.0000";
-  return num.toFixed(4);
-}
+

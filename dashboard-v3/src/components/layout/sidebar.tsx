@@ -13,6 +13,8 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: "Overview", href: "/provider/overview", roles: ["provider"] },
+  { label: "Discover", href: "/discover", roles: ["provider", "consumer"] },
+  { label: "Ledger", href: "/account/entries", roles: ["provider", "consumer"] },
   { label: "Analytics", href: "/analytics", roles: ["provider"] },
   { label: "Usage", href: "/usage", roles: ["provider"] },
   { label: "Settlements", href: "/provider/settlements", roles: ["provider"] },

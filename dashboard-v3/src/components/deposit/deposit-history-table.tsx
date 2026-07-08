@@ -1,10 +1,12 @@
 "use client";
 
-import { Inbox, RefreshCw } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 import { useCursorPagination } from "@/lib/use-cursor-pagination";
 import { getDeposits } from "@/lib/api/client";
 import type { Deposit } from "@/lib/api/types";
+import { timeAgo, StatusBadge } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,7 +41,12 @@ export function DepositHistoryTable() {
   }
 
   if (items.length === 0) {
-    return <EmptyState />;
+    return (
+      <EmptyState
+        title="No deposits yet"
+        description="Use the deposit instructions above to send funds to your account."
+      />
+    );
   }
 
   return (
@@ -68,7 +75,7 @@ export function DepositHistoryTable() {
                   </span>
                 </TableCell>
                 <TableCell>
-                  <DepositStatusBadge status={deposit.status} />
+                  <StatusBadge status={deposit.status} />
                 </TableCell>
                 <TableCell className="max-w-[160px] truncate font-mono text-xs text-muted-foreground">
                   {deposit.from_address}
@@ -101,33 +108,7 @@ export function DepositHistoryTable() {
   );
 }
 
-function DepositStatusBadge({ status }: { status: string }) {
-  let color: string;
-  switch (status) {
-    case "confirmed":
-      color =
-        "text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-950";
-      break;
-    case "pending":
-      color =
-        "text-yellow-600 bg-yellow-100 dark:text-yellow-400 dark:bg-yellow-950";
-      break;
-    case "failed":
-      color = "text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-950";
-      break;
-    default:
-      color =
-        "text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-950";
-  }
 
-  return (
-    <span
-      className={`inline-block rounded px-1.5 py-0.5 font-mono text-[11px] capitalize ${color}`}
-    >
-      {status}
-    </span>
-  );
-}
 
 function LoadingSkeleton() {
   return (
@@ -155,51 +136,6 @@ function LoadingSkeleton() {
   );
 }
 
-function ErrorState({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry: () => void;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-4 py-12">
-        <p className="text-sm text-muted-foreground">{message}</p>
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          <RefreshCw className="mr-2 h-3 w-3" />
-          Retry
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
 
-function EmptyState() {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
-        <Inbox className="h-8 w-8 text-muted-foreground" />
-        <div>
-          <p className="text-sm font-medium text-foreground">
-            No deposits yet
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Use the deposit instructions above to send funds to your account.
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
-function timeAgo(timestamp: string): string {
-  const now = Date.now();
-  const then = new Date(timestamp).getTime();
-  const diffSec = Math.floor((now - then) / 1000);
 
-  if (diffSec < 60) return "just now";
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  return `${Math.floor(diffSec / 86400)}d ago`;
-}

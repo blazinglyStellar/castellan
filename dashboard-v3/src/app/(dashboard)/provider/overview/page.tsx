@@ -5,16 +5,19 @@ import {
   TrendingUp,
   Clock,
   Inbox,
-  RefreshCw,
   Activity,
 } from "lucide-react";
 
 import { useAccount } from "@/lib/auth/account-context";
 import { getEarnings, getUsage } from "@/lib/api/client";
-import type { UsageEvent } from "@/lib/api/types";
+import type { UsageEvent, Earnings, DailyEarning } from "@/lib/api/types";
+import { formatAmount, timeAgo, StatusBadge } from "@/lib/format";
+import { MethodBadge } from "@/components/usage/method-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import {
   Table,
   TableBody,
@@ -23,7 +26,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
 
 export default function ProviderOverviewPage() {
   const { isLoading: isAccountLoading } = useAccount();
@@ -91,7 +93,12 @@ export default function ProviderOverviewPage() {
   const hasEarnings = earnings && earnings.total_earnings !== "0";
 
   if (!hasData && !hasEarnings) {
-    return <EmptyState />;
+    return (
+      <EmptyState
+        title="No usage data yet"
+        description="Get started by publishing an API."
+      />
+    );
   }
 
   return (
@@ -134,9 +141,9 @@ export default function ProviderOverviewPage() {
 function SummaryCards({
   earnings,
 }: {
-  earnings: { total_earnings: string; unsettled_earnings: string; currency?: string };
+  earnings: Earnings;
 }) {
-  const currency = "currency" in earnings ? (earnings as any).currency : "XLM";
+  const currency = earnings.currency;
   return (
     <div className="grid gap-6 sm:grid-cols-2">
       <Card>
@@ -177,7 +184,7 @@ function SummaryCards({
 function SparklineSection({
   data,
 }: {
-  data: { date: string; amount: string }[];
+  data: DailyEarning[];
 }) {
   const amounts = data.map((d) => parseFloat(d.amount));
   const maxAmount = Math.max(...amounts, 1);
@@ -294,83 +301,9 @@ function LoadingSkeleton() {
   );
 }
 
-function ErrorState({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-4 py-20">
-      <p className="text-sm text-muted-foreground">{message}</p>
-      <Button variant="outline" size="sm" onClick={onRetry}>
-        <RefreshCw className="mr-2 h-3 w-3" />
-        Retry
-      </Button>
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center gap-4 py-20 text-center">
-      <Inbox className="h-8 w-8 text-muted-foreground" />
-      <div>
-        <p className="text-sm font-medium text-foreground">
-          No usage data yet
-        </p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Get started by publishing an API.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 // ── Helpers ──
-
-function formatAmount(amount: string): string {
-  const num = parseFloat(amount);
-  if (isNaN(num)) return "0.0000";
-  return num.toFixed(4);
-}
 
 function formatDateLabel(dateStr: string): string {
   const d = new Date(dateStr);
   return d.toLocaleDateString(undefined, { weekday: "short" });
-}
-
-function timeAgo(timestamp: string): string {
-  const now = Date.now();
-  const then = new Date(timestamp).getTime();
-  const diffSec = Math.floor((now - then) / 1000);
-
-  if (diffSec < 60) return "just now";
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  return `${Math.floor(diffSec / 86400)}d ago`;
-}
-
-function MethodBadge({ method }: { method: string }) {
-  const colorMap: Record<string, string> = {
-    GET: "text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-950",
-    POST: "text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-950",
-    PUT: "text-orange-600 bg-orange-100 dark:text-orange-400 dark:bg-orange-950",
-    PATCH:
-      "text-purple-600 bg-purple-100 dark:text-purple-400 dark:bg-purple-950",
-    DELETE: "text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-950",
-  };
-
-  return (
-    <span
-      className={cn(
-        "inline-block rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold uppercase",
-        colorMap[method.toUpperCase()] ||
-          "text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-800"
-      )}
-    >
-      {method}
-    </span>
-  );
 }

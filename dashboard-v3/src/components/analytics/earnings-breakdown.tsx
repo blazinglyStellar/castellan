@@ -1,5 +1,6 @@
 "use client";
 
+import { formatAmount } from "@/lib/format";
 import {
   Table,
   TableBody,
@@ -53,8 +54,4 @@ export function EarningsBreakdown({ data }: EarningsBreakdownProps) {
   );
 }
 
-function formatAmount(amount: string): string {
-  const num = parseFloat(amount);
-  if (isNaN(num)) return "0.0000";
-  return num.toFixed(4);
-}
+

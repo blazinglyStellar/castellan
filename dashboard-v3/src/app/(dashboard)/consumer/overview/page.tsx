@@ -1,14 +1,17 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Wallet, Inbox, RefreshCw } from "lucide-react";
+import { Wallet } from "lucide-react";
+
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 import { useAccount } from "@/lib/auth/account-context";
 import { getBalance } from "@/lib/api/client";
+import { formatAmount } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 export default function ConsumerOverviewPage() {
   const { isLoading: isAccountLoading } = useAccount();
@@ -57,17 +60,10 @@ export default function ConsumerOverviewPage() {
           </Card>
         </div>
       ) : isError ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-4 py-12">
-            <p className="text-sm text-muted-foreground">
-              {error instanceof Error ? error.message : "Failed to load balance"}
-            </p>
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              <RefreshCw className="mr-2 h-3 w-3" />
-              Retry
-            </Button>
-          </CardContent>
-        </Card>
+        <ErrorState
+          message={error instanceof Error ? error.message : "Failed to load balance"}
+          onRetry={() => refetch()}
+        />
       ) : balance && balance.balance !== "0" ? (
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
@@ -105,32 +101,21 @@ export default function ConsumerOverviewPage() {
           </Card>
         </div>
       ) : (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
-            <Inbox className="h-8 w-8 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                No balance yet
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Make a deposit to get started.
-              </p>
-            </div>
+        <EmptyState
+          title="No balance yet"
+          description="Make a deposit to get started."
+          action={
             <Button variant="outline" size="sm" asChild>
               <a href="/consumer/deposit">Deposit funds</a>
             </Button>
-          </CardContent>
-        </Card>
+          }
+        />
       )}
     </div>
   );
 }
 
-function formatAmount(amount: string): string {
-  const num = parseFloat(amount);
-  if (isNaN(num)) return "0.0000";
-  return num.toFixed(4);
-}
+
 
 function availablePercentage(total: string, available: string): number {
   const t = parseFloat(total);

@@ -195,6 +195,26 @@ func (h *Handler) UpdateProviderStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, provider)
 }
 
+func (h *Handler) ListPublicProviders(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
+		return
+	}
+
+	providers, err := h.service.ListPublicProviders(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to list providers"})
+		return
+	}
+
+	if providers == nil {
+		providers = []repository.Provider{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"data": providers})
+}
+
 func (h *Handler) DeleteProvider(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
@@ -322,6 +342,40 @@ func (h *EndpointHandler) CreateEndpoint(w http.ResponseWriter, r *http.Request)
 	}
 
 	writeJSON(w, http.StatusCreated, endpoint)
+}
+
+func (h *EndpointHandler) ListPublicEndpoints(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
+
+		return
+	}
+
+	providerID, err := uuid.Parse(r.PathValue("providerId"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid provider id"})
+
+		return
+	}
+
+	endpoints, err := h.service.ListPublicEndpoints(r.Context(), providerID)
+	if err != nil {
+		if errors.Is(err, ErrEndpointNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{errKey: "provider not found"})
+
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to list endpoints"})
+
+		return
+	}
+
+	if endpoints == nil {
+		endpoints = []repository.ApiEndpoint{}
+	}
+
+	writeJSON(w, http.StatusOK, endpoints)
 }
 
 func (h *EndpointHandler) ListEndpoints(w http.ResponseWriter, r *http.Request) {

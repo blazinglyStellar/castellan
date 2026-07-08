@@ -1,10 +1,12 @@
 "use client";
 
-import { Inbox, RefreshCw } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 import { useCursorPagination } from "@/lib/use-cursor-pagination";
 import { getUsage } from "@/lib/api/client";
 import type { UsageEvent } from "@/lib/api/types";
+import { timeAgo, StatusCodeBadge } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -71,7 +73,12 @@ export function UsageTable({
   }
 
   if (items.length === 0) {
-    return <EmptyState />;
+    return (
+      <EmptyState
+        title="No usage events yet"
+        description="Usage events will appear here once API calls are made."
+      />
+    );
   }
 
   return (
@@ -112,6 +119,7 @@ export function UsageTable({
                 </TableCell>
                 <TableCell>
                   <StatusCodeBadge code={event.status_code} />
+  
                 </TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">
                   {event.latency_ms != null ? `${event.latency_ms}ms` : "\u2014"}
@@ -141,32 +149,7 @@ export function UsageTable({
   );
 }
 
-function StatusCodeBadge({ code }: { code?: number | null }) {
-  if (code == null) {
-    return (
-      <span className="text-xs text-muted-foreground">\u2014</span>
-    );
-  }
 
-  let color: string;
-  if (code >= 200 && code < 300) {
-    color =
-      "text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-950";
-  } else if (code >= 400 && code < 500) {
-    color =
-      "text-yellow-600 bg-yellow-100 dark:text-yellow-400 dark:bg-yellow-950";
-  } else {
-    color = "text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-950";
-  }
-
-  return (
-    <span
-      className={`inline-block rounded px-1.5 py-0.5 font-mono text-[11px] ${color}`}
-    >
-      {code}
-    </span>
-  );
-}
 
 function LoadingSkeleton() {
   return (
@@ -196,51 +179,6 @@ function LoadingSkeleton() {
   );
 }
 
-function ErrorState({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry: () => void;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-4 py-12">
-        <p className="text-sm text-muted-foreground">{message}</p>
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          <RefreshCw className="mr-2 h-3 w-3" />
-          Retry
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
 
-function EmptyState() {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
-        <Inbox className="h-8 w-8 text-muted-foreground" />
-        <div>
-          <p className="text-sm font-medium text-foreground">
-            No usage events yet
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Usage events will appear here once API calls are made.
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
-function timeAgo(timestamp: string): string {
-  const now = Date.now();
-  const then = new Date(timestamp).getTime();
-  const diffSec = Math.floor((now - then) / 1000);
 
-  if (diffSec < 60) return "just now";
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  return `${Math.floor(diffSec / 86400)}d ago`;
-}

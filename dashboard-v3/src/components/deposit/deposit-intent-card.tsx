@@ -3,9 +3,12 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw, Wallet } from "lucide-react";
+import { Wallet } from "lucide-react";
+
+import { ErrorState } from "@/components/ui/error-state";
 
 import { getDepositIntent } from "@/lib/api/client";
+import type { IntentResponse } from "@/lib/api/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -28,7 +31,7 @@ export function DepositIntentCard() {
         {isLoading ? (
           <IntentSkeleton />
         ) : isError ? (
-          <IntentError
+          <ErrorState
             message={
               error instanceof Error
                 ? error.message
@@ -47,14 +50,7 @@ export function DepositIntentCard() {
 function IntentDetails({
   data,
 }: {
-  data: {
-    sep7_uri: string;
-    qr_code: string;
-    memo: string;
-    destination: string;
-    minimum_amount: string;
-    asset: string;
-  };
+  data: IntentResponse;
 }) {
   return (
     <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
@@ -119,20 +115,4 @@ function IntentSkeleton() {
   );
 }
 
-function IntentError({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-4 py-6 text-center">
-      <p className="text-sm text-muted-foreground">{message}</p>
-      <Button variant="outline" size="sm" onClick={onRetry}>
-        <RefreshCw className="mr-2 h-3 w-3" />
-        Retry
-      </Button>
-    </div>
-  );
-}
+

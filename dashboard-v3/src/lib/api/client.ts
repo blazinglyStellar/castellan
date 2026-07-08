@@ -8,9 +8,11 @@ import type {
   CursorParams,
   DashboardMeResponse,
   DepositListResponse,
+  DiscoverResponse,
   EarningsResponse,
   Endpoint,
   EntryParams,
+  EntryResponse,
   IntentResponse,
   ListEntriesResponse,
   Provider,
@@ -177,6 +179,18 @@ export function updateEndpointStatus(id: string, status: string): Promise<Endpoi
   );
 }
 
+// ── Discover ──
+
+export function getDiscoverProviders(): Promise<DiscoverResponse> {
+  return api.get<DiscoverResponse>("/api/v1/discover");
+}
+
+export function getPublicProviderEndpoints(providerId: string): Promise<Endpoint[]> {
+  return api.get<Endpoint[]>(
+    `/api/v1/providers/${encodeURIComponent(providerId)}/endpoints/public`
+  );
+}
+
 // ── API Keys ──
 
 export function getApiKeys(): Promise<ApiKey[]> {
@@ -204,6 +218,10 @@ export function getAccount(): Promise<AccountResponse> {
 export function getAccountEntries(params?: EntryParams): Promise<ListEntriesResponse> {
   const qs = buildQueryString(params);
   return api.get<ListEntriesResponse>(`/api/v1/accounts/me/entries${qs}`);
+}
+
+export function getAccountEntry(id: string): Promise<EntryResponse> {
+  return api.get<EntryResponse>(`/api/v1/accounts/me/entries/${encodeURIComponent(id)}`);
 }
 
 // ── Deposit Intent ──

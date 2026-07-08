@@ -85,6 +85,7 @@ export interface DailyEarning {
 export interface Earnings {
   total_earnings: string;
   unsettled_earnings: string;
+  currency: string;
   by_endpoint: EndpointEarning[];
   sparkline: DailyEarning[];
 }
@@ -217,6 +218,10 @@ export interface EntryParams {
   limit?: number;
   offset?: number;
   type?: string;
+}
+
+export interface DiscoverResponse {
+  data: Provider[];
 }
 
 export type BalanceResponse = Balance;

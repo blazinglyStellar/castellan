@@ -1,13 +1,14 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
 
 import { useAccount } from "@/lib/auth/account-context";
 import { getDashboardMe, getAccount } from "@/lib/api/client";
+import type { DashboardMeResponse, AccountResponse } from "@/lib/api/types";
+import { formatAmount } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 
 export default function SettingsPage() {
   const { isLoading: isAccountLoading } = useAccount();
@@ -88,7 +89,7 @@ export default function SettingsPage() {
 function ProfileCard({
   profile,
 }: {
-  profile: { email: string; role: string };
+  profile: Pick<DashboardMeResponse, "email" | "role">;
 }) {
   return (
     <Card>
@@ -114,7 +115,7 @@ function ProfileCard({
 function DepositCard({
   profile,
 }: {
-  profile: { deposit_memo: string; payout_stellar_address?: string };
+  profile: Pick<DashboardMeResponse, "deposit_memo" | "payout_stellar_address">;
 }) {
   return (
     <Card>
@@ -152,7 +153,7 @@ function DepositCard({
 function AccountCard({
   account,
 }: {
-  account: { balance: string; currency: string };
+  account: Pick<AccountResponse, "balance" | "currency">;
 }) {
   return (
     <Card>
@@ -195,30 +196,6 @@ function LoadingSkeleton() {
   );
 }
 
-function ErrorState({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry: () => void;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-4 py-12">
-        <p className="text-sm text-muted-foreground">{message}</p>
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          <RefreshCw className="mr-2 h-3 w-3" />
-          Retry
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
 
-// ── Helpers ──
 
-function formatAmount(amount: string): string {
-  const num = parseFloat(amount);
-  if (isNaN(num)) return "0.0000";
-  return num.toFixed(4);
-}
+

@@ -163,6 +163,14 @@ func (s *ProviderService) ListProviders(ctx context.Context, ownerID uuid.UUID) 
 	return providers, nil
 }
 
+func (s *ProviderService) ListPublicProviders(ctx context.Context) ([]repository.Provider, error) {
+	providers, err := s.queries.ListAllProviders(ctx, repository.ProviderStatusActive)
+	if err != nil {
+		return nil, fmt.Errorf("list public providers: %w", err)
+	}
+	return providers, nil
+}
+
 func (s *ProviderService) PartialUpdateProvider(ctx context.Context, providerID, ownerID uuid.UUID, name, baseURL *string) (repository.Provider, error) {
 	current, err := s.GetProviderByID(ctx, providerID, ownerID)
 	if err != nil {
@@ -365,6 +373,26 @@ func (s *EndpointService) ListEndpoints(ctx context.Context, providerID, ownerID
 	endpoints, err := s.queries.ListEndpointsByProvider(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("list endpoints: %w", err)
+	}
+	return endpoints, nil
+}
+
+func (s *EndpointService) ListPublicEndpoints(ctx context.Context, providerID uuid.UUID) ([]repository.ApiEndpoint, error) {
+	provider, err := s.queries.GetProviderByID(ctx, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrEndpointNotFound, err)
+	}
+	if provider.Status != repository.ProviderStatusActive {
+		return nil, errors.New("provider not found")
+	}
+
+	params := repository.ListEndpointsByProviderParams{
+		ProviderID: providerID,
+		Status:     repository.EndpointStatusActive,
+	}
+	endpoints, err := s.queries.ListEndpointsByProvider(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("list public endpoints: %w", err)
 	}
 	return endpoints, nil
 }

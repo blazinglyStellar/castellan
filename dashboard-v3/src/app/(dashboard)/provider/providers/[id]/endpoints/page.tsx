@@ -5,14 +5,15 @@ import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
-  Inbox,
-  RefreshCw,
   Trash2,
   Power,
   PowerOff,
   ArrowLeft,
 } from "lucide-react";
 import Link from "next/link";
+
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 import { useAccount } from "@/lib/auth/account-context";
 import {
@@ -22,6 +23,8 @@ import {
   updateEndpointStatus,
 } from "@/lib/api/client";
 import type { Endpoint, CreateEndpointRequest } from "@/lib/api/types";
+import { timeAgo, StatusBadge } from "@/lib/format";
+import { MethodBadge } from "@/components/usage/method-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -115,7 +118,10 @@ export default function EndpointsPage() {
       {hasEndpoints ? (
         <EndpointsTable endpoints={endpoints} />
       ) : (
-        <EmptyState />
+        <EmptyState
+          title="No endpoints yet"
+          description="Add your first endpoint to define pricing and rate limits."
+        />
       )}
     </div>
   );
@@ -397,100 +403,8 @@ function LoadingSkeleton() {
   );
 }
 
-function ErrorState({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry: () => void;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-4 py-12">
-        <p className="text-sm text-muted-foreground">{message}</p>
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          <RefreshCw className="mr-2 h-3 w-3" />
-          Retry
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
 
-function EmptyState() {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
-        <Inbox className="h-8 w-8 text-muted-foreground" />
-        <div>
-          <p className="text-sm font-medium text-foreground">
-            No endpoints yet
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Add your first endpoint to define pricing and rate limits.
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 // ── Helpers ──
 
-function MethodBadge({ method }: { method: string }) {
-  const colorMap: Record<string, string> = {
-    GET: "text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-950",
-    POST: "text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-950",
-    PUT: "text-orange-600 bg-orange-100 dark:text-orange-400 dark:bg-orange-950",
-    PATCH:
-      "text-purple-600 bg-purple-100 dark:text-purple-400 dark:bg-purple-950",
-    DELETE: "text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-950",
-  };
 
-  return (
-    <span
-      className={`inline-block rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold uppercase ${
-        colorMap[method.toUpperCase()] ||
-        "text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-800"
-      }`}
-    >
-      {method}
-    </span>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  let color: string;
-  switch (status) {
-    case "active":
-      color =
-        "text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-950";
-      break;
-    case "inactive":
-      color =
-        "text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-950";
-      break;
-    default:
-      color =
-        "text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-950";
-  }
-
-  return (
-    <span
-      className={`inline-block rounded px-1.5 py-0.5 font-mono text-[11px] capitalize ${color}`}
-    >
-      {status}
-    </span>
-  );
-}
-
-function timeAgo(timestamp: string): string {
-  const now = Date.now();
-  const then = new Date(timestamp).getTime();
-  const diffSec = Math.floor((now - then) / 1000);
-
-  if (diffSec < 60) return "just now";
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  return `${Math.floor(diffSec / 86400)}d ago`;
-}
