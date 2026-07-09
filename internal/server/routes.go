@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
+	"castellan/internal/gateway/context"
 	"castellan/internal/server/middleware"
 )
 
@@ -72,6 +74,12 @@ func (s *Server) GatewayRoutes(mux *http.ServeMux) {
 	handler = middleware.RateLimitCheck(s.rateLimiter)(handler)
 	handler = middleware.PricingResolver(s.pricingResolver, s.windowSeconds)(handler)
 	handler = middleware.AuthCheck(s.keyValidator, s.sessionValidator)(handler)
+
+	next := handler
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(gatewaycontext.SetRequestStart(r.Context(), time.Now()))
+		next.ServeHTTP(w, r)
+	})
 
 	mux.Handle("/api/gateway/", handler)
 }
