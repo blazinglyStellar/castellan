@@ -13,9 +13,9 @@ import (
 )
 
 const createEndpoint = `-- name: CreateEndpoint :one
-INSERT INTO api_endpoints (provider_id, route, method, price_amount, currency, rate_limit, status)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at
+INSERT INTO api_endpoints (provider_id, route, method, price_amount, currency, rate_limit, status, description)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at, description
 `
 
 type CreateEndpointParams struct {
@@ -26,6 +26,7 @@ type CreateEndpointParams struct {
 	Currency    Currency       `json:"currency"`
 	RateLimit   pgtype.Int4    `json:"rate_limit"`
 	Status      EndpointStatus `json:"status"`
+	Description string         `json:"description"`
 }
 
 func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) (ApiEndpoint, error) {
@@ -37,6 +38,7 @@ func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) 
 		arg.Currency,
 		arg.RateLimit,
 		arg.Status,
+		arg.Description,
 	)
 	var i ApiEndpoint
 	err := row.Scan(
@@ -50,6 +52,7 @@ func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) 
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }
@@ -57,7 +60,7 @@ func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) 
 const deleteEndpoint = `-- name: DeleteEndpoint :one
 DELETE FROM api_endpoints
 WHERE id = $1
-RETURNING id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at
+RETURNING id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at, description
 `
 
 func (q *Queries) DeleteEndpoint(ctx context.Context, id uuid.UUID) (ApiEndpoint, error) {
@@ -74,12 +77,13 @@ func (q *Queries) DeleteEndpoint(ctx context.Context, id uuid.UUID) (ApiEndpoint
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }
 
 const getEndpointByID = `-- name: GetEndpointByID :one
-SELECT id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at
+SELECT id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at, description
 FROM api_endpoints
 WHERE id = $1
 LIMIT 1
@@ -99,12 +103,13 @@ func (q *Queries) GetEndpointByID(ctx context.Context, id uuid.UUID) (ApiEndpoin
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }
 
 const getEndpointByProviderRouteMethod = `-- name: GetEndpointByProviderRouteMethod :one
-SELECT id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at
+SELECT id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at, description
 FROM api_endpoints
 WHERE provider_id = $1
   AND route = $2
@@ -132,21 +137,22 @@ func (q *Queries) GetEndpointByProviderRouteMethod(ctx context.Context, arg GetE
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }
 
 const listEndpointsByProvider = `-- name: ListEndpointsByProvider :many
-SELECT id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at
+SELECT id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at, description
 FROM api_endpoints
 WHERE provider_id = $1
-  AND ($2 IS NULL OR status = $2)
+  AND ($2::endpoint_status IS NULL OR status = $2::endpoint_status)
 ORDER BY created_at DESC
 `
 
 type ListEndpointsByProviderParams struct {
-	ProviderID uuid.UUID   `json:"provider_id"`
-	Status     interface{} `json:"status"`
+	ProviderID uuid.UUID          `json:"provider_id"`
+	Status     NullEndpointStatus `json:"status"`
 }
 
 func (q *Queries) ListEndpointsByProvider(ctx context.Context, arg ListEndpointsByProviderParams) ([]ApiEndpoint, error) {
@@ -169,6 +175,7 @@ func (q *Queries) ListEndpointsByProvider(ctx context.Context, arg ListEndpoints
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}
@@ -187,9 +194,10 @@ SET route = $2,
     price_amount = $4,
     currency = $5,
     rate_limit = $6,
+    description = $7,
     updated_at = now()
 WHERE id = $1
-RETURNING id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at
+RETURNING id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at, description
 `
 
 type UpdateEndpointParams struct {
@@ -199,6 +207,7 @@ type UpdateEndpointParams struct {
 	PriceAmount pgtype.Numeric `json:"price_amount"`
 	Currency    Currency       `json:"currency"`
 	RateLimit   pgtype.Int4    `json:"rate_limit"`
+	Description string         `json:"description"`
 }
 
 func (q *Queries) UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) (ApiEndpoint, error) {
@@ -209,6 +218,7 @@ func (q *Queries) UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) 
 		arg.PriceAmount,
 		arg.Currency,
 		arg.RateLimit,
+		arg.Description,
 	)
 	var i ApiEndpoint
 	err := row.Scan(
@@ -222,6 +232,7 @@ func (q *Queries) UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) 
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }
@@ -231,7 +242,7 @@ UPDATE api_endpoints
 SET status = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at
+RETURNING id, provider_id, route, method, price_amount, currency, rate_limit, status, created_at, updated_at, description
 `
 
 type UpdateEndpointStatusParams struct {
@@ -253,6 +264,7 @@ func (q *Queries) UpdateEndpointStatus(ctx context.Context, arg UpdateEndpointSt
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }

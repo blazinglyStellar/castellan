@@ -65,6 +65,28 @@ run-worker:
 docker-down:
 	@docker compose down
 
+# Apply goose migrations to localhost:5432 (override DATABASE_URL for custom hosts)
+DB_USER ?= postgres
+DB_PASSWORD ?= 1234
+DB_DATABASE ?= castellan
+DB_PORT ?= 5432
+DB_HOST ?= localhost
+DATABASE_URL ?= postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_DATABASE)?sslmode=disable
+PG_DSN ?= postgresql://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)
+
+migrate:
+	PATH="$(HOME)/go/bin:$(PATH)" GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DATABASE_URL)" GOOSE_MIGRATION_DIR=migrations goose up -s
+
+migrate-down:
+	PATH="$(HOME)/go/bin:$(PATH)" GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DATABASE_URL)" GOOSE_MIGRATION_DIR=migrations goose down -s
+
+# Drop and recreate the database
+db-drop:
+	@psql "$(PG_DSN)/postgres" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$(DB_DATABASE)' AND pid <> pg_backend_pid();" -c "DROP DATABASE IF EXISTS $(DB_DATABASE);" -c "CREATE DATABASE $(DB_DATABASE);"
+
+# Full reset: drop, migrate, seed
+db-reset: db-drop migrate seed
+
 # Test the application (mirrors unit-testing.yml: race + coverage)
 test:
 	@echo "Testing..."
@@ -103,4 +125,4 @@ watch:
 		Write-Output 'Watching...'; \
 	}"
 
-.PHONY: all ci ci-full build lint vet test itest security trivy-scan run clean watch docker-run docker-down build-linux build-worker run-worker docs validate-docs
+.PHONY: all ci ci-full build lint vet test itest security trivy-scan run clean watch docker-run docker-down build-linux build-worker run-worker docs validate-docs migrate migrate-down db-drop db-reset

@@ -23,6 +23,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.Handle("POST /api/v1/keys", s.authMiddleware(http.HandlerFunc(s.keyHandler.CreateKey)))
 	mux.Handle("GET /api/v1/discover", s.authMiddleware(http.HandlerFunc(s.providerHandler.ListPublicProviders)))
 	mux.Handle("POST /api/v1/keys/{id}/revoke", s.authMiddleware(http.HandlerFunc(s.keyHandler.RevokeKey)))
+	mux.Handle("PATCH /api/v1/keys/{id}", s.authMiddleware(http.HandlerFunc(s.keyHandler.UpdateKey)))
 	mux.Handle("POST /api/v1/keys/{id}/rotate", s.authMiddleware(http.HandlerFunc(s.keyHandler.RotateKey)))
 	mux.Handle("POST /api/v1/providers", s.authMiddleware(http.HandlerFunc(s.providerHandler.CreateProvider)))
 	mux.Handle("GET /api/v1/providers", s.authMiddleware(http.HandlerFunc(s.providerHandler.ListProviders)))
@@ -43,6 +44,8 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.Handle("GET /api/v1/deposits/intent", s.authMiddleware(http.HandlerFunc(s.depositHandler.DepositIntent)))
 	mux.Handle("GET /api/v1/deposits", s.authMiddleware(http.HandlerFunc(s.depositHandler.ListDeposits)))
 	mux.Handle("GET /api/v1/settlements", s.authMiddleware(http.HandlerFunc(s.settlementHandler.ListSettlements)))
+	mux.Handle("GET /api/v1/settlements/summary", s.authMiddleware(http.HandlerFunc(s.settlementHandler.HandleSummary)))
+	mux.Handle("GET /api/v1/settlements/threshold", s.authMiddleware(http.HandlerFunc(s.settlementHandler.HandleThreshold)))
 	mux.Handle("GET /api/v1/me", s.authMiddleware(http.HandlerFunc(s.authHandler.DashboardMe)))
 	mux.Handle("GET /api/v1/balance", s.authMiddleware(http.HandlerFunc(s.accountHandler.GetBalance)))
 	mux.Handle("GET /api/v1/usage", s.authMiddleware(http.HandlerFunc(s.usageHandler.ListUsage)))
@@ -70,7 +73,7 @@ func (s *Server) GatewayRoutes(mux *http.ServeMux) {
 	handler = middleware.PricingResolver(s.pricingResolver, s.windowSeconds)(handler)
 	handler = middleware.AuthCheck(s.keyValidator, s.sessionValidator)(handler)
 
-	mux.Handle("POST /api/gateway/", handler)
+	mux.Handle("/api/gateway/", handler)
 }
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {

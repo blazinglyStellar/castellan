@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -10,9 +9,18 @@ import {
 } from "@/components/ui/select";
 import { DateRangePicker } from "@/components/usage/date-range-picker";
 
+interface FilterOption {
+  value: string;
+  label: string;
+}
+
 interface FilterBarProps {
-  role: "provider" | "consumer";
-  onRoleChange: (role: "provider" | "consumer") => void;
+  providers: FilterOption[];
+  endpoints: FilterOption[];
+  selectedProvider: string;
+  selectedEndpoint: string;
+  onProviderChange: (v: string) => void;
+  onEndpointChange: (v: string) => void;
   startDate: string;
   endDate: string;
   onStartDateChange: (d: string) => void;
@@ -22,8 +30,12 @@ interface FilterBarProps {
 }
 
 export function FilterBar({
-  role,
-  onRoleChange,
+  providers,
+  endpoints,
+  selectedProvider,
+  selectedEndpoint,
+  onProviderChange,
+  onEndpointChange,
   startDate,
   endDate,
   onStartDateChange,
@@ -34,25 +46,41 @@ export function FilterBar({
   return (
     <div className="flex flex-wrap items-end gap-4">
       <div className="space-y-1">
-        <span className="text-xs text-muted-foreground">View as</span>
-        <div className="flex gap-0">
-          <Button
-            variant={role === "consumer" ? "default" : "outline"}
-            size="sm"
-            onClick={() => onRoleChange("consumer")}
-            className="rounded-r-none"
-          >
-            Consumer
-          </Button>
-          <Button
-            variant={role === "provider" ? "default" : "outline"}
-            size="sm"
-            onClick={() => onRoleChange("provider")}
-            className="rounded-l-none"
-          >
-            Provider
-          </Button>
-        </div>
+        <span className="text-xs text-muted-foreground">Provider</span>
+        <Select value={selectedProvider} onValueChange={onProviderChange}>
+          <SelectTrigger className="h-8 w-44">
+            <SelectValue placeholder="All providers" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value=" ">All providers</SelectItem>
+            {providers.map((p) => (
+              <SelectItem key={p.value} value={p.value}>
+                {p.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-1">
+        <span className="text-xs text-muted-foreground">Endpoint</span>
+        <Select
+          value={selectedEndpoint}
+          onValueChange={onEndpointChange}
+          disabled={endpoints.length === 0}
+        >
+          <SelectTrigger className="h-8 w-48">
+            <SelectValue placeholder="All endpoints" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value=" ">All endpoints</SelectItem>
+            {endpoints.map((e) => (
+              <SelectItem key={e.value} value={e.value}>
+                {e.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <DateRangePicker

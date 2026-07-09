@@ -1,65 +1,145 @@
-"use client";
+"use client"
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useAccount } from "@/lib/auth/account-context";
-import { cn } from "@/lib/utils";
+import Image from "next/image"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import {
+  LayoutDashboard,
+  BarChart3,
+  Activity,
+  BookOpen,
+  Building2,
+  Key,
+  Wallet,
+  Banknote,
+  Compass,
+} from "lucide-react"
+import { useAccount } from "@/lib/auth/account-context"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar"
 
 interface NavItem {
-  label: string;
-  href: string;
-  roles: ("provider" | "consumer")[];
+  label: string
+  href: string
+  icon: React.ElementType
 }
 
-const navItems: NavItem[] = [
-  { label: "Overview", href: "/provider/overview", roles: ["provider"] },
-  { label: "Discover", href: "/discover", roles: ["provider", "consumer"] },
-  { label: "Ledger", href: "/account/entries", roles: ["provider", "consumer"] },
-  { label: "Analytics", href: "/analytics", roles: ["provider"] },
-  { label: "Usage", href: "/usage", roles: ["provider"] },
-  { label: "Settlements", href: "/provider/settlements", roles: ["provider"] },
-  { label: "Providers", href: "/provider/providers", roles: ["provider"] },
-  { label: "My APIs", href: "/provider/apis", roles: ["provider"] },
-  { label: "API Keys", href: "/provider/api-keys", roles: ["provider"] },
-  { label: "Overview", href: "/consumer/overview", roles: ["consumer"] },
-  { label: "Analytics", href: "/analytics", roles: ["consumer"] },
-  { label: "Deposit", href: "/consumer/deposit", roles: ["consumer"] },
-  { label: "Usage", href: "/usage", roles: ["consumer"] },
-  { label: "API Keys", href: "/consumer/api-keys", roles: ["consumer"] },
-  { label: "Settings", href: "/settings", roles: ["provider", "consumer"] },
-];
+interface NavGroup {
+  label?: string
+  roles: ("provider" | "consumer")[]
+  items: NavItem[]
+}
 
-export function Sidebar() {
-  const pathname = usePathname();
-  const { user } = useAccount();
+const navGroups: NavGroup[] = [
+  {
+    roles: ["provider", "consumer"],
+    items: [
+      { label: "Overview", href: "/overview", icon: LayoutDashboard },
+    ],
+  },
+  {
+    label: "Monitoring",
+    roles: ["provider", "consumer"],
+    items: [
+      { label: "Analytics", href: "/analytics", icon: BarChart3 },
+      { label: "Usage", href: "/usage", icon: Activity },
+      { label: "Ledger", href: "/account/entries", icon: BookOpen },
+    ],
+  },
+  {
+    label: "Payments",
+    roles: ["provider", "consumer"],
+    items: [
+      { label: "Deposit", href: "/deposit", icon: Banknote },
+      { label: "API Keys", href: "/api-keys", icon: Key },
+    ],
+  },
+  {
+    label: "Management",
+    roles: ["provider", "consumer"],
+    items: [
+      { label: "Providers", href: "/provider/providers", icon: Building2 },
+      { label: "Settlements", href: "/provider/settlements", icon: Wallet },
+    ],
+  },
+  {
+    label: "Explore",
+    roles: ["provider", "consumer"],
+    items: [
+      { label: "Discover", href: "/discover", icon: Compass },
+    ],
+  },
+]
 
-  const visible = navItems.filter(
-    (item) => user && item.roles.includes(user.role)
-  );
+function isActive(pathname: string, href: string): boolean {
+  if (href === "") return false
+  if (pathname === href) return true
+  if (href !== "/" && pathname.startsWith(href + "/")) return true
+  if (href !== "/" && pathname.startsWith(href)) return true
+  return false
+}
+
+export function AppSidebar() {
+  const pathname = usePathname()
+  const { user } = useAccount()
+
+  if (!user) return null
+
+  const role = user.role
 
   return (
-    <aside className="flex h-full w-56 flex-col border-r border-sidebar-border bg-sidebar">
-      <div className="flex h-14 items-center border-b border-sidebar-border px-5">
-        <Link href="/" className="text-sm font-semibold tracking-tight text-sidebar-foreground">
-          Castellan
+    <Sidebar collapsible="icon" className="sticky top-0 h-svh self-start">
+      <SidebarHeader className="flex h-14 flex-row items-center gap-2 px-4">
+        <Link href="/" className="flex items-center gap-2">
+          <Image
+            src="/logo.svg"
+            alt="Castellan"
+            width={28}
+            height={49}
+            className="shrink-0"
+          />
+          <span className="group-data-[collapsible=icon]:hidden text-sm font-semibold tracking-tight text-sidebar-foreground">
+            Castellan
+          </span>
         </Link>
-      </div>
-      <nav className="flex-1 space-y-1 p-3">
-        {visible.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={cn(
-              "block rounded-md px-3 py-2 text-sm font-medium transition-colors",
-              pathname === item.href
-                ? "bg-sidebar-accent text-sidebar-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
-            )}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </nav>
-    </aside>
-  );
+      </SidebarHeader>
+      <SidebarContent>
+        {navGroups
+          .filter((group) => group.roles.includes(role))
+          .map((group) => (
+            <SidebarGroup key={group.label ?? "overview"}>
+              {group.label && <SidebarGroupLabel>{group.label}</SidebarGroupLabel>}
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {group.items.map((item) => {
+                    const active = isActive(pathname, item.href)
+                    const Icon = item.icon
+
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton asChild isActive={active}>
+                          <Link href={item.href}>
+                            <Icon />
+                            <span>{item.label}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ))}
+      </SidebarContent>
+    </Sidebar>
+  )
 }

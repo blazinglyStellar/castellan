@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"castellan/internal/database"
+	"castellan/internal/repository/db"
+	"castellan/internal/seed"
 	"castellan/internal/server"
 
 	_ "github.com/joho/godotenv/autoload"
@@ -36,6 +40,24 @@ func gracefulShutdown(apiServer *http.Server, done chan bool) {
 }
 
 func main() {
+	if os.Getenv("SEED") == "true" {
+		log.Println("SEED=true: running database seed...")
+		dbService, err := database.New()
+		if err != nil {
+			log.Fatalf("seed database connection: %v", err)
+		}
+		queries := repository.New(dbService.Pool())
+		seedCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		if err := seed.Run(seedCtx, dbService.Pool(), queries); err != nil {
+			cancel()
+			dbService.Close()
+			log.Fatalf("seed failed: %v", err)
+		}
+		cancel()
+		dbService.Close()
+		log.Println("seed complete")
+	}
+
 	srv, err := server.NewServer()
 	if err != nil {
 		log.Fatalf("failed to create server: %v", err)

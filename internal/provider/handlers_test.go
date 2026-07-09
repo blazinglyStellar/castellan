@@ -155,16 +155,18 @@ func TestListProvidersHandler_Success(t *testing.T) {
 	mq := newMockQuerier()
 	// Seed providers
 	mq.CreateProvider(context.TODO(), repository.CreateProviderParams{
-		OwnerID: userID,
-		Name:    "Weather API",
-		BaseUrl: "https://api.weather.example.com/v2",
-		Status:  repository.ProviderStatusActive,
+		OwnerID:     userID,
+		Name:        "Weather API",
+		BaseUrl:     "https://api.weather.example.com/v2",
+		Description: "",
+		Status:      repository.ProviderStatusActive,
 	})
 	mq.CreateProvider(context.TODO(), repository.CreateProviderParams{
-		OwnerID: userID,
-		Name:    "Maps API",
-		BaseUrl: "https://maps.example.com",
-		Status:  repository.ProviderStatusActive,
+		OwnerID:     userID,
+		Name:        "Maps API",
+		BaseUrl:     "https://maps.example.com",
+		Description: "",
+		Status:      repository.ProviderStatusActive,
 	})
 
 	h := NewProviderHandler(NewProviderService(mq))
@@ -230,10 +232,11 @@ func createTestProvider(t *testing.T) (*Handler, uuid.UUID, repository.Provider)
 	userID := uuid.New()
 
 	created, err := mq.CreateProvider(context.TODO(), repository.CreateProviderParams{
-		OwnerID: userID,
-		Name:    "Weather API",
-		BaseUrl: "https://api.weather.example.com",
-		Status:  repository.ProviderStatusActive,
+		OwnerID:     userID,
+		Name:        "Weather API",
+		BaseUrl:     "https://api.weather.example.com",
+		Description: "",
+		Status:      repository.ProviderStatusActive,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -600,7 +603,7 @@ func setupEndpointTest(t *testing.T) (*EndpointHandler, uuid.UUID, repository.Pr
 	eh := NewEndpointHandler(NewEndpointService(mq))
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test Provider", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test Provider", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -856,7 +859,7 @@ func TestListEndpointsHandler_Success(t *testing.T) {
 	eh := NewEndpointHandler(es)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -944,7 +947,7 @@ func TestListEndpointsHandler_StatusFilter(t *testing.T) {
 	eh := NewEndpointHandler(es)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1076,7 +1079,7 @@ func setupEndpointByIDTest(t *testing.T) (*EndpointHandler, uuid.UUID, repositor
 	eh := NewEndpointHandler(NewEndpointService(mq))
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test Provider", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test Provider", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1301,7 +1304,7 @@ func TestUpdateEndpointHandler_Conflict(t *testing.T) {
 	eh := NewEndpointHandler(NewEndpointService(mq))
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}

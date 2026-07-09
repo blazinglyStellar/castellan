@@ -308,6 +308,8 @@ func (p *Proxy) director(outReq *http.Request) {
 	if consumer.ConsumerID != "" {
 		outReq.Header.Set("X-Castellan-Consumer", consumer.ConsumerID)
 	}
+
+	outReq.Header.Del("Authorization")
 }
 
 func (p *Proxy) errorHandler(w http.ResponseWriter, r *http.Request, err error) {

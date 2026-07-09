@@ -8,7 +8,6 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { useRouter, usePathname } from "next/navigation";
 import { api, ApiError } from "@/lib/api/client";
 import type { DashboardMeResponse } from "@/lib/api/types";
 
@@ -26,11 +25,13 @@ interface AccountContextValue {
   logout: () => Promise<void>;
 }
 
+function clearSessionCookie() {
+  document.cookie = "session_token=; path=/; max-age=0; SameSite=Lax";
+}
+
 const AccountContext = createContext<AccountContextValue | null>(null);
 
 export function AccountProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
-  const pathname = usePathname();
   const [user, setUser] = useState<AccountUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -52,8 +53,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setUser(null);
-        if (pathname !== "/login") {
-          router.push("/login");
+        clearSessionCookie();
+        if (window.location.pathname !== "/login") {
+          window.location.href = "/login";
         }
         return;
       }
@@ -62,7 +64,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [router, pathname]);
+  }, []);
 
   useEffect(() => {
     fetchUser();
@@ -71,13 +73,14 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handler = () => {
       setUser(null);
-      if (pathname !== "/login") {
-        router.push("/login");
+      clearSessionCookie();
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
       }
     };
     window.addEventListener("auth:unauthorized", handler);
     return () => window.removeEventListener("auth:unauthorized", handler);
-  }, [router, pathname]);
+  }, []);
 
   const logout = useCallback(async () => {
     try {
@@ -86,8 +89,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       /* proceed even if server call fails */
     }
     setUser(null);
-    router.push("/login");
-  }, [router]);
+    clearSessionCookie();
+    window.location.href = "/login";
+  }, []);
 
   return (
     <AccountContext.Provider value={{ user, isLoading, error, logout }}>

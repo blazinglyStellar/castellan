@@ -62,6 +62,10 @@ export interface UsageEvent {
   latency_ms?: number;
   response_size?: number;
   request_id: string;
+  provider_name: string;
+  provider_id: string;
+  endpoint_id: string;
+  usage_status: string;
 }
 
 export interface PaginatedResponse<T> {
@@ -70,6 +74,12 @@ export interface PaginatedResponse<T> {
 }
 
 // ── Earnings ──
+
+export interface ProviderEarning {
+  provider_id: string;
+  name: string;
+  total: string;
+}
 
 export interface EndpointEarning {
   endpoint_id: string;
@@ -86,6 +96,7 @@ export interface Earnings {
   total_earnings: string;
   unsettled_earnings: string;
   currency: string;
+  by_provider: ProviderEarning[];
   by_endpoint: EndpointEarning[];
   sparkline: DailyEarning[];
 }
@@ -118,6 +129,7 @@ export interface IntentResponse {
 export interface SettlementEntry {
   id: string;
   provider_id: string;
+  provider_name: string;
   amount: string;
   currency: string;
   wallet_address: string;
@@ -131,9 +143,26 @@ export interface SettlementBatch {
   total_amount: string;
   currency: string;
   entry_count: number;
+  tx_hash?: string;
   created_at: string;
   completed_at?: string;
   entries: SettlementEntry[];
+}
+
+export interface MonthlySettlement {
+  month: string;
+  amount: string;
+}
+
+export interface SettlementSummary {
+  total_settled: string;
+  currency: string;
+  monthly_history: MonthlySettlement[];
+}
+
+export interface SettlementThreshold {
+  min_threshold: string;
+  currency: string;
 }
 
 // ── Providers ──
@@ -143,7 +172,11 @@ export interface Provider {
   owner_id: string;
   name: string;
   base_url: string;
+  description?: string;
   status: string;
+  endpoint_count?: number;
+  total_calls?: number;
+  active_consumers?: number;
   created_at: string;
   updated_at: string;
 }
@@ -151,6 +184,7 @@ export interface Provider {
 export interface CreateProviderRequest {
   name: string;
   base_url: string;
+  description?: string;
 }
 
 // ── Endpoints ──
@@ -161,6 +195,7 @@ export interface CreateEndpointRequest {
   price_amount: string;
   currency: string;
   rate_limit?: number;
+  description?: string;
 }
 
 export interface Endpoint {
@@ -170,6 +205,7 @@ export interface Endpoint {
   method: string;
   price_amount: string;
   currency: string;
+  description?: string;
   rate_limit: number | null;
   status: string;
   created_at: string;
@@ -212,6 +248,7 @@ export interface UsageParams extends CursorParams {
   end_date?: string;
   endpoint_id?: string;
   status_code?: number;
+  provider_id?: string;
 }
 
 export interface EntryParams {

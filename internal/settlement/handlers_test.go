@@ -17,7 +17,7 @@ import (
 
 type mockLister struct {
 	batches    []repository.SettlementBatch
-	entriesMap map[uuid.UUID][]repository.SettlementEntry
+	entriesMap map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow
 	err        error
 }
 
@@ -27,7 +27,8 @@ func (m *mockLister) GetSettlementHistoryByOwner(
 	_ time.Time,
 	_ uuid.UUID,
 	_ int32,
-) ([]repository.SettlementBatch, map[uuid.UUID][]repository.SettlementEntry, error) {
+	_ string,
+) ([]repository.SettlementBatch, map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow, error) {
 	if m.err != nil {
 		return nil, nil, m.err
 	}
@@ -74,7 +75,7 @@ func TestListSettlements_Success(t *testing.T) {
 		CompletedAt: pgtype.Timestamptz{Time: now.Add(time.Minute), Valid: true},
 	}
 
-	entry := repository.SettlementEntry{
+	entry := repository.ListSettlementEntriesByBatchWithProviderRow{
 		ID:            entryID,
 		BatchID:       batchID,
 		ProviderID:    providerID,
@@ -83,11 +84,12 @@ func TestListSettlements_Success(t *testing.T) {
 		WalletAddress: "GABCD1234",
 		Status:        repository.SettlementEntryStatusCompleted,
 		CreatedAt:     now,
+		ProviderName:  "Test Provider",
 	}
 
 	mock := &mockLister{
 		batches:    []repository.SettlementBatch{batch},
-		entriesMap: map[uuid.UUID][]repository.SettlementEntry{batchID: {entry}},
+		entriesMap: map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow{batchID: {entry}},
 	}
 
 	h := &Handler{lister: mock}
@@ -152,7 +154,7 @@ func TestListSettlements_Success(t *testing.T) {
 func TestListSettlements_EmptyList(t *testing.T) {
 	mock := &mockLister{
 		batches:    []repository.SettlementBatch{},
-		entriesMap: map[uuid.UUID][]repository.SettlementEntry{},
+		entriesMap: map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow{},
 	}
 
 	h := &Handler{lister: mock}
@@ -211,7 +213,7 @@ func TestListSettlements_Unauthenticated(t *testing.T) {
 func TestListSettlements_DefaultPagination(t *testing.T) {
 	mock := &mockLister{
 		batches:    []repository.SettlementBatch{},
-		entriesMap: map[uuid.UUID][]repository.SettlementEntry{},
+		entriesMap: map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow{},
 	}
 
 	h := &Handler{lister: mock}

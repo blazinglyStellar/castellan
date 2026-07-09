@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"castellan/internal/repository/db"
@@ -33,6 +34,10 @@ type UsageEventItem struct {
 	LatencyMs    *int64 `json:"latency_ms,omitempty"`
 	ResponseSize *int64 `json:"response_size,omitempty"`
 	RequestID    string `json:"request_id"`
+	ProviderName string `json:"provider_name"`
+	ProviderID   string `json:"provider_id"`
+	EndpointID   string `json:"endpoint_id"`
+	UsageStatus  string `json:"usage_status"`
 }
 
 //nolint:revive
@@ -43,11 +48,18 @@ type UsageListResponse struct {
 
 //nolint:revive
 type UsageFilter struct {
+	ProviderID uuid.UUID
 	EndpointID uuid.UUID
 	StatusCode int32
 	StartDate  time.Time
 	EndDate    time.Time
 	HasFilters bool
+}
+
+type ProviderEarning struct {
+	ProviderID string `json:"provider_id"`
+	Name       string `json:"name"`
+	Total      string `json:"total"`
 }
 
 type EndpointEarning struct {
@@ -64,6 +76,7 @@ type DailyEarning struct {
 type EarningsResponse struct {
 	TotalEarnings     string            `json:"total_earnings"`
 	UnsettledEarnings string            `json:"unsettled_earnings"`
+	ByProvider        []ProviderEarning `json:"by_provider"`
 	ByEndpoint        []EndpointEarning `json:"by_endpoint"`
 	Sparkline         []DailyEarning    `json:"sparkline"`
 }
@@ -80,6 +93,7 @@ func (s *Service) ListUsageByConsumer(ctx context.Context, consumerID uuid.UUID,
 			Limit:      limit + 1,
 			Column7:    cursorTs,
 			Column8:    cursorID,
+			Column9:    filter.ProviderID,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list filtered usage: %w", err)
@@ -140,7 +154,8 @@ func toUsageListFromCursorConsumer(rows []repository.ListUsageEventsByConsumerCu
 	for i := range count {
 		r := rows[i]
 		item, err := rowToItem(r.ID, r.CreatedAt, r.Route, r.Method,
-			r.RequestCost, r.Currency, r.StatusCode, r.LatencyMs, r.ResponseSize, r.RequestID)
+			r.RequestCost, r.Currency, r.StatusCode, r.LatencyMs, r.ResponseSize,
+			r.RequestID, r.ProviderID, r.EndpointID, r.ProviderName, r.Status)
 		if err != nil {
 			return nil, err
 		}
@@ -159,7 +174,8 @@ func toUsageListFromCursorProvider(rows []repository.ListUsageEventsByProviderCu
 	for i := range count {
 		r := rows[i]
 		item, err := rowToItem(r.ID, r.CreatedAt, r.Route, r.Method,
-			r.RequestCost, r.Currency, r.StatusCode, r.LatencyMs, r.ResponseSize, r.RequestID)
+			r.RequestCost, r.Currency, r.StatusCode, r.LatencyMs, r.ResponseSize,
+			r.RequestID, r.ProviderID, r.EndpointID, r.ProviderName, r.Status)
 		if err != nil {
 			return nil, err
 		}
@@ -178,7 +194,8 @@ func toUsageListFromFilteredConsumer(rows []repository.ListUsageEventsByConsumer
 	for i := range count {
 		r := rows[i]
 		item, err := rowToItem(r.ID, r.CreatedAt, r.Route, r.Method,
-			r.RequestCost, r.Currency, r.StatusCode, r.LatencyMs, r.ResponseSize, r.RequestID)
+			r.RequestCost, r.Currency, r.StatusCode, r.LatencyMs, r.ResponseSize,
+			r.RequestID, r.ProviderID, r.EndpointID, r.ProviderName, r.Status)
 		if err != nil {
 			return nil, err
 		}
@@ -197,7 +214,8 @@ func toUsageListFromFilteredProvider(rows []repository.ListUsageEventsByProvider
 	for i := range count {
 		r := rows[i]
 		item, err := rowToItem(r.ID, r.CreatedAt, r.Route, r.Method,
-			r.RequestCost, r.Currency, r.StatusCode, r.LatencyMs, r.ResponseSize, r.RequestID)
+			r.RequestCost, r.Currency, r.StatusCode, r.LatencyMs, r.ResponseSize,
+			r.RequestID, r.ProviderID, r.EndpointID, r.ProviderName, r.Status)
 		if err != nil {
 			return nil, err
 		}
@@ -230,6 +248,9 @@ func rowToItem(
 	statusCode pgtype.Int4,
 	latencyMs, responseSize pgtype.Int4,
 	requestID string,
+	providerID, endpointID uuid.UUID,
+	providerName string,
+	usageStatus repository.UsageStatus,
 ) (UsageEventItem, error) {
 	cost, err := numericToDecimal(requestCost)
 	if err != nil {
@@ -264,64 +285,161 @@ func rowToItem(
 		LatencyMs:    lat,
 		ResponseSize: rs,
 		RequestID:    requestID,
+		ProviderName: providerName,
+		ProviderID:   providerID.String(),
+		EndpointID:   endpointID.String(),
+		UsageStatus:  string(usageStatus),
 	}, nil
 }
-
-func (s *Service) GetEarnings(ctx context.Context, providerID uuid.UUID) (*EarningsResponse, error) {
-	total, err := s.queries.GetTotalEarningsByProvider(ctx, providerID)
+func (s *Service) GetEarnings(ctx context.Context, userID uuid.UUID, startDate, endDate time.Time) (*EarningsResponse, error) {
+	providers, err := s.queries.ListProvidersByOwner(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("get total earnings: %w", err)
+		return nil, fmt.Errorf("list providers: %w", err)
 	}
-	totalDec := numericToDecimalOrZero(total)
-
-	unsettled, err := s.queries.GetUnsettledEarningsByProvider(ctx, providerID)
-	if err != nil {
-		return nil, fmt.Errorf("get unsettled earnings: %w", err)
-	}
-	unsettledDec := numericToDecimalOrZero(unsettled)
-
-	endpointRows, err := s.queries.GetEarningsByEndpoint(ctx, providerID)
-	if err != nil {
-		return nil, fmt.Errorf("get earnings by endpoint: %w", err)
+	if len(providers) == 0 {
+		return &EarningsResponse{
+			TotalEarnings:     "0",
+			UnsettledEarnings: "0",
+			ByProvider:        []ProviderEarning{},
+			ByEndpoint:        []EndpointEarning{},
+			Sparkline:         []DailyEarning{},
+		}, nil
 	}
 
-	byEndpoint := make([]EndpointEarning, 0, len(endpointRows))
-	for _, r := range endpointRows {
-		total, err := numericToDecimal(r.Total)
-		if err != nil {
-			return nil, fmt.Errorf("convert endpoint earnings: %w", err)
+	totalDec := decimal.Zero
+	unsettledDec := decimal.Zero
+	providerMap := map[string]*ProviderEarning{}
+	endpointMap := map[string]decimal.Decimal{}
+	endpointRoute := map[string]string{}
+	sparklineMap := map[string]decimal.Decimal{}
+	hasDateFilter := !startDate.IsZero() || !endDate.IsZero()
+
+	for _, p := range providers {
+		providerMap[p.ID.String()] = &ProviderEarning{
+			ProviderID: p.ID.String(),
+			Name:       p.Name,
+			Total:      "0",
 		}
+
+		var total pgtype.Numeric
+		if hasDateFilter {
+			total, err = s.queries.GetTotalEarningsByProviderInRange(ctx, repository.GetTotalEarningsByProviderInRangeParams{
+				ProviderID: p.ID,
+				Column2:    startDate,
+				Column3:    endDate,
+			})
+		} else {
+			total, err = s.queries.GetTotalEarningsByProvider(ctx, p.ID)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get total earnings: %w", err)
+		}
+		pTotal := numericToDecimalOrZero(total)
+		totalDec = totalDec.Add(pTotal)
+		providerMap[p.ID.String()].Total = pTotal.String()
+
+		unsettled, err := s.queries.GetUnsettledEarningsByProvider(ctx, p.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get unsettled earnings: %w", err)
+		}
+		unsettledDec = unsettledDec.Add(numericToDecimalOrZero(unsettled))
+
+		var endpointRows []repository.GetEarningsByEndpointRow
+		if hasDateFilter {
+			inRangeRows, rErr := s.queries.GetEarningsByEndpointInRange(ctx, repository.GetEarningsByEndpointInRangeParams{
+				ProviderID: p.ID,
+				Column2:    startDate,
+				Column3:    endDate,
+			})
+			if rErr != nil {
+				return nil, fmt.Errorf("get earnings by endpoint: %w", rErr)
+			}
+			endpointRows = make([]repository.GetEarningsByEndpointRow, len(inRangeRows))
+			for i, r := range inRangeRows {
+				endpointRows[i] = repository.GetEarningsByEndpointRow(r)
+			}
+		} else {
+			endpointRows, err = s.queries.GetEarningsByEndpoint(ctx, p.ID)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get earnings by endpoint: %w", err)
+		}
+		for _, r := range endpointRows {
+			total, err := numericToDecimal(r.Total)
+			if err != nil {
+				return nil, fmt.Errorf("convert endpoint earnings: %w", err)
+			}
+			eid := r.EndpointID.String()
+			endpointMap[eid] = endpointMap[eid].Add(total)
+			endpointRoute[eid] = r.Route
+		}
+
+		var sparklineRows []repository.GetEarningsSparklineRow
+		if hasDateFilter {
+			inRangeRows, rErr := s.queries.GetEarningsSparklineInRange(ctx, repository.GetEarningsSparklineInRangeParams{
+				ProviderID: p.ID,
+				Column2:    startDate,
+				Column3:    endDate,
+			})
+			if rErr != nil {
+				return nil, fmt.Errorf("get earnings sparkline: %w", rErr)
+			}
+			sparklineRows = make([]repository.GetEarningsSparklineRow, len(inRangeRows))
+			for i, r := range inRangeRows {
+				sparklineRows[i] = repository.GetEarningsSparklineRow(r)
+			}
+		} else {
+			sparklineRows, err = s.queries.GetEarningsSparkline(ctx, p.ID)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get earnings sparkline: %w", err)
+		}
+		for _, r := range sparklineRows {
+			amt, err := numericToDecimal(r.Amount)
+			if err != nil {
+				return nil, fmt.Errorf("convert sparkline amount: %w", err)
+			}
+			var dateStr string
+			if r.Date.Valid {
+				dateStr = r.Date.Time.Format("2006-01-02")
+			}
+			sparklineMap[dateStr] = sparklineMap[dateStr].Add(amt)
+		}
+	}
+
+	byProvider := make([]ProviderEarning, 0, len(providerMap))
+	for _, pe := range providerMap {
+		byProvider = append(byProvider, *pe)
+	}
+
+	byEndpoint := make([]EndpointEarning, 0, len(endpointMap))
+	for eid, total := range endpointMap {
 		byEndpoint = append(byEndpoint, EndpointEarning{
-			EndpointID: r.EndpointID.String(),
-			Route:      r.Route,
+			EndpointID: eid,
+			Route:      endpointRoute[eid],
 			Total:      total.String(),
 		})
 	}
 
-	sparklineRows, err := s.queries.GetEarningsSparkline(ctx, providerID)
-	if err != nil {
-		return nil, fmt.Errorf("get earnings sparkline: %w", err)
+	sparkline := make([]DailyEarning, 0, len(sparklineMap))
+	for date, amount := range sparklineMap {
+		sparkline = append(sparkline, DailyEarning{Date: date, Amount: amount.String()})
 	}
-
-	sparkline := make([]DailyEarning, 0, len(sparklineRows))
-	for _, r := range sparklineRows {
-		amt, err := numericToDecimal(r.Amount)
-		if err != nil {
-			return nil, fmt.Errorf("convert sparkline amount: %w", err)
+	slices.SortFunc(sparkline, func(a, b DailyEarning) int {
+		switch {
+		case a.Date < b.Date:
+			return -1
+		case a.Date > b.Date:
+			return 1
+		default:
+			return 0
 		}
-		var dateStr string
-		if r.Date.Valid {
-			dateStr = r.Date.Time.Format("2006-01-02")
-		}
-		sparkline = append(sparkline, DailyEarning{
-			Date:   dateStr,
-			Amount: amt.String(),
-		})
-	}
+	})
 
 	return &EarningsResponse{
 		TotalEarnings:     totalDec.String(),
 		UnsettledEarnings: unsettledDec.String(),
+		ByProvider:        byProvider,
 		ByEndpoint:        byEndpoint,
 		Sparkline:         sparkline,
 	}, nil

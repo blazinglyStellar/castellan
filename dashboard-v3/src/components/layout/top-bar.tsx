@@ -2,8 +2,9 @@
 
 import { useTheme } from "next-themes";
 import { useAccount } from "@/lib/auth/account-context";
-import { Sun, Moon, LogOut } from "lucide-react";
+import { Sun, Moon, LogOut, PanelLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
 interface TopBarProps {
   title?: string;
@@ -15,7 +16,10 @@ export function TopBar({ title }: TopBarProps) {
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-background px-6">
-      <div>
+      <div className="flex items-center gap-3">
+        <SidebarTrigger className="h-7 w-7 text-muted-foreground hover:text-foreground">
+          <PanelLeft size={16} />
+        </SidebarTrigger>
         {title && (
           <h1 className="text-sm font-medium text-foreground">{title}</h1>
         )}
@@ -32,7 +36,7 @@ export function TopBar({ title }: TopBarProps) {
                   : "bg-accent text-accent-foreground"
               )}
             >
-              {user.role}
+              {user.role === "provider" ? "Producer" : "Consumer"}
             </span>
           </div>
         )}

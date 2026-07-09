@@ -71,10 +71,11 @@ func SeedProviders(ctx context.Context, queries repository.Querier, userID uuid.
 		}
 
 		provider, err := queries.CreateProvider(ctx, repository.CreateProviderParams{
-			OwnerID: userID,
-			Name:    sp.Name,
-			BaseUrl: sp.BaseURL,
-			Status:  repository.ProviderStatusActive,
+			OwnerID:     userID,
+			Name:        sp.Name,
+			BaseUrl:     sp.BaseURL,
+			Description: "",
+			Status:      repository.ProviderStatusActive,
 		})
 		if err != nil {
 			return fmt.Errorf("create provider %s: %w", sp.Name, err)

@@ -29,7 +29,7 @@ func TestProviderLifecycle(t *testing.T) {
 
 	ownerID := createTestUser(t, ctx, "lifecycle@test.com")
 
-	provider, err := ps.CreateProvider(ctx, ownerID, "Test Provider", "https://api.test.com")
+	provider, err := ps.CreateProvider(ctx, ownerID, "Test Provider", "https://api.test.com", "")
 	if err != nil {
 		t.Fatalf("CreateProvider failed: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestProviderLifecycle(t *testing.T) {
 		t.Fatalf("expected 1 provider, got %d", len(list))
 	}
 
-	updated, err := ps.UpdateProvider(ctx, provider.ID, ownerID, "Updated Provider", "https://api.updated.com")
+	updated, err := ps.UpdateProvider(ctx, provider.ID, ownerID, "Updated Provider", "https://api.updated.com", "")
 	if err != nil {
 		t.Fatalf("UpdateProvider failed: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestProviderCascadeDeleteEndpoints(t *testing.T) {
 
 	ownerID := createTestUser(t, ctx, "cascade@test.com")
 
-	provider, err := ps.CreateProvider(ctx, ownerID, "Cascade Provider", "https://api.cascade.com")
+	provider, err := ps.CreateProvider(ctx, ownerID, "Cascade Provider", "https://api.cascade.com", "")
 	if err != nil {
 		t.Fatalf("CreateProvider failed: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestProviderOwnershipIsolation(t *testing.T) {
 	userA := createTestUser(t, ctx, "owner-a@test.com")
 	userB := createTestUser(t, ctx, "owner-b@test.com")
 
-	provider, err := ps.CreateProvider(ctx, userA, "A's Provider", "https://api.a.com")
+	provider, err := ps.CreateProvider(ctx, userA, "A's Provider", "https://api.a.com", "")
 	if err != nil {
 		t.Fatalf("CreateProvider for user A failed: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestProviderOwnershipIsolation(t *testing.T) {
 		t.Error("expected error for user B getting A's provider")
 	}
 
-	_, err = ps.UpdateProvider(ctx, provider.ID, userB, "Hacked", "https://evil.com")
+	_, err = ps.UpdateProvider(ctx, provider.ID, userB, "Hacked", "https://evil.com", "")
 	if err == nil {
 		t.Error("expected error for user B updating A's provider")
 	}
@@ -197,7 +197,7 @@ func TestEndpointLifecycle(t *testing.T) {
 
 	ownerID := createTestUser(t, ctx, "ep-lifecycle@test.com")
 
-	provider, err := ps.CreateProvider(ctx, ownerID, "EP Provider", "https://api.ep.com")
+	provider, err := ps.CreateProvider(ctx, ownerID, "EP Provider", "https://api.ep.com", "")
 	if err != nil {
 		t.Fatalf("CreateProvider failed: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestEndpointUniqueness_SameProvider(t *testing.T) {
 
 	ownerID := createTestUser(t, ctx, "unique@test.com")
 
-	provider, err := ps.CreateProvider(ctx, ownerID, "Unique Provider", "https://api.unique.com")
+	provider, err := ps.CreateProvider(ctx, ownerID, "Unique Provider", "https://api.unique.com", "")
 	if err != nil {
 		t.Fatalf("CreateProvider failed: %v", err)
 	}
@@ -321,12 +321,12 @@ func TestEndpointUniqueness_DifferentProvider(t *testing.T) {
 
 	ownerID := createTestUser(t, ctx, "cross@test.com")
 
-	p1, err := ps.CreateProvider(ctx, ownerID, "Provider 1", "https://api.p1.com")
+	p1, err := ps.CreateProvider(ctx, ownerID, "Provider 1", "https://api.p1.com", "")
 	if err != nil {
 		t.Fatalf("CreateProvider 1 failed: %v", err)
 	}
 
-	p2, err := ps.CreateProvider(ctx, ownerID, "Provider 2", "https://api.p2.com")
+	p2, err := ps.CreateProvider(ctx, ownerID, "Provider 2", "https://api.p2.com", "")
 	if err != nil {
 		t.Fatalf("CreateProvider 2 failed: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestEndpoint_UpdateToDuplicateRouteMethod(t *testing.T) {
 
 	ownerID := createTestUser(t, ctx, "update-conflict@test.com")
 
-	provider, err := ps.CreateProvider(ctx, ownerID, "Conflict Provider", "https://api.conflict.com")
+	provider, err := ps.CreateProvider(ctx, ownerID, "Conflict Provider", "https://api.conflict.com", "")
 	if err != nil {
 		t.Fatalf("CreateProvider failed: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestEndpointOwnershipEnforcement(t *testing.T) {
 	userA := createTestUser(t, ctx, "ep-owner-a@test.com")
 	userB := createTestUser(t, ctx, "ep-owner-b@test.com")
 
-	provider, err := ps.CreateProvider(ctx, userA, "A's Provider", "https://api.a.com")
+	provider, err := ps.CreateProvider(ctx, userA, "A's Provider", "https://api.a.com", "")
 	if err != nil {
 		t.Fatalf("CreateProvider failed: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"castellan/internal/repository/db"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 const errKey = "error"
@@ -22,6 +23,8 @@ const maxLimit = 100
 
 const defaultLimit = 20
 
+const maxMonthlyHistoryMonths = 24
+
 const cursorPartsCount = 2
 
 type settlementBatchItem struct {
@@ -30,6 +33,7 @@ type settlementBatchItem struct {
 	TotalAmount string                `json:"total_amount"`
 	Currency    string                `json:"currency"`
 	EntryCount  int32                 `json:"entry_count"`
+	TxHash      *string               `json:"tx_hash,omitempty"`
 	CreatedAt   string                `json:"created_at"`
 	CompletedAt *string               `json:"completed_at,omitempty"`
 	Entries     []settlementEntryItem `json:"entries"`
@@ -38,6 +42,7 @@ type settlementBatchItem struct {
 type settlementEntryItem struct {
 	ID            string `json:"id"`
 	ProviderID    string `json:"provider_id"`
+	ProviderName  string `json:"provider_name"`
 	Amount        string `json:"amount"`
 	Currency      string `json:"currency"`
 	WalletAddress string `json:"wallet_address"`
@@ -50,16 +55,48 @@ type settlementListResponse struct {
 	NextCursor *string               `json:"next_cursor"`
 }
 
+type monthlySettlement struct {
+	Month  string `json:"month"`
+	Amount string `json:"amount"`
+}
+
+type settlementSummaryResponse struct {
+	TotalSettled   string              `json:"total_settled"`
+	Currency       string              `json:"currency"`
+	MonthlyHistory []monthlySettlement `json:"monthly_history"`
+}
+
+type settlementThresholdResponse struct {
+	MinThreshold string `json:"min_threshold"`
+	Currency     string `json:"currency"`
+}
+
 type OwnerLister interface {
-	GetSettlementHistoryByOwner(ctx context.Context, providerID uuid.UUID, cursorTs time.Time, cursorID uuid.UUID, limit int32) ([]repository.SettlementBatch, map[uuid.UUID][]repository.SettlementEntry, error)
+	GetSettlementHistoryByOwner(ctx context.Context, ownerID uuid.UUID, cursorTs time.Time, cursorID uuid.UUID, limit int32, status string) ([]repository.SettlementBatch, map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow, error)
+}
+
+type OwnerSummarizer interface {
+	GetSettlementSummaryByOwner(ctx context.Context, ownerID uuid.UUID) (decimal.Decimal, error)
+	GetSettlementMonthlyHistoryByOwner(ctx context.Context, ownerID uuid.UUID, limit int32) ([]MonthlySettlement, error)
+}
+
+type MonthlySettlement struct {
+	Month  time.Time
+	Amount decimal.Decimal
 }
 
 type Handler struct {
-	lister OwnerLister
+	lister     OwnerLister
+	summarizer OwnerSummarizer
+	threshold  decimal.Decimal
 }
 
-func NewHandler(lister OwnerLister) *Handler {
-	return &Handler{lister: lister}
+func NewHandler(lister OwnerLister, summarizer OwnerSummarizer, threshold decimal.Decimal) *Handler {
+	return &Handler{
+		lister:     lister,
+		summarizer: summarizer,
+		threshold:  threshold,
+	}
 }
 
 func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +107,7 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, err := uuid.Parse(consumer.ConsumerID)
+	ownerID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
 
@@ -93,7 +130,9 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 
 	cursorTs, cursorID := parseCursor(r.URL.Query().Get("cursor"))
 
-	batches, entriesMap, err := h.lister.GetSettlementHistoryByOwner(r.Context(), userID, cursorTs, cursorID, limit+1)
+	status := r.URL.Query().Get("status")
+
+	batches, entriesMap, err := h.lister.GetSettlementHistoryByOwner(r.Context(), ownerID, cursorTs, cursorID, limit+1, status)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to retrieve settlement history"})
 
@@ -133,6 +172,7 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 			entryItems = append(entryItems, settlementEntryItem{
 				ID:            entry.ID.String(),
 				ProviderID:    entry.ProviderID.String(),
+				ProviderName:  entry.ProviderName,
 				Amount:        amount,
 				Currency:      string(entry.Currency),
 				WalletAddress: entry.WalletAddress,
@@ -141,12 +181,19 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
+		var txHash *string
+		if batch.TxHash.Valid {
+			s := batch.TxHash.String
+			txHash = &s
+		}
+
 		items = append(items, settlementBatchItem{
 			ID:          batch.ID.String(),
 			Status:      string(batch.Status),
 			TotalAmount: totalAmount,
 			Currency:    string(batch.Currency),
 			EntryCount:  batch.EntryCount,
+			TxHash:      txHash,
 			CreatedAt:   batch.CreatedAt.UTC().Format(time.RFC3339),
 			CompletedAt: completedAt,
 			Entries:     entryItems,
@@ -163,6 +210,57 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, settlementListResponse{
 		Data:       items,
 		NextCursor: nextCursor,
+	})
+}
+
+func (h *Handler) HandleSummary(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: msgAuthRequired})
+
+		return
+	}
+
+	ownerID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+
+		return
+	}
+
+	totalSettled, err := h.summarizer.GetSettlementSummaryByOwner(r.Context(), ownerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to retrieve settlement summary"})
+
+		return
+	}
+
+	monthly, err := h.summarizer.GetSettlementMonthlyHistoryByOwner(r.Context(), ownerID, maxMonthlyHistoryMonths)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to retrieve settlement history"})
+
+		return
+	}
+
+	monthlyItems := make([]monthlySettlement, 0, len(monthly))
+	for _, m := range monthly {
+		monthlyItems = append(monthlyItems, monthlySettlement{
+			Month:  m.Month.UTC().Format("2006-01"),
+			Amount: m.Amount.String(),
+		})
+	}
+
+	writeJSON(w, http.StatusOK, settlementSummaryResponse{
+		TotalSettled:   totalSettled.String(),
+		Currency:       "XLM",
+		MonthlyHistory: monthlyItems,
+	})
+}
+
+func (h *Handler) HandleThreshold(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, settlementThresholdResponse{
+		MinThreshold: h.threshold.String(),
+		Currency:     "XLM",
 	})
 }
 

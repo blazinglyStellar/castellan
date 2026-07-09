@@ -10,31 +10,145 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const listSettlementBatchesByProvider = `-- name: ListSettlementBatchesByProvider :many
+const getSettlementMonthlyHistoryByOwner = `-- name: GetSettlementMonthlyHistoryByOwner :many
+SELECT
+  DATE_TRUNC('month', sb.completed_at)::timestamptz AS month,
+  SUM(se.amount)::numeric AS amount
+FROM settlement_entries se
+JOIN settlement_batches sb ON sb.id = se.batch_id
+WHERE se.provider_id IN (SELECT id FROM providers WHERE owner_id = $1)
+  AND sb.status = 'completed'
+  AND sb.completed_at IS NOT NULL
+GROUP BY DATE_TRUNC('month', sb.completed_at)
+ORDER BY month DESC
+LIMIT $2
+`
+
+type GetSettlementMonthlyHistoryByOwnerParams struct {
+	OwnerID uuid.UUID `json:"owner_id"`
+	Limit   int32     `json:"limit"`
+}
+
+type GetSettlementMonthlyHistoryByOwnerRow struct {
+	Month  time.Time      `json:"month"`
+	Amount pgtype.Numeric `json:"amount"`
+}
+
+func (q *Queries) GetSettlementMonthlyHistoryByOwner(ctx context.Context, arg GetSettlementMonthlyHistoryByOwnerParams) ([]GetSettlementMonthlyHistoryByOwnerRow, error) {
+	rows, err := q.db.Query(ctx, getSettlementMonthlyHistoryByOwner, arg.OwnerID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetSettlementMonthlyHistoryByOwnerRow
+	for rows.Next() {
+		var i GetSettlementMonthlyHistoryByOwnerRow
+		if err := rows.Scan(&i.Month, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getSettlementSummaryByOwner = `-- name: GetSettlementSummaryByOwner :one
+SELECT COALESCE(SUM(se.amount), 0)::numeric AS total_settled
+FROM settlement_entries se
+JOIN settlement_batches sb ON sb.id = se.batch_id
+WHERE se.provider_id IN (SELECT id FROM providers WHERE owner_id = $1)
+  AND sb.status = 'completed'
+`
+
+func (q *Queries) GetSettlementSummaryByOwner(ctx context.Context, ownerID uuid.UUID) (pgtype.Numeric, error) {
+	row := q.db.QueryRow(ctx, getSettlementSummaryByOwner, ownerID)
+	var total_settled pgtype.Numeric
+	err := row.Scan(&total_settled)
+	return total_settled, err
+}
+
+const listSettlementBatchesByOwner = `-- name: ListSettlementBatchesByOwner :many
 SELECT DISTINCT sb.id, sb.status, sb.total_amount, sb.currency, sb.entry_count, sb.tx_hash, sb.created_at, sb.completed_at
 FROM settlement_batches sb
 JOIN settlement_entries se ON se.batch_id = sb.id
-WHERE se.provider_id = $1
+WHERE se.provider_id IN (SELECT id FROM providers WHERE owner_id = $1)
   AND ($3::timestamptz = '0001-01-01'::timestamptz OR (sb.created_at, sb.id) < ($3::timestamptz, $4::uuid))
 ORDER BY sb.created_at DESC, sb.id DESC
 LIMIT $2
 `
 
-type ListSettlementBatchesByProviderParams struct {
-	ProviderID uuid.UUID `json:"provider_id"`
-	Limit      int32     `json:"limit"`
-	Column3    time.Time `json:"column_3"`
-	Column4    uuid.UUID `json:"column_4"`
+type ListSettlementBatchesByOwnerParams struct {
+	OwnerID uuid.UUID `json:"owner_id"`
+	Limit   int32     `json:"limit"`
+	Column3 time.Time `json:"column_3"`
+	Column4 uuid.UUID `json:"column_4"`
 }
 
-func (q *Queries) ListSettlementBatchesByProvider(ctx context.Context, arg ListSettlementBatchesByProviderParams) ([]SettlementBatch, error) {
-	rows, err := q.db.Query(ctx, listSettlementBatchesByProvider,
-		arg.ProviderID,
+func (q *Queries) ListSettlementBatchesByOwner(ctx context.Context, arg ListSettlementBatchesByOwnerParams) ([]SettlementBatch, error) {
+	rows, err := q.db.Query(ctx, listSettlementBatchesByOwner,
+		arg.OwnerID,
 		arg.Limit,
 		arg.Column3,
 		arg.Column4,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SettlementBatch
+	for rows.Next() {
+		var i SettlementBatch
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.TotalAmount,
+			&i.Currency,
+			&i.EntryCount,
+			&i.TxHash,
+			&i.CreatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSettlementBatchesByOwnerFiltered = `-- name: ListSettlementBatchesByOwnerFiltered :many
+SELECT DISTINCT sb.id, sb.status, sb.total_amount, sb.currency, sb.entry_count, sb.tx_hash, sb.created_at, sb.completed_at
+FROM settlement_batches sb
+JOIN settlement_entries se ON se.batch_id = sb.id
+WHERE se.provider_id IN (SELECT id FROM providers WHERE owner_id = $1)
+  AND ($5::text = '' OR sb.status = $5::batch_status)
+  AND ($3::timestamptz = '0001-01-01'::timestamptz OR (sb.created_at, sb.id) < ($3::timestamptz, $4::uuid))
+ORDER BY sb.created_at DESC, sb.id DESC
+LIMIT $2
+`
+
+type ListSettlementBatchesByOwnerFilteredParams struct {
+	OwnerID uuid.UUID `json:"owner_id"`
+	Limit   int32     `json:"limit"`
+	Column3 time.Time `json:"column_3"`
+	Column4 uuid.UUID `json:"column_4"`
+	Column5 string    `json:"column_5"`
+}
+
+func (q *Queries) ListSettlementBatchesByOwnerFiltered(ctx context.Context, arg ListSettlementBatchesByOwnerFilteredParams) ([]SettlementBatch, error) {
+	rows, err := q.db.Query(ctx, listSettlementBatchesByOwnerFiltered,
+		arg.OwnerID,
+		arg.Limit,
+		arg.Column3,
+		arg.Column4,
+		arg.Column5,
 	)
 	if err != nil {
 		return nil, err

@@ -14,11 +14,7 @@ export default function HomePage() {
       router.push("/login");
       return;
     }
-    if (user.role === "provider") {
-      router.push("/provider/overview");
-    } else {
-      router.push("/consumer/overview");
-    }
+    router.push("/overview");
   }, [user, isLoading, router]);
 
   return (

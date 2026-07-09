@@ -70,6 +70,13 @@ SELECT * FROM settlement_entries
 WHERE id = $1
 LIMIT 1;
 
+-- name: ListSettlementEntriesByBatchWithProvider :many
+SELECT se.*, p.name::text AS provider_name
+FROM settlement_entries se
+JOIN providers p ON p.id = se.provider_id
+WHERE se.batch_id = $1
+ORDER BY se.created_at DESC;
+
 -- name: ListSettlementEntriesByBatch :many
 SELECT * FROM settlement_entries
 WHERE batch_id = $1

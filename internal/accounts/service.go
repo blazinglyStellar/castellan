@@ -32,23 +32,23 @@ func NewService(queries repository.Querier) *Service {
 }
 
 type AccountResponse struct {
-	ID        uuid.UUID       `json:"id"`
-	Balance   decimal.Decimal `json:"balance"`
-	Currency  string          `json:"currency"`
-	CreatedAt string          `json:"created_at"`
-	UpdatedAt string          `json:"updated_at"`
+	ID        uuid.UUID `json:"id"`
+	Balance   string    `json:"balance"`
+	Currency  string    `json:"currency"`
+	CreatedAt string    `json:"created_at"`
+	UpdatedAt string    `json:"updated_at"`
 }
 
 type EntryResponse struct {
-	ID            uuid.UUID       `json:"id"`
-	EntryType     string          `json:"entry_type"`
-	Amount        decimal.Decimal `json:"amount"`
-	BalanceAfter  decimal.Decimal `json:"balance_after"`
-	Currency      string          `json:"currency"`
-	ReferenceType *string         `json:"reference_type,omitempty"`
-	Status        string          `json:"status"`
-	Description   *string         `json:"description,omitempty"`
-	CreatedAt     string          `json:"created_at"`
+	ID            uuid.UUID `json:"id"`
+	EntryType     string    `json:"entry_type"`
+	Amount        string    `json:"amount"`
+	BalanceAfter  string    `json:"balance_after"`
+	Currency      string    `json:"currency"`
+	ReferenceType *string   `json:"reference_type,omitempty"`
+	Status        string    `json:"status"`
+	Description   *string   `json:"description,omitempty"`
+	CreatedAt     string    `json:"created_at"`
 }
 
 type ListEntriesResponse struct {
@@ -74,7 +74,7 @@ func (s *Service) GetAccount(ctx context.Context, ownerID uuid.UUID) (*AccountRe
 
 	return &AccountResponse{
 		ID:        account.ID,
-		Balance:   balance,
+		Balance:   balance.String(),
 		Currency:  string(account.Currency),
 		CreatedAt: account.CreatedAt.Format(isoFormat),
 		UpdatedAt: account.UpdatedAt.Format(isoFormat),
@@ -232,8 +232,8 @@ func toEntryResponse(e repository.LedgerEntry) (*EntryResponse, error) {
 	return &EntryResponse{
 		ID:            e.ID,
 		EntryType:     string(e.EntryType),
-		Amount:        amount,
-		BalanceAfter:  balanceAfter,
+		Amount:        amount.String(),
+		BalanceAfter:  balanceAfter.String(),
 		Currency:      string(e.Currency),
 		ReferenceType: refType,
 		Status:        string(e.Status),

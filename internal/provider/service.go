@@ -122,7 +122,7 @@ func NewProviderService(queries repository.Querier) *ProviderService {
 	return &ProviderService{queries: queries}
 }
 
-func (s *ProviderService) CreateProvider(ctx context.Context, ownerID uuid.UUID, name, baseURL string) (repository.Provider, error) {
+func (s *ProviderService) CreateProvider(ctx context.Context, ownerID uuid.UUID, name, baseURL, description string) (repository.Provider, error) {
 	if err := validateName(name); err != nil {
 		return repository.Provider{}, err
 	}
@@ -131,10 +131,11 @@ func (s *ProviderService) CreateProvider(ctx context.Context, ownerID uuid.UUID,
 	}
 
 	params := repository.CreateProviderParams{
-		OwnerID: ownerID,
-		Name:    name,
-		BaseUrl: baseURL,
-		Status:  repository.ProviderStatusActive,
+		OwnerID:     ownerID,
+		Name:        name,
+		BaseUrl:     baseURL,
+		Description: description,
+		Status:      repository.ProviderStatusActive,
 	}
 
 	provider, err := s.queries.CreateProvider(ctx, params)
@@ -155,41 +156,108 @@ func (s *ProviderService) GetProviderByID(ctx context.Context, providerID, owner
 	return provider, nil
 }
 
-func (s *ProviderService) ListProviders(ctx context.Context, ownerID uuid.UUID) ([]repository.Provider, error) {
+func (s *ProviderService) ListProviders(ctx context.Context, ownerID uuid.UUID) ([]OwnerProvider, error) {
 	providers, err := s.queries.ListProvidersByOwner(ctx, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("list providers: %w", err)
 	}
-	return providers, nil
+
+	stats, err := s.queries.GetProviderStats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get provider stats: %w", err)
+	}
+
+	statsByID := make(map[uuid.UUID]repository.GetProviderStatsRow, len(stats))
+	for _, st := range stats {
+		statsByID[st.ID] = st
+	}
+
+	result := make([]OwnerProvider, len(providers))
+	for i, p := range providers {
+		result[i] = OwnerProvider{Provider: p}
+		if st, ok := statsByID[p.ID]; ok {
+			result[i].EndpointCount = st.EndpointCount
+			result[i].TotalCalls = st.TotalCalls
+			result[i].ActiveConsumers = st.ActiveConsumers
+		}
+	}
+
+	return result, nil
 }
 
-func (s *ProviderService) ListPublicProviders(ctx context.Context) ([]repository.Provider, error) {
-	providers, err := s.queries.ListAllProviders(ctx, repository.ProviderStatusActive)
+type OwnerProvider struct {
+	repository.Provider
+	EndpointCount   int64 `json:"endpoint_count"`
+	TotalCalls      int64 `json:"total_calls"`
+	ActiveConsumers int64 `json:"active_consumers"`
+}
+
+type PublicProvider struct {
+	repository.Provider
+	TotalCalls      int64 `json:"total_calls"`
+	ActiveConsumers int64 `json:"active_consumers"`
+}
+
+func (s *ProviderService) ListPublicProviders(ctx context.Context) ([]PublicProvider, error) {
+	providers, err := s.queries.ListAllProviders(ctx, repository.NullProviderStatus{
+		ProviderStatus: repository.ProviderStatusActive,
+		Valid:          true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list public providers: %w", err)
 	}
-	return providers, nil
+
+	stats, err := s.queries.GetProviderStats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get provider stats: %w", err)
+	}
+
+	statsByID := make(map[uuid.UUID]repository.GetProviderStatsRow, len(stats))
+	for _, st := range stats {
+		statsByID[st.ID] = st
+	}
+
+	result := make([]PublicProvider, len(providers))
+	for i, p := range providers {
+		result[i] = PublicProvider{Provider: p}
+		if st, ok := statsByID[p.ID]; ok {
+			result[i].TotalCalls = st.TotalCalls
+			result[i].ActiveConsumers = st.ActiveConsumers
+		}
+	}
+
+	return result, nil
 }
 
-func (s *ProviderService) PartialUpdateProvider(ctx context.Context, providerID, ownerID uuid.UUID, name, baseURL *string) (repository.Provider, error) {
+type partialUpdateProviderInput struct {
+	Name        *string
+	BaseURL     *string
+	Description *string
+}
+
+func (s *ProviderService) PartialUpdateProvider(ctx context.Context, providerID, ownerID uuid.UUID, input partialUpdateProviderInput) (repository.Provider, error) {
 	current, err := s.GetProviderByID(ctx, providerID, ownerID)
 	if err != nil {
 		return repository.Provider{}, err
 	}
 
 	resolvedName := current.Name
-	if name != nil {
-		resolvedName = *name
+	if input.Name != nil {
+		resolvedName = *input.Name
 	}
 	resolvedBaseURL := current.BaseUrl
-	if baseURL != nil {
-		resolvedBaseURL = *baseURL
+	if input.BaseURL != nil {
+		resolvedBaseURL = *input.BaseURL
+	}
+	resolvedDescription := current.Description
+	if input.Description != nil {
+		resolvedDescription = *input.Description
 	}
 
-	return s.UpdateProvider(ctx, providerID, ownerID, resolvedName, resolvedBaseURL)
+	return s.UpdateProvider(ctx, providerID, ownerID, resolvedName, resolvedBaseURL, resolvedDescription)
 }
 
-func (s *ProviderService) UpdateProvider(ctx context.Context, providerID, ownerID uuid.UUID, name, baseURL string) (repository.Provider, error) {
+func (s *ProviderService) UpdateProvider(ctx context.Context, providerID, ownerID uuid.UUID, name, baseURL, description string) (repository.Provider, error) {
 	if _, err := s.GetProviderByID(ctx, providerID, ownerID); err != nil {
 		return repository.Provider{}, err
 	}
@@ -201,9 +269,10 @@ func (s *ProviderService) UpdateProvider(ctx context.Context, providerID, ownerI
 	}
 
 	params := repository.UpdateProviderParams{
-		ID:      providerID,
-		Name:    name,
-		BaseUrl: baseURL,
+		ID:          providerID,
+		Name:        name,
+		BaseUrl:     baseURL,
+		Description: description,
 	}
 
 	provider, err := s.queries.UpdateProvider(ctx, params)
@@ -254,6 +323,7 @@ type CreateEndpointInput struct {
 	Currency    repository.Currency
 	RateLimit   pgtype.Int4
 	Status      repository.EndpointStatus
+	Description string
 }
 
 type UpdateEndpointInput struct {
@@ -264,6 +334,7 @@ type UpdateEndpointInput struct {
 	PriceAmount pgtype.Numeric
 	Currency    repository.Currency
 	RateLimit   pgtype.Int4
+	Description string
 }
 
 type PartialUpdateEndpointInput struct {
@@ -272,6 +343,7 @@ type PartialUpdateEndpointInput struct {
 	PriceAmount *pgtype.Numeric
 	Currency    *repository.Currency
 	RateLimit   *pgtype.Int4
+	Description *string
 }
 
 type EndpointService struct {
@@ -329,6 +401,7 @@ func (s *EndpointService) CreateEndpoint(
 		Currency:    input.Currency,
 		RateLimit:   input.RateLimit,
 		Status:      input.Status,
+		Description: input.Description,
 	}
 
 	endpoint, err := s.queries.CreateEndpoint(ctx, params)
@@ -362,13 +435,16 @@ func (s *EndpointService) ListEndpoints(ctx context.Context, providerID, ownerID
 		return nil, ErrEndpointNotFound
 	}
 
-	var statusInterface any
+	var status repository.NullEndpointStatus
 	if statusFilter != nil {
-		statusInterface = statusFilter
+		status = repository.NullEndpointStatus{
+			EndpointStatus: *statusFilter,
+			Valid:          true,
+		}
 	}
 	params := repository.ListEndpointsByProviderParams{
 		ProviderID: providerID,
-		Status:     statusInterface,
+		Status:     status,
 	}
 	endpoints, err := s.queries.ListEndpointsByProvider(ctx, params)
 	if err != nil {
@@ -388,7 +464,10 @@ func (s *EndpointService) ListPublicEndpoints(ctx context.Context, providerID uu
 
 	params := repository.ListEndpointsByProviderParams{
 		ProviderID: providerID,
-		Status:     repository.EndpointStatusActive,
+		Status: repository.NullEndpointStatus{
+			EndpointStatus: repository.EndpointStatusActive,
+			Valid:          true,
+		},
 	}
 	endpoints, err := s.queries.ListEndpointsByProvider(ctx, params)
 	if err != nil {
@@ -437,6 +516,7 @@ func (s *EndpointService) UpdateEndpoint(
 		PriceAmount: input.PriceAmount,
 		Currency:    input.Currency,
 		RateLimit:   input.RateLimit,
+		Description: input.Description,
 	}
 
 	endpoint, err := s.queries.UpdateEndpoint(ctx, params)
@@ -476,6 +556,10 @@ func (s *EndpointService) PartialUpdateEndpoint(
 	if input.RateLimit != nil {
 		resolvedRateLimit = *input.RateLimit
 	}
+	resolvedDescription := current.Description
+	if input.Description != nil {
+		resolvedDescription = *input.Description
+	}
 
 	fullInput := UpdateEndpointInput{
 		OwnerID:     ownerID,
@@ -485,6 +569,7 @@ func (s *EndpointService) PartialUpdateEndpoint(
 		PriceAmount: resolvedPrice,
 		Currency:    resolvedCurrency,
 		RateLimit:   resolvedRateLimit,
+		Description: resolvedDescription,
 	}
 
 	return s.UpdateEndpoint(ctx, fullInput)

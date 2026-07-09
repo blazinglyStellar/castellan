@@ -28,6 +28,19 @@ type createKeyResponse struct {
 	ExpiresAt *time.Time `json:"expires_at"`
 }
 
+type updateKeyRequest struct {
+	Label     *string    `json:"label,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+type updateKeyResponse struct {
+	ID        uuid.UUID  `json:"id"`
+	Label     string     `json:"label"`
+	Status    string     `json:"status"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at"`
+}
+
 type revokeKeyResponse struct {
 	ID        uuid.UUID  `json:"id"`
 	Label     string     `json:"label"`
@@ -126,6 +139,67 @@ func (h *KeyHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, keys)
+}
+
+func (h *KeyHandler) UpdateKey(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		return
+	}
+
+	userID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		return
+	}
+
+	keyID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid key id"})
+		return
+	}
+
+	var req updateKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid request body"})
+		return
+	}
+
+	var key repository.ApiKey
+
+	if req.Label != nil {
+		key, err = h.service.UpdateKeyLabel(r.Context(), keyID, userID, *req.Label)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{errKey: "key not found"})
+			return
+		}
+	}
+
+	if req.ExpiresAt != nil {
+		key, err = h.service.UpdateKeyExpiration(r.Context(), keyID, userID, req.ExpiresAt)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{errKey: "key not found"})
+			return
+		}
+	}
+
+	if req.Label == nil && req.ExpiresAt == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "nothing to update"})
+		return
+	}
+
+	resp := updateKeyResponse{
+		ID:        key.ID,
+		Label:     key.Label.String,
+		Status:    string(key.Status),
+		CreatedAt: key.CreatedAt,
+	}
+	if key.ExpiresAt.Valid {
+		resp.ExpiresAt = &key.ExpiresAt.Time
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *KeyHandler) RevokeKey(w http.ResponseWriter, r *http.Request) {

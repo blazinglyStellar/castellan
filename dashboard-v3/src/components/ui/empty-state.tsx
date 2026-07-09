@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 interface EmptyStateProps {
   icon?: ComponentType<{ className?: string }>;
   title: string;
-  description: string;
+  description: React.ReactNode;
   action?: React.ReactNode;
 }
 

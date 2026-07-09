@@ -87,13 +87,14 @@ func (m *mockQuerier) CreateProvider(_ context.Context, arg repository.CreatePro
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p := repository.Provider{
-		ID:        uuid.New(),
-		OwnerID:   arg.OwnerID,
-		Name:      arg.Name,
-		BaseUrl:   arg.BaseUrl,
-		Status:    arg.Status,
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
+		ID:          uuid.New(),
+		OwnerID:     arg.OwnerID,
+		Name:        arg.Name,
+		BaseUrl:     arg.BaseUrl,
+		Description: arg.Description,
+		Status:      arg.Status,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
 	}
 	m.providers[p.ID] = p
 	return p, nil
@@ -130,6 +131,7 @@ func (m *mockQuerier) UpdateProvider(_ context.Context, arg repository.UpdatePro
 	}
 	p.Name = arg.Name
 	p.BaseUrl = arg.BaseUrl
+	p.Description = arg.Description
 	p.UpdatedAt = time.Now().UTC()
 	m.providers[arg.ID] = p
 	return p, nil
@@ -182,6 +184,7 @@ func (m *mockQuerier) CreateEndpoint(_ context.Context, arg repository.CreateEnd
 		Currency:    arg.Currency,
 		RateLimit:   arg.RateLimit,
 		Status:      arg.Status,
+		Description: arg.Description,
 		CreatedAt:   time.Now().UTC(),
 		UpdatedAt:   time.Now().UTC(),
 	}
@@ -207,15 +210,9 @@ func (m *mockQuerier) ListEndpointsByProvider(_ context.Context, arg repository.
 		if e.ProviderID != arg.ProviderID {
 			continue
 		}
-		if arg.Status != nil {
-			if statusPtr, ok := arg.Status.(*repository.EndpointStatus); ok {
-				if string(e.Status) != string(*statusPtr) {
-					continue
-				}
-			} else if statusStr, ok := arg.Status.(string); ok {
-				if string(e.Status) != statusStr {
-					continue
-				}
+		if arg.Status.Valid {
+			if string(e.Status) != string(arg.Status.EndpointStatus) {
+				continue
 			}
 		}
 		result = append(result, e)
@@ -235,6 +232,7 @@ func (m *mockQuerier) UpdateEndpoint(_ context.Context, arg repository.UpdateEnd
 	e.PriceAmount = arg.PriceAmount
 	e.Currency = arg.Currency
 	e.RateLimit = arg.RateLimit
+	e.Description = arg.Description
 	e.UpdatedAt = time.Now().UTC()
 	m.endpoints[arg.ID] = e
 	return e, nil
@@ -262,6 +260,10 @@ func (m *mockQuerier) DeleteEndpoint(_ context.Context, id uuid.UUID) (repositor
 	}
 	delete(m.endpoints, id)
 	return e, nil
+}
+
+func (m *mockQuerier) GetProviderStats(_ context.Context) ([]repository.GetProviderStatsRow, error) {
+	return nil, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -483,7 +485,7 @@ func authenticatedRequest(r *http.Request, consumerID string) *http.Request {
 func createTestProvider(t *testing.T, mq *mockQuerier, ownerID uuid.UUID, name, baseURL string) repository.Provider {
 	t.Helper()
 	p, err := mq.CreateProvider(context.Background(), repository.CreateProviderParams{
-		OwnerID: ownerID, Name: name, BaseUrl: baseURL, Status: repository.ProviderStatusActive,
+		OwnerID: ownerID, Name: name, BaseUrl: baseURL, Description: "", Status: repository.ProviderStatusActive,
 	})
 	if err != nil {
 		t.Fatal(err)

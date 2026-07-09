@@ -78,17 +78,10 @@ func (h *Handler) GetEarnings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	count, err := h.service.queries.GetUserProviderCount(r.Context(), userID)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to verify provider status"})
-		return
-	}
-	if count == 0 {
-		writeJSON(w, http.StatusForbidden, map[string]string{errKey: "only provider accounts can access earnings"})
-		return
-	}
+	startDate := parseTimeParam(r.URL.Query().Get("start_date"))
+	endDate := parseTimeParam(r.URL.Query().Get("end_date"))
 
-	resp, err := h.service.GetEarnings(r.Context(), userID)
+	resp, err := h.service.GetEarnings(r.Context(), userID, startDate, endDate)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to get earnings"})
 		return
@@ -113,6 +106,13 @@ func parseLimit(s string) int32 {
 
 func parseUsageFilter(r *http.Request) UsageFilter {
 	q := r.URL.Query()
+
+	var providerID uuid.UUID
+	if p := q.Get("provider_id"); p != "" {
+		if id, err := uuid.Parse(p); err == nil {
+			providerID = id
+		}
+	}
 
 	var endpointID uuid.UUID
 	if e := q.Get("endpoint_id"); e != "" {
@@ -141,10 +141,11 @@ func parseUsageFilter(r *http.Request) UsageFilter {
 		}
 	}
 
-	hasFilters := q.Get("endpoint_id") != "" || q.Get("status_code") != "" ||
-		q.Get("start_date") != "" || q.Get("end_date") != ""
+	hasFilters := q.Get("provider_id") != "" || q.Get("endpoint_id") != "" ||
+		q.Get("status_code") != "" || q.Get("start_date") != "" || q.Get("end_date") != ""
 
 	return UsageFilter{
+		ProviderID: providerID,
 		EndpointID: endpointID,
 		StatusCode: statusCode,
 		StartDate:  startDate,
@@ -170,6 +171,17 @@ func parseCursor(s string) (time.Time, uuid.UUID) {
 		return time.Time{}, uuid.UUID{}
 	}
 	return t, id
+}
+
+func parseTimeParam(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

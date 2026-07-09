@@ -60,6 +60,10 @@ export function UsageVolumeChart({ events }: UsageVolumeChartProps) {
             tickLine={false}
             axisLine={false}
             tick={{ fontSize: 11 }}
+            tickFormatter={(d: string) => {
+              const dt = new Date(d + "T00:00:00Z");
+              return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            }}
           />
           <YAxis
             className="text-xs text-muted-foreground"

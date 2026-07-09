@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
-import { TrendingUp, Clock, DollarSign } from "lucide-react";
+import { TrendingUp, Clock, DollarSign, Activity } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 
 import { useAccount } from "@/lib/auth/account-context";
-import { getEarnings, getUsage } from "@/lib/api/client";
+import { getEarnings, getUsage, ApiError } from "@/lib/api/client";
 import { formatAmount } from "@/lib/format";
 import type { UsageEvent } from "@/lib/api/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -18,7 +19,10 @@ import { DateRangePicker } from "@/components/usage/date-range-picker";
 import { EarningsChart } from "@/components/analytics/earnings-chart";
 import { EarningsBreakdown } from "@/components/analytics/earnings-breakdown";
 import { UsageVolumeChart } from "@/components/analytics/usage-volume-chart";
-import { UsageCostBreakdown } from "@/components/analytics/usage-cost-breakdown";
+import { UsageCostDonut } from "@/components/analytics/usage-cost-donut";
+import { ErrorRateChart } from "@/components/analytics/error-rate-chart";
+import { LatencyChart } from "@/components/analytics/latency-chart";
+import { StatusDistribution } from "@/components/analytics/status-distribution";
 
 function getDefaultRange() {
   const end = new Date();
@@ -30,18 +34,32 @@ function getDefaultRange() {
   };
 }
 
+const LOGO = (
+  <Image
+    src="/stellar-xlm-logo.svg"
+    alt="XLM"
+    width={14}
+    height={12}
+    className="inline-block align-middle"
+  />
+);
+
 export default function AnalyticsPage() {
   const { user, isLoading: isAccountLoading } = useAccount();
   const defaults = getDefaultRange();
   const [startDate, setStartDate] = useState(defaults.startDate);
   const [endDate, setEndDate] = useState(defaults.endDate);
-  const [role, setRole] = useState<"provider" | "consumer">("provider");
+  const [role, setRole] = useState<"provider" | "consumer" | null>(null);
 
   const resolvedRole = role ?? user?.role ?? "consumer";
 
   const earningsQuery = useQuery({
-    queryKey: ["earnings"],
-    queryFn: getEarnings,
+    queryKey: ["earnings", startDate, endDate],
+    queryFn: () =>
+      getEarnings({
+        start_date: startDate ? `${startDate}T00:00:00Z` : undefined,
+        end_date: endDate ? `${endDate}T23:59:59Z` : undefined,
+      }),
     enabled: resolvedRole === "provider",
   });
 
@@ -57,23 +75,11 @@ export default function AnalyticsPage() {
     enabled: resolvedRole === "consumer",
   });
 
-  const filteredSparkline = useMemo(() => {
-    const data = earningsQuery.data?.sparkline;
+  const breakdownData = useMemo(() => {
+    const data = earningsQuery.data?.by_provider;
     if (!data || data.length === 0) return [];
-    const start = startDate ? new Date(startDate) : new Date(0);
-    const end = endDate ? new Date(endDate) : new Date(864e12);
-    return data.filter((d) => {
-      const dt = new Date(d.date);
-      return dt >= start && dt <= end;
-    });
-  }, [earningsQuery.data, startDate, endDate]);
-
-  const filteredBreakdown = useMemo(() => {
-    const data = earningsQuery.data?.by_endpoint;
-    if (!data || data.length === 0) return [];
-    if (!startDate && !endDate) return data;
-    return data;
-  }, [earningsQuery.data, startDate, endDate]);
+    return data.map((d) => ({ name: d.name, total: d.total }));
+  }, [earningsQuery.data]);
 
   if (isAccountLoading) {
     return (
@@ -99,10 +105,15 @@ export default function AnalyticsPage() {
       ? () => earningsQuery.refetch()
       : () => usageQuery.refetch();
 
+  const isProviderForbidden =
+    resolvedRole === "provider" &&
+    earningsQuery.isError &&
+    earningsQuery.error instanceof ApiError &&
+    earningsQuery.error.status === 403;
+
   const hasProviderData =
     resolvedRole === "provider" &&
-    earningsQuery.data &&
-    earningsQuery.data.total_earnings !== "0";
+    earningsQuery.data;
 
   const hasConsumerData =
     resolvedRole === "consumer" &&
@@ -113,7 +124,7 @@ export default function AnalyticsPage() {
     return <LoadingSkeleton />;
   }
 
-  if (isError) {
+  if (isError && !isProviderForbidden) {
     return (
       <ErrorState
         message={error instanceof Error ? error.message : "Failed to load analytics"}
@@ -122,10 +133,10 @@ export default function AnalyticsPage() {
     );
   }
 
-  if (!hasProviderData && !hasConsumerData) {
+  if (!hasProviderData && !hasConsumerData && !isProviderForbidden) {
     return (
       <div className="space-y-6">
-        <Header role={resolvedRole} startDate={startDate} endDate={endDate} onStartDateChange={setStartDate} onEndDateChange={setEndDate} roleToggle={role} onRoleToggle={setRole} />
+        <Header role={resolvedRole} startDate={startDate} endDate={endDate} onStartDateChange={setStartDate} onEndDateChange={setEndDate} roleToggle={resolvedRole} onRoleToggle={setRole} />
         <EmptyState
           title="No analytics data yet"
           description={
@@ -140,57 +151,85 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <Header role={resolvedRole} startDate={startDate} endDate={endDate} onStartDateChange={setStartDate} onEndDateChange={setEndDate} roleToggle={role} onRoleToggle={setRole} />
+      <Header role={resolvedRole} startDate={startDate} endDate={endDate} onStartDateChange={setStartDate} onEndDateChange={setEndDate} roleToggle={resolvedRole} onRoleToggle={setRole} />
 
-      {resolvedRole === "provider" && earningsQuery.data && (
-        <>
-          <div className="grid gap-6 sm:grid-cols-2">
+      {resolvedRole === "provider" && (
+        <div className="relative">
+          {isProviderForbidden && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-sm">
+              <Card className="w-80 shadow-lg">
+                <CardContent className="flex flex-col items-center gap-4 pt-6 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Provider analytics are only available for provider accounts.
+                  </p>
+                  <Button asChild>
+                    <a href="/settings">Set up provider account</a>
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          <div className={isProviderForbidden ? "pointer-events-none select-none space-y-6" : "space-y-6"}>
+            <div className="grid gap-6 sm:grid-cols-2">
+              <Card>
+                <CardHeader className="flex flex-row items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-sm font-medium">Total Earnings</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold tracking-tight">
+                    {formatAmount(earningsQuery.data?.total_earnings ?? "0")}{" "}
+                    <span className="text-sm font-normal text-muted-foreground">XLM</span>
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-sm font-medium">Unsettled</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold tracking-tight">
+                    {formatAmount(earningsQuery.data?.unsettled_earnings ?? "0")}{" "}
+                    <span className="text-sm font-normal text-muted-foreground">XLM</span>
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
             <Card>
-              <CardHeader className="flex flex-row items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm font-medium">Total Earnings</CardTitle>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Earnings Over Time</CardTitle>
+                <CardDescription>Daily earnings for the selected period</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold tracking-tight">
-                  {formatAmount(earningsQuery.data.total_earnings)}{" "}
-                  <span className="text-sm font-normal text-muted-foreground">XLM</span>
-                </p>
+                {earningsQuery.data ? (
+                  <EarningsChart data={earningsQuery.data?.sparkline ?? []} />
+                ) : (
+                  <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+                    No earnings data yet.
+                  </div>
+                )}
               </CardContent>
             </Card>
+
             <Card>
-              <CardHeader className="flex flex-row items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm font-medium">Unsettled</CardTitle>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Earnings Breakdown</CardTitle>
+                <CardDescription>Revenue by provider</CardDescription>
               </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold tracking-tight">
-                  {formatAmount(earningsQuery.data.unsettled_earnings)}{" "}
-                  <span className="text-sm font-normal text-muted-foreground">XLM</span>
-                </p>
+              <CardContent className="p-0">
+                {earningsQuery.data ? (
+                  <EarningsBreakdown data={breakdownData} />
+                ) : (
+                  <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+                    No earnings data yet.
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium">Earnings Over Time</CardTitle>
-              <CardDescription>Daily earnings for the selected period</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <EarningsChart data={filteredSparkline} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium">Earnings Breakdown</CardTitle>
-              <CardDescription>Revenue by endpoint</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <EarningsBreakdown data={filteredBreakdown} />
-            </CardContent>
-          </Card>
-        </>
+        </div>
       )}
 
       {resolvedRole === "consumer" && usageQuery.data && (
@@ -207,15 +246,47 @@ export default function AnalyticsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium">Cost Breakdown</CardTitle>
-              <CardDescription>Spending by endpoint</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <UsageCostBreakdown events={usageQuery.data.data} />
-            </CardContent>
-          </Card>
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Error Rate Over Time</CardTitle>
+                <CardDescription>Daily non-2xx rate by endpoint</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ErrorRateChart events={usageQuery.data.data} />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Latency Over Time</CardTitle>
+                <CardDescription>Daily average response time by endpoint</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <LatencyChart events={usageQuery.data.data} />
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Status Code Distribution</CardTitle>
+                <CardDescription>Response status breakdown by endpoint</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <StatusDistribution events={usageQuery.data.data} />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Cost Breakdown</CardTitle>
+                <CardDescription>Spending by endpoint</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <UsageCostDonut events={usageQuery.data.data} />
+              </CardContent>
+            </Card>
+          </div>
         </>
       )}
     </div>
@@ -281,9 +352,20 @@ function Header({
 
 function SummaryCards({ events }: { events: UsageEvent[] }) {
   const totalCost = events.reduce((s, e) => s + parseFloat(e.request_cost), 0);
-  const currency = events[0]?.currency ?? "XLM";
+  const totalCalls = events.length;
+  const successCalls = events.filter(
+    (e) => e.status_code != null && e.status_code < 400,
+  ).length;
+  const successRate = totalCalls > 0 ? (successCalls / totalCalls) * 100 : 0;
+  const latencyValues = events
+    .filter((e) => e.latency_ms != null)
+    .map((e) => e.latency_ms!);
+  const avgLatency =
+    latencyValues.length > 0
+      ? latencyValues.reduce((s, v) => s + v, 0) / latencyValues.length
+      : 0;
   return (
-    <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2">
+    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
           <DollarSign className="h-4 w-4 text-muted-foreground" />
@@ -291,8 +373,7 @@ function SummaryCards({ events }: { events: UsageEvent[] }) {
         </CardHeader>
         <CardContent>
           <p className="text-3xl font-bold tracking-tight">
-            {totalCost.toFixed(4)}{" "}
-            <span className="text-sm font-normal text-muted-foreground">{currency}</span>
+            {totalCost.toFixed(4)} {LOGO}
           </p>
         </CardContent>
       </Card>
@@ -302,7 +383,35 @@ function SummaryCards({ events }: { events: UsageEvent[] }) {
           <CardTitle className="text-sm font-medium">Total Calls</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-3xl font-bold tracking-tight">{events.length.toLocaleString()}</p>
+          <p className="text-3xl font-bold tracking-tight">{totalCalls.toLocaleString()}</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="flex flex-row items-center gap-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-3xl font-bold tracking-tight">
+            {successRate.toFixed(1)}%
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {successCalls} / {totalCalls} calls
+          </p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="flex flex-row items-center gap-2">
+          <Clock className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-medium">Avg Latency</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-3xl font-bold tracking-tight">
+            {latencyValues.length > 0 ? `${Math.round(avgLatency)}ms` : "\u2014"}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            avg response time
+          </p>
         </CardContent>
       </Card>
     </div>
@@ -319,7 +428,7 @@ function LoadingSkeleton() {
         </div>
         <Skeleton className="h-8 w-72" />
       </div>
-      <div className="grid gap-6 sm:grid-cols-2">
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center gap-2">
             <Skeleton className="h-4 w-4 rounded-full" />
@@ -338,9 +447,34 @@ function LoadingSkeleton() {
             <Skeleton className="h-8 w-32" />
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-2">
+            <Skeleton className="h-4 w-4 rounded-full" />
+            <Skeleton className="h-4 w-28" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-8 w-24" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-2">
+            <Skeleton className="h-4 w-4 rounded-full" />
+            <Skeleton className="h-4 w-24" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-8 w-20" />
+          </CardContent>
+        </Card>
       </div>
       <Skeleton className="h-64 w-full rounded-lg" />
-      <Skeleton className="h-48 w-full rounded-lg" />
+      <div className="grid gap-6 md:grid-cols-2">
+        <Skeleton className="h-64 w-full rounded-lg" />
+        <Skeleton className="h-64 w-full rounded-lg" />
+      </div>
+      <div className="grid gap-6 md:grid-cols-2">
+        <Skeleton className="h-48 w-full rounded-lg" />
+        <Skeleton className="h-64 w-full rounded-lg" />
+      </div>
     </div>
   );
 }

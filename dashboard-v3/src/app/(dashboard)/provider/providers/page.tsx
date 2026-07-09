@@ -39,6 +39,7 @@ import {
 
 export default function ProvidersPage() {
   const { isLoading: isAccountLoading } = useAccount();
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const {
     data: providers,
@@ -85,7 +86,7 @@ export default function ProvidersPage() {
             Manage your registered API providers.
           </p>
         </div>
-        <CreateProviderDialog />
+        <CreateProviderDialog open={dialogOpen} onOpenChange={setDialogOpen} />
       </div>
 
       {hasProviders ? (
@@ -94,6 +95,11 @@ export default function ProvidersPage() {
         <EmptyState
           title="No providers yet"
           description="Add your first provider to start publishing APIs."
+          action={
+            <Button size="sm" onClick={() => setDialogOpen(true)}>
+              Create Your First Provider
+            </Button>
+          }
         />
       )}
     </div>
@@ -127,6 +133,7 @@ function ProvidersTable({ providers }: { providers: Provider[] }) {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Base URL</TableHead>
+              <TableHead>Endpoints</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Created</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -140,6 +147,9 @@ function ProvidersTable({ providers }: { providers: Provider[] }) {
                 </TableCell>
                 <TableCell className="max-w-[240px] truncate font-mono text-xs text-muted-foreground">
                   {provider.base_url}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {provider.endpoint_count ?? "—"}
                 </TableCell>
                 <TableCell>
                   <StatusBadge status={provider.status} />
@@ -205,9 +215,14 @@ function ProvidersTable({ providers }: { providers: Provider[] }) {
   );
 }
 
-function CreateProviderDialog() {
+function CreateProviderDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
 
@@ -215,7 +230,7 @@ function CreateProviderDialog() {
     mutationFn: (data: CreateProviderRequest) => createProvider(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["providers"] });
-      setOpen(false);
+      onOpenChange(false);
       setName("");
       setBaseUrl("");
     },
@@ -228,7 +243,7 @@ function CreateProviderDialog() {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
         <Button size="sm">
           <Plus className="mr-2 h-4 w-4" />
@@ -266,7 +281,7 @@ function CreateProviderDialog() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setOpen(false)}
+              onClick={() => onOpenChange(false)}
             >
               Cancel
             </Button>

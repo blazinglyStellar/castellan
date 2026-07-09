@@ -18,6 +18,8 @@ import type {
   Provider,
   SettlementListResponse,
   SettlementParams,
+  SettlementSummary,
+  SettlementThreshold,
   UsageListResponse,
   UsageParams,
 } from "./types";
@@ -122,8 +124,14 @@ export function getDeposits(params?: CursorParams): Promise<DepositListResponse>
 
 // ── Earnings ──
 
-export function getEarnings(): Promise<EarningsResponse> {
-  return api.get<EarningsResponse>("/api/v1/earnings");
+interface EarningsParams {
+  start_date?: string;
+  end_date?: string;
+}
+
+export function getEarnings(params?: EarningsParams): Promise<EarningsResponse> {
+  const qs = params ? buildQueryString(params) : "";
+  return api.get<EarningsResponse>(`/api/v1/earnings${qs}`);
 }
 
 // ── Settlements ──
@@ -131,6 +139,14 @@ export function getEarnings(): Promise<EarningsResponse> {
 export function getSettlements(params?: SettlementParams): Promise<SettlementListResponse> {
   const qs = buildQueryString(params);
   return api.get<SettlementListResponse>(`/api/v1/settlements${qs}`);
+}
+
+export function getSettlementSummary(): Promise<SettlementSummary> {
+  return api.get<SettlementSummary>("/api/v1/settlements/summary");
+}
+
+export function getSettlementThreshold(): Promise<SettlementThreshold> {
+  return api.get<SettlementThreshold>("/api/v1/settlements/threshold");
 }
 
 // ── Providers ──
@@ -197,8 +213,12 @@ export function getApiKeys(): Promise<ApiKey[]> {
   return api.get<ApiKey[]>("/api/v1/keys");
 }
 
-export function createApiKey(label?: string): Promise<CreateApiKeyResponse> {
-  return api.post<CreateApiKeyResponse>("/api/v1/keys", label ? { label } : undefined);
+export function createApiKey(label: string, expiresAt?: string): Promise<CreateApiKeyResponse> {
+  return api.post<CreateApiKeyResponse>("/api/v1/keys", { label, ...(expiresAt ? { expires_at: expiresAt } : {}) });
+}
+
+export function updateApiKey(id: string, data: { label?: string; expires_at?: string | null }): Promise<ApiKey> {
+  return api.patch<ApiKey>(`/api/v1/keys/${encodeURIComponent(id)}`, data);
 }
 
 export function revokeApiKey(id: string): Promise<void> {

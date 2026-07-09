@@ -225,6 +225,60 @@ func (q *Queries) RevokeKey(ctx context.Context, id uuid.UUID) (ApiKey, error) {
 	return i, err
 }
 
+const updateKeyExpiration = `-- name: UpdateKeyExpiration :one
+UPDATE api_keys
+SET expires_at = $2
+WHERE id = $1
+RETURNING id, user_id, key_hash, label, status, created_at, expires_at
+`
+
+type UpdateKeyExpirationParams struct {
+	ID        uuid.UUID          `json:"id"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) UpdateKeyExpiration(ctx context.Context, arg UpdateKeyExpirationParams) (ApiKey, error) {
+	row := q.db.QueryRow(ctx, updateKeyExpiration, arg.ID, arg.ExpiresAt)
+	var i ApiKey
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.KeyHash,
+		&i.Label,
+		&i.Status,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
+const updateKeyLabel = `-- name: UpdateKeyLabel :one
+UPDATE api_keys
+SET label = $2
+WHERE id = $1
+RETURNING id, user_id, key_hash, label, status, created_at, expires_at
+`
+
+type UpdateKeyLabelParams struct {
+	ID    uuid.UUID   `json:"id"`
+	Label pgtype.Text `json:"label"`
+}
+
+func (q *Queries) UpdateKeyLabel(ctx context.Context, arg UpdateKeyLabelParams) (ApiKey, error) {
+	row := q.db.QueryRow(ctx, updateKeyLabel, arg.ID, arg.Label)
+	var i ApiKey
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.KeyHash,
+		&i.Label,
+		&i.Status,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const updateKeyStatus = `-- name: UpdateKeyStatus :one
 UPDATE api_keys
 SET status = $2

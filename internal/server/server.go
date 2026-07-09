@@ -209,7 +209,8 @@ func NewServer() (*http.Server, error) {
 	}()
 
 	settlementReconciler := settlement.NewReconciler(databaseService.Pool(), queries)
-	settlementHandler := settlement.NewHandler(settlementReconciler)
+	minThreshold := settlementThresholdFromEnv()
+	settlementHandler := settlement.NewHandler(settlementReconciler, settlementReconciler, minThreshold)
 	usageSvc := usage.NewService(queries)
 	usageHandler := usage.NewHandler(usageSvc)
 
@@ -285,6 +286,33 @@ func connectRedis() (*redis.Client, error) {
 	)
 
 	return rdb, nil
+}
+
+func settlementThresholdFromEnv() decimal.Decimal {
+	v := os.Getenv("SETTLEMENT_MIN_THRESHOLD")
+	if v == "" {
+		return decimal.Zero
+	}
+
+	d, err := decimal.NewFromString(v)
+	if err != nil {
+		slog.Warn("invalid SETTLEMENT_MIN_THRESHOLD, using default",
+			slog.String("value", v),
+			slog.String("error", err.Error()),
+		)
+
+		return decimal.Zero
+	}
+
+	if d.IsNegative() {
+		slog.Warn("SETTLEMENT_MIN_THRESHOLD must be non-negative, using default",
+			slog.String("value", v),
+		)
+
+		return decimal.Zero
+	}
+
+	return d
 }
 
 func numericToDecimal(n pgtype.Numeric) (decimal.Decimal, error) {

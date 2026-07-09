@@ -38,6 +38,18 @@ FROM api_keys
 WHERE id = $1
 LIMIT 1;
 
+-- name: UpdateKeyLabel :one
+UPDATE api_keys
+SET label = $2
+WHERE id = $1
+RETURNING id, user_id, key_hash, label, status, created_at, expires_at;
+
+-- name: UpdateKeyExpiration :one
+UPDATE api_keys
+SET expires_at = $2
+WHERE id = $1
+RETURNING id, user_id, key_hash, label, status, created_at, expires_at;
+
 -- name: GetKeyWithUserAndAccount :one
 SELECT
     k.id AS api_key_id,

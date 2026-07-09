@@ -62,6 +62,48 @@ func (q *Queries) GetEarningsByEndpoint(ctx context.Context, providerID uuid.UUI
 	return items, nil
 }
 
+const getEarningsByEndpointInRange = `-- name: GetEarningsByEndpointInRange :many
+SELECT ue.endpoint_id, ep.route, SUM(ue.request_cost)::numeric AS total
+FROM usage_events ue
+JOIN api_endpoints ep ON ep.id = ue.endpoint_id
+WHERE ue.provider_id = $1 AND ue.status = 'completed'
+  AND ($2::timestamptz = '0001-01-01'::timestamptz OR ue.created_at >= $2)
+  AND ($3::timestamptz = '0001-01-01'::timestamptz OR ue.created_at <= $3)
+GROUP BY ue.endpoint_id, ep.route
+`
+
+type GetEarningsByEndpointInRangeParams struct {
+	ProviderID uuid.UUID `json:"provider_id"`
+	Column2    time.Time `json:"column_2"`
+	Column3    time.Time `json:"column_3"`
+}
+
+type GetEarningsByEndpointInRangeRow struct {
+	EndpointID uuid.UUID      `json:"endpoint_id"`
+	Route      string         `json:"route"`
+	Total      pgtype.Numeric `json:"total"`
+}
+
+func (q *Queries) GetEarningsByEndpointInRange(ctx context.Context, arg GetEarningsByEndpointInRangeParams) ([]GetEarningsByEndpointInRangeRow, error) {
+	rows, err := q.db.Query(ctx, getEarningsByEndpointInRange, arg.ProviderID, arg.Column2, arg.Column3)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetEarningsByEndpointInRangeRow
+	for rows.Next() {
+		var i GetEarningsByEndpointInRangeRow
+		if err := rows.Scan(&i.EndpointID, &i.Route, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getEarningsSparkline = `-- name: GetEarningsSparkline :many
 SELECT DATE(created_at) AS date, SUM(request_cost)::numeric AS amount
 FROM usage_events
@@ -96,6 +138,47 @@ func (q *Queries) GetEarningsSparkline(ctx context.Context, providerID uuid.UUID
 	return items, nil
 }
 
+const getEarningsSparklineInRange = `-- name: GetEarningsSparklineInRange :many
+SELECT DATE(created_at) AS date, SUM(request_cost)::numeric AS amount
+FROM usage_events
+WHERE provider_id = $1 AND status = 'completed'
+  AND ($2::timestamptz = '0001-01-01'::timestamptz OR created_at >= $2)
+  AND ($3::timestamptz = '0001-01-01'::timestamptz OR created_at <= $3)
+GROUP BY DATE(created_at)
+ORDER BY date
+`
+
+type GetEarningsSparklineInRangeParams struct {
+	ProviderID uuid.UUID `json:"provider_id"`
+	Column2    time.Time `json:"column_2"`
+	Column3    time.Time `json:"column_3"`
+}
+
+type GetEarningsSparklineInRangeRow struct {
+	Date   pgtype.Date    `json:"date"`
+	Amount pgtype.Numeric `json:"amount"`
+}
+
+func (q *Queries) GetEarningsSparklineInRange(ctx context.Context, arg GetEarningsSparklineInRangeParams) ([]GetEarningsSparklineInRangeRow, error) {
+	rows, err := q.db.Query(ctx, getEarningsSparklineInRange, arg.ProviderID, arg.Column2, arg.Column3)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetEarningsSparklineInRangeRow
+	for rows.Next() {
+		var i GetEarningsSparklineInRangeRow
+		if err := rows.Scan(&i.Date, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTotalEarningsByProvider = `-- name: GetTotalEarningsByProvider :one
 SELECT COALESCE(SUM(request_cost), 0)::numeric AS total
 FROM usage_events
@@ -104,6 +187,27 @@ WHERE provider_id = $1 AND status = 'completed'
 
 func (q *Queries) GetTotalEarningsByProvider(ctx context.Context, providerID uuid.UUID) (pgtype.Numeric, error) {
 	row := q.db.QueryRow(ctx, getTotalEarningsByProvider, providerID)
+	var total pgtype.Numeric
+	err := row.Scan(&total)
+	return total, err
+}
+
+const getTotalEarningsByProviderInRange = `-- name: GetTotalEarningsByProviderInRange :one
+SELECT COALESCE(SUM(request_cost), 0)::numeric AS total
+FROM usage_events
+WHERE provider_id = $1 AND status = 'completed'
+  AND ($2::timestamptz = '0001-01-01'::timestamptz OR created_at >= $2)
+  AND ($3::timestamptz = '0001-01-01'::timestamptz OR created_at <= $3)
+`
+
+type GetTotalEarningsByProviderInRangeParams struct {
+	ProviderID uuid.UUID `json:"provider_id"`
+	Column2    time.Time `json:"column_2"`
+	Column3    time.Time `json:"column_3"`
+}
+
+func (q *Queries) GetTotalEarningsByProviderInRange(ctx context.Context, arg GetTotalEarningsByProviderInRangeParams) (pgtype.Numeric, error) {
+	row := q.db.QueryRow(ctx, getTotalEarningsByProviderInRange, arg.ProviderID, arg.Column2, arg.Column3)
 	var total pgtype.Numeric
 	err := row.Scan(&total)
 	return total, err
@@ -138,9 +242,10 @@ func (q *Queries) GetUserProviderCount(ctx context.Context, ownerID uuid.UUID) (
 }
 
 const listUsageEventsByConsumerCursor = `-- name: ListUsageEventsByConsumerCursor :many
-SELECT ue.id, ue.consumer_id, ue.provider_id, ue.endpoint_id, ue.request_cost, ue.currency, ue.status_code, ue.latency_ms, ue.response_size, ue.request_id, ue.status, ue.created_at, ep.route, ep.method
+SELECT ue.id, ue.consumer_id, ue.provider_id, ue.endpoint_id, ue.request_cost, ue.currency, ue.status_code, ue.latency_ms, ue.response_size, ue.request_id, ue.status, ue.created_at, ep.route, ep.method, p.name::text AS provider_name
 FROM usage_events ue
 JOIN api_endpoints ep ON ep.id = ue.endpoint_id
+JOIN providers p ON p.id = ue.provider_id
 WHERE ue.consumer_id = $1
   AND ($3::timestamptz = '0001-01-01'::timestamptz OR (ue.created_at, ue.id) < ($3::timestamptz, $4::uuid))
 ORDER BY ue.created_at DESC, ue.id DESC
@@ -169,6 +274,7 @@ type ListUsageEventsByConsumerCursorRow struct {
 	CreatedAt    time.Time      `json:"created_at"`
 	Route        string         `json:"route"`
 	Method       string         `json:"method"`
+	ProviderName string         `json:"provider_name"`
 }
 
 func (q *Queries) ListUsageEventsByConsumerCursor(ctx context.Context, arg ListUsageEventsByConsumerCursorParams) ([]ListUsageEventsByConsumerCursorRow, error) {
@@ -200,6 +306,7 @@ func (q *Queries) ListUsageEventsByConsumerCursor(ctx context.Context, arg ListU
 			&i.CreatedAt,
 			&i.Route,
 			&i.Method,
+			&i.ProviderName,
 		); err != nil {
 			return nil, err
 		}
@@ -212,10 +319,12 @@ func (q *Queries) ListUsageEventsByConsumerCursor(ctx context.Context, arg ListU
 }
 
 const listUsageEventsByConsumerFiltered = `-- name: ListUsageEventsByConsumerFiltered :many
-SELECT ue.id, ue.consumer_id, ue.provider_id, ue.endpoint_id, ue.request_cost, ue.currency, ue.status_code, ue.latency_ms, ue.response_size, ue.request_id, ue.status, ue.created_at, ep.route, ep.method
+SELECT ue.id, ue.consumer_id, ue.provider_id, ue.endpoint_id, ue.request_cost, ue.currency, ue.status_code, ue.latency_ms, ue.response_size, ue.request_id, ue.status, ue.created_at, ep.route, ep.method, p.name::text AS provider_name
 FROM usage_events ue
 JOIN api_endpoints ep ON ep.id = ue.endpoint_id
+JOIN providers p ON p.id = ue.provider_id
 WHERE ue.consumer_id = $1
+  AND ($9::uuid = '00000000-0000-0000-0000-000000000000'::uuid OR ue.provider_id = $9)
   AND ($2::uuid = '00000000-0000-0000-0000-000000000000'::uuid OR ue.endpoint_id = $2)
   AND ($3 = 0 OR ue.status_code = $3)
   AND ($4::timestamptz = '0001-01-01'::timestamptz OR ue.created_at >= $4)
@@ -234,6 +343,7 @@ type ListUsageEventsByConsumerFilteredParams struct {
 	Limit      int32       `json:"limit"`
 	Column7    time.Time   `json:"column_7"`
 	Column8    uuid.UUID   `json:"column_8"`
+	Column9    uuid.UUID   `json:"column_9"`
 }
 
 type ListUsageEventsByConsumerFilteredRow struct {
@@ -251,6 +361,7 @@ type ListUsageEventsByConsumerFilteredRow struct {
 	CreatedAt    time.Time      `json:"created_at"`
 	Route        string         `json:"route"`
 	Method       string         `json:"method"`
+	ProviderName string         `json:"provider_name"`
 }
 
 func (q *Queries) ListUsageEventsByConsumerFiltered(ctx context.Context, arg ListUsageEventsByConsumerFilteredParams) ([]ListUsageEventsByConsumerFilteredRow, error) {
@@ -263,6 +374,7 @@ func (q *Queries) ListUsageEventsByConsumerFiltered(ctx context.Context, arg Lis
 		arg.Limit,
 		arg.Column7,
 		arg.Column8,
+		arg.Column9,
 	)
 	if err != nil {
 		return nil, err
@@ -286,6 +398,7 @@ func (q *Queries) ListUsageEventsByConsumerFiltered(ctx context.Context, arg Lis
 			&i.CreatedAt,
 			&i.Route,
 			&i.Method,
+			&i.ProviderName,
 		); err != nil {
 			return nil, err
 		}
@@ -298,9 +411,10 @@ func (q *Queries) ListUsageEventsByConsumerFiltered(ctx context.Context, arg Lis
 }
 
 const listUsageEventsByProviderCursor = `-- name: ListUsageEventsByProviderCursor :many
-SELECT ue.id, ue.consumer_id, ue.provider_id, ue.endpoint_id, ue.request_cost, ue.currency, ue.status_code, ue.latency_ms, ue.response_size, ue.request_id, ue.status, ue.created_at, ep.route, ep.method
+SELECT ue.id, ue.consumer_id, ue.provider_id, ue.endpoint_id, ue.request_cost, ue.currency, ue.status_code, ue.latency_ms, ue.response_size, ue.request_id, ue.status, ue.created_at, ep.route, ep.method, p.name::text AS provider_name
 FROM usage_events ue
 JOIN api_endpoints ep ON ep.id = ue.endpoint_id
+JOIN providers p ON p.id = ue.provider_id
 WHERE ue.provider_id = $1
   AND ($3::timestamptz = '0001-01-01'::timestamptz OR (ue.created_at, ue.id) < ($3::timestamptz, $4::uuid))
 ORDER BY ue.created_at DESC, ue.id DESC
@@ -329,6 +443,7 @@ type ListUsageEventsByProviderCursorRow struct {
 	CreatedAt    time.Time      `json:"created_at"`
 	Route        string         `json:"route"`
 	Method       string         `json:"method"`
+	ProviderName string         `json:"provider_name"`
 }
 
 func (q *Queries) ListUsageEventsByProviderCursor(ctx context.Context, arg ListUsageEventsByProviderCursorParams) ([]ListUsageEventsByProviderCursorRow, error) {
@@ -360,6 +475,7 @@ func (q *Queries) ListUsageEventsByProviderCursor(ctx context.Context, arg ListU
 			&i.CreatedAt,
 			&i.Route,
 			&i.Method,
+			&i.ProviderName,
 		); err != nil {
 			return nil, err
 		}
@@ -372,9 +488,10 @@ func (q *Queries) ListUsageEventsByProviderCursor(ctx context.Context, arg ListU
 }
 
 const listUsageEventsByProviderFiltered = `-- name: ListUsageEventsByProviderFiltered :many
-SELECT ue.id, ue.consumer_id, ue.provider_id, ue.endpoint_id, ue.request_cost, ue.currency, ue.status_code, ue.latency_ms, ue.response_size, ue.request_id, ue.status, ue.created_at, ep.route, ep.method
+SELECT ue.id, ue.consumer_id, ue.provider_id, ue.endpoint_id, ue.request_cost, ue.currency, ue.status_code, ue.latency_ms, ue.response_size, ue.request_id, ue.status, ue.created_at, ep.route, ep.method, p.name::text AS provider_name
 FROM usage_events ue
 JOIN api_endpoints ep ON ep.id = ue.endpoint_id
+JOIN providers p ON p.id = ue.provider_id
 WHERE ue.provider_id = $1
   AND ($2::uuid = '00000000-0000-0000-0000-000000000000'::uuid OR ue.endpoint_id = $2)
   AND ($3 = 0 OR ue.status_code = $3)
@@ -411,6 +528,7 @@ type ListUsageEventsByProviderFilteredRow struct {
 	CreatedAt    time.Time      `json:"created_at"`
 	Route        string         `json:"route"`
 	Method       string         `json:"method"`
+	ProviderName string         `json:"provider_name"`
 }
 
 func (q *Queries) ListUsageEventsByProviderFiltered(ctx context.Context, arg ListUsageEventsByProviderFilteredParams) ([]ListUsageEventsByProviderFilteredRow, error) {
@@ -446,6 +564,7 @@ func (q *Queries) ListUsageEventsByProviderFiltered(ctx context.Context, arg Lis
 			&i.CreatedAt,
 			&i.Route,
 			&i.Method,
+			&i.ProviderName,
 		); err != nil {
 			return nil, err
 		}

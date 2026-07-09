@@ -3,6 +3,7 @@ package provider
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -22,13 +23,15 @@ const msgAuthRequired = "authentication required"
 const msgInvalidConsumerID = "invalid consumer identity"
 
 type createProviderRequest struct {
-	Name    string `json:"name"`
-	BaseURL string `json:"base_url"`
+	Name        string `json:"name"`
+	BaseURL     string `json:"base_url"`
+	Description string `json:"description,omitempty"`
 }
 
 type updateProviderRequest struct {
-	Name    *string `json:"name,omitempty"`
-	BaseURL *string `json:"base_url,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	BaseURL     *string `json:"base_url,omitempty"`
+	Description *string `json:"description,omitempty"`
 }
 
 type updateProviderStatusRequest struct {
@@ -62,7 +65,7 @@ func (h *Handler) CreateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider, err := h.service.CreateProvider(r.Context(), ownerID, req.Name, req.BaseURL)
+	provider, err := h.service.CreateProvider(r.Context(), ownerID, req.Name, req.BaseURL, req.Description)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: err.Error()})
 		return
@@ -91,13 +94,12 @@ func (h *Handler) ListProviders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if providers == nil {
-		providers = []repository.Provider{}
+		providers = []OwnerProvider{}
 	}
 
 	writeJSON(w, http.StatusOK, providers)
 }
 
-//nolint:dupl
 func (h *Handler) GetProvider(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
@@ -151,7 +153,7 @@ func (h *Handler) UpdateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider, err := h.service.PartialUpdateProvider(r.Context(), providerID, ownerID, req.Name, req.BaseURL)
+	provider, err := h.service.PartialUpdateProvider(r.Context(), providerID, ownerID, partialUpdateProviderInput(req))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: err.Error()})
 		return
@@ -160,7 +162,6 @@ func (h *Handler) UpdateProvider(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, provider)
 }
 
-//nolint:dupl
 func (h *Handler) UpdateProviderStatus(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
@@ -204,12 +205,13 @@ func (h *Handler) ListPublicProviders(w http.ResponseWriter, r *http.Request) {
 
 	providers, err := h.service.ListPublicProviders(r.Context())
 	if err != nil {
+		slog.ErrorContext(r.Context(), "failed to list providers", slog.String("error", err.Error()))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to list providers"})
 		return
 	}
 
 	if providers == nil {
-		providers = []repository.Provider{}
+		providers = []PublicProvider{}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"data": providers})
@@ -248,6 +250,7 @@ type createEndpointRequest struct {
 	PriceAmount decimal.Decimal `json:"price_amount"`
 	Currency    string          `json:"currency,omitempty"`
 	RateLimit   *int32          `json:"rate_limit,omitempty"`
+	Description *string         `json:"description,omitempty"`
 }
 
 type updateEndpointRequest struct {
@@ -256,6 +259,7 @@ type updateEndpointRequest struct {
 	PriceAmount *decimal.Decimal `json:"price_amount,omitempty"`
 	Currency    *string          `json:"currency,omitempty"`
 	RateLimit   *int32           `json:"rate_limit,omitempty"`
+	Description *string          `json:"description,omitempty"`
 }
 
 type updateEndpointStatusRequest struct {
@@ -316,6 +320,11 @@ func (h *EndpointHandler) CreateEndpoint(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	description := ""
+	if req.Description != nil {
+		description = *req.Description
+	}
+
 	input := CreateEndpointInput{
 		OwnerID:     ownerID,
 		ProviderID:  providerID,
@@ -325,6 +334,7 @@ func (h *EndpointHandler) CreateEndpoint(w http.ResponseWriter, r *http.Request)
 		Currency:    currency,
 		RateLimit:   rateLimit,
 		Status:      repository.EndpointStatusDraft,
+		Description: description,
 	}
 
 	endpoint, err := h.service.CreateEndpoint(r.Context(), input)
@@ -430,7 +440,6 @@ func (h *EndpointHandler) ListEndpoints(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, endpoints)
 }
 
-//nolint:dupl
 func (h *EndpointHandler) GetEndpoint(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
@@ -517,6 +526,9 @@ func (h *EndpointHandler) UpdateEndpoint(w http.ResponseWriter, r *http.Request)
 		rateLimit := pgtype.Int4{Int32: *req.RateLimit, Valid: true}
 		partialInput.RateLimit = &rateLimit
 	}
+	if req.Description != nil {
+		partialInput.Description = req.Description
+	}
 
 	endpoint, err := h.service.PartialUpdateEndpoint(r.Context(), endpointID, ownerID, partialInput)
 	if err != nil {
@@ -533,7 +545,6 @@ func (h *EndpointHandler) UpdateEndpoint(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, endpoint)
 }
 
-//nolint:dupl
 func (h *EndpointHandler) UpdateEndpointStatus(w http.ResponseWriter, r *http.Request) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
