@@ -22,6 +22,7 @@ import {
   getSettlementThreshold,
 } from "@/lib/api/client";
 import { useCursorPagination } from "@/lib/use-cursor-pagination";
+import { STELLAR_EXPLORER_URL } from "@/lib/stellar";
 import { DateRangePicker } from "@/components/usage/date-range-picker";
 import type { SettlementBatch, SettlementEntry } from "@/lib/api/types";
 import { formatAmount, formatShortDateTime, StatusBadge } from "@/lib/format";
@@ -567,7 +568,7 @@ function SettlementBatchRow({ batch }: { batch: SettlementBatch }) {
   const [expanded, setExpanded] = useState(false);
 
   const stellarExplorerUrl = batch.tx_hash
-    ? `https://stellar.expert/explorer/public/tx/${batch.tx_hash}`
+    ? `${STELLAR_EXPLORER_URL}/${batch.tx_hash}`
     : null;
 
   return (

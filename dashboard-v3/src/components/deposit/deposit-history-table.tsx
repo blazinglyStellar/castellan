@@ -20,6 +20,7 @@ import { useCursorPagination } from "@/lib/use-cursor-pagination";
 import { getDeposits } from "@/lib/api/client";
 import type { Deposit } from "@/lib/api/types";
 import { formatShortDateTime, formatAmount, StatusBadge } from "@/lib/format";
+import { STELLAR_EXPLORER_URL } from "@/lib/stellar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,8 +38,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-const STELLAR_EXPLORER = "https://stellar.expert/explorer/public/tx";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Status" },
@@ -149,7 +148,7 @@ export function DepositHistoryTable() {
             asChild
           >
             <a
-              href={`${STELLAR_EXPLORER}/${row.original.tx_hash}`}
+              href={`${STELLAR_EXPLORER_URL}/${row.original.tx_hash}`}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
