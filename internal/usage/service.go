@@ -81,7 +81,6 @@ type EarningsResponse struct {
 	Sparkline         []DailyEarning    `json:"sparkline"`
 }
 
-//nolint:dupl
 func (s *Service) ListUsageByConsumer(ctx context.Context, consumerID uuid.UUID, filter UsageFilter, cursorTs time.Time, cursorID uuid.UUID, limit int32) (*UsageListResponse, error) {
 	if filter.HasFilters {
 		rows, err := s.queries.ListUsageEventsByConsumerFiltered(ctx, repository.ListUsageEventsByConsumerFilteredParams{
@@ -113,7 +112,6 @@ func (s *Service) ListUsageByConsumer(ctx context.Context, consumerID uuid.UUID,
 	return toUsageListFromCursorConsumer(rows, limit)
 }
 
-//nolint:dupl
 func (s *Service) ListUsageByProvider(ctx context.Context, providerID uuid.UUID, filter UsageFilter, cursorTs time.Time, cursorID uuid.UUID, limit int32) (*UsageListResponse, error) {
 	if filter.HasFilters {
 		rows, err := s.queries.ListUsageEventsByProviderFiltered(ctx, repository.ListUsageEventsByProviderFilteredParams{
@@ -291,6 +289,7 @@ func rowToItem(
 		UsageStatus:  string(usageStatus),
 	}, nil
 }
+
 func (s *Service) GetEarnings(ctx context.Context, userID uuid.UUID, startDate, endDate time.Time) (*EarningsResponse, error) {
 	providers, err := s.queries.ListProvidersByOwner(ctx, userID)
 	if err != nil {

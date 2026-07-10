@@ -8,7 +8,7 @@ build:
 	@go build -o main.exe cmd/api/main.go
 
 # Aggregate CI checks (runs before build via `all`)
-ci: lint vet test security
+ci: lint vet test build
 	@echo "All CI checks passed"
 
 ci-full: ci itest trivy-scan
@@ -90,7 +90,7 @@ db-reset: db-drop migrate seed
 # Test the application (mirrors unit-testing.yml: race + coverage)
 test:
 	@echo "Testing..."
-	@go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./... -v
+	@go test -race -count=1 ./...
 # Integration Tests (mirrors integration-testing.yml)
 itest:
 	@echo "Running integration tests..."

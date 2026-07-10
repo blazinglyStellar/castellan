@@ -124,7 +124,9 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = int32(v)
 		if limit > maxLimit {
-			limit = maxLimit
+			writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "limit exceeds maximum"})
+
+			return
 		}
 	}
 
