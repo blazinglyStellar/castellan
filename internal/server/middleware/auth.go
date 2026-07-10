@@ -47,7 +47,7 @@ func AuthCheck(validator KeyValidator, sessionValidator SessionValidator) func(h
 
 			authHeader := r.Header.Get("Authorization")
 
-			if strings.HasPrefix(authHeader, bearerPrefix) {
+			if authHeader != "" && strings.HasPrefix(authHeader, bearerPrefix) {
 				rawKey := strings.TrimPrefix(authHeader, bearerPrefix)
 
 				if strings.HasPrefix(rawKey, "ca_") {
@@ -93,7 +93,26 @@ func AuthCheck(validator KeyValidator, sessionValidator SessionValidator) func(h
 					return
 				}
 
-				writeJSON(r.Context(), w, http.StatusUnauthorized, map[string]string{errKey: "invalid api key"})
+				token, err := sessionValidator.ValidateSession(r.Context(), rawKey)
+				if err == nil {
+					ctx := gatewaycontext.SetConsumerInfo(r.Context(), gatewaycontext.ConsumerInfo{
+						ConsumerID:      token.UserID.String(),
+						IsAuthenticated: true,
+					})
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+				switch {
+				case errors.Is(err, auth.ErrSessionNotFound):
+					writeJSON(r.Context(), w, http.StatusUnauthorized, map[string]string{errKey: "invalid api key"})
+				case errors.Is(err, auth.ErrSessionNotActive):
+					writeJSON(r.Context(), w, http.StatusUnauthorized, map[string]string{errKey: "session token revoked"})
+				case errors.Is(err, auth.ErrSessionExpired):
+					writeJSON(r.Context(), w, http.StatusUnauthorized, map[string]string{errKey: "session token expired"})
+				default:
+					slog.ErrorContext(r.Context(), "session validation failed", slog.String("error", err.Error()))
+					writeJSON(r.Context(), w, http.StatusInternalServerError, map[string]string{errKey: "internal error"})
+				}
 				return
 			}
 
