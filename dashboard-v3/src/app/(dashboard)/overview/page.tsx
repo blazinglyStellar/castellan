@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Wallet, DollarSign, Activity, Key, Inbox, Banknote, TrendingUp, Clock } from "lucide-react";
 
 import { useAccount } from "@/lib/auth/account-context";
-import { getBalance, getUsage, getDeposits, getApiKeys, getEarnings } from "@/lib/api/client";
+import { getBalance, getUsage, getDeposits, getApiKeys, getEarnings, ApiError } from "@/lib/api/client";
 import type { UsageEvent, Deposit, Earnings, DailyEarning } from "@/lib/api/types";
 import { formatAmount, timeAgo, StatusBadge, StatusCodeBadge } from "@/lib/format";
 import { MethodBadge } from "@/components/usage/method-badge";
@@ -100,8 +100,11 @@ export default function OverviewPage() {
     );
   }
 
+  const isBalance404 =
+    balanceQuery.error instanceof ApiError && balanceQuery.error.status === 404;
+
   const isLoading =
-    balanceQuery.isLoading ||
+    (balanceQuery.isLoading && !isBalance404) ||
     usageQuery.isLoading ||
     depositsQuery.isLoading ||
     keysQuery.isLoading ||
@@ -112,7 +115,7 @@ export default function OverviewPage() {
   }
 
   const isError =
-    balanceQuery.isError ||
+    (balanceQuery.isError && !isBalance404) ||
     usageQuery.isError ||
     depositsQuery.isError ||
     keysQuery.isError;

@@ -173,14 +173,14 @@ func (r *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 				return nil, fmt.Errorf("retry cancelled: %w", req.Context().Err())
 			case <-time.After(delay):
 			}
+		}
 
-			if req.GetBody != nil {
-				body, err := req.GetBody()
-				if err != nil {
-					return nil, fmt.Errorf("get request body for retry: %w", err)
-				}
-				req.Body = body
+		if req.GetBody != nil {
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, fmt.Errorf("get request body for attempt: %w", err)
 			}
+			req.Body = body
 		}
 
 		resp, err := r.inner.RoundTrip(req)

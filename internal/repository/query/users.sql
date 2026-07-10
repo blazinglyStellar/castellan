@@ -1,6 +1,6 @@
 -- name: EnsureUserDepositMemo :one
 UPDATE users
-SET deposit_memo = COALESCE(deposit_memo, gen_random_uuid()::text)
+SET deposit_memo = COALESCE(deposit_memo, sqlc.arg('new_memo')::VARCHAR(26))
 WHERE id = $1
 RETURNING deposit_memo;
 

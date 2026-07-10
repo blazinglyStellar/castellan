@@ -47,7 +47,7 @@ func (h *CreditHandler) queriesFn() repository.Querier {
 }
 
 func (h *CreditHandler) CreditDeposit(ctx context.Context, op PaymentOperation) error {
-	if _, err := uuid.Parse(op.Memo); err != nil {
+	if len(op.Memo) == 0 || len(op.Memo) > 26 {
 		h.log.WarnContext(ctx, "invalid deposit memo",
 			slog.String("tx_hash", op.TxHash),
 			slog.String("memo_prefix", memoPrefix(op.Memo)),
@@ -69,11 +69,6 @@ func (h *CreditHandler) CreditDeposit(ctx context.Context, op PaymentOperation) 
 		return fmt.Errorf("lookup deposit memo: %w", err)
 	}
 
-	account, err := q.GetOrCreateAccount(ctx, user.ID)
-	if err != nil {
-		return fmt.Errorf("get or create account: %w", err)
-	}
-
 	amountNumeric, err := decimalToNumeric(op.Amount)
 	if err != nil {
 		return fmt.Errorf("convert amount: %w", err)
@@ -85,7 +80,7 @@ func (h *CreditHandler) CreditDeposit(ctx context.Context, op PaymentOperation) 
 			slog.String("asset", op.Asset),
 		)
 		if _, err := q.InsertDeposit(ctx, repository.InsertDepositParams{
-			AccountID:   account.ID,
+			UserID:      user.ID,
 			FromAddress: op.FromAddress,
 			Amount:      amountNumeric,
 			Currency:    currencyFromAsset(op.Asset),
@@ -111,7 +106,7 @@ func (h *CreditHandler) CreditDeposit(ctx context.Context, op PaymentOperation) 
 			slog.String("min_amount", h.cfg.MinDepositAmount.String()),
 		)
 		if _, err := q.InsertDeposit(ctx, repository.InsertDepositParams{
-			AccountID:   account.ID,
+			UserID:      user.ID,
 			FromAddress: op.FromAddress,
 			Amount:      amountNumeric,
 			Currency:    repository.CurrencyXLM,
@@ -136,15 +131,15 @@ func (h *CreditHandler) CreditDeposit(ctx context.Context, op PaymentOperation) 
 	}
 	defer tx.Rollback(ctx)
 
-	tq := repository.New(tx)
-
-	account, err = tq.GetAccountForUpdate(ctx, user.ID)
-	if err != nil {
-		return fmt.Errorf("lock account: %w", err)
+	var balance pgtype.Numeric
+	if err := tx.QueryRow(ctx, `SELECT balance FROM users WHERE id = $1 FOR UPDATE`, user.ID).Scan(&balance); err != nil {
+		return fmt.Errorf("lock user balance: %w", err)
 	}
 
+	tq := repository.New(tx)
+
 	depositRecord, err := tq.InsertDeposit(ctx, repository.InsertDepositParams{
-		AccountID:   account.ID,
+		UserID:      user.ID,
 		FromAddress: op.FromAddress,
 		Amount:      amountNumeric,
 		Currency:    repository.CurrencyXLM,
@@ -165,7 +160,7 @@ func (h *CreditHandler) CreditDeposit(ctx context.Context, op PaymentOperation) 
 		return fmt.Errorf("insert deposit: %w", err)
 	}
 
-	balanceDec, err := numericToDecimal(account.Balance)
+	balanceDec, err := numericToDecimal(balance)
 	if err != nil {
 		return fmt.Errorf("parse balance: %w", err)
 	}
@@ -176,15 +171,12 @@ func (h *CreditHandler) CreditDeposit(ctx context.Context, op PaymentOperation) 
 		return fmt.Errorf("convert new balance: %w", err)
 	}
 
-	if _, err := tq.UpdateAccountBalance(ctx, repository.UpdateAccountBalanceParams{
-		ID:      account.ID,
-		Balance: newBalanceNumeric,
-	}); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE users SET balance = $2, account_updated_at = now() WHERE id = $1`, user.ID, newBalanceNumeric); err != nil {
 		return fmt.Errorf("update balance: %w", err)
 	}
 
 	if _, err := tq.InsertLedgerEntry(ctx, repository.InsertLedgerEntryParams{
-		AccountID:     account.ID,
+		UserID:        user.ID,
 		EntryType:     repository.EntryTypeDeposit,
 		Amount:        amountNumeric,
 		BalanceAfter:  newBalanceNumeric,

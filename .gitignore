@@ -42,3 +42,5 @@ main
 .graphify/
 graphify-out/
 bin/
+api
+worker

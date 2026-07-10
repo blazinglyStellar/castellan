@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { TrendingUp } from "lucide-react";
 
-import { getUsage, getBalance } from "@/lib/api/client";
+import { getUsage, getBalance, ApiError } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatAmount } from "@/lib/format";
@@ -57,7 +57,10 @@ export function UsageProjectionCard() {
     return { dailyBurn, available, daysRemaining };
   }, [usageQuery.data, balanceQuery.data, now, thirtyDaysAgo]);
 
-  const isLoading = usageQuery.isLoading || balanceQuery.isLoading;
+  const isBalance404 =
+    balanceQuery.error instanceof ApiError && balanceQuery.error.status === 404;
+
+  const isLoading = usageQuery.isLoading || (balanceQuery.isLoading && !isBalance404);
   const isError = usageQuery.isError || balanceQuery.isError;
 
   if (isLoading) return <ProjectionSkeleton />;
@@ -100,14 +103,9 @@ function ProjectionSkeleton() {
         <Skeleton className="h-4 w-4 rounded" />
         <Skeleton className="h-4 w-28" />
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
         <Skeleton className="h-3 w-64" />
         <Skeleton className="h-7 w-24" />
-        <div className="flex gap-2">
-          <Skeleton className="h-8 w-28 rounded-md" />
-          <Skeleton className="h-8 w-28 rounded-md" />
-          <Skeleton className="h-8 w-28 rounded-md" />
-        </div>
       </CardContent>
     </Card>
   );

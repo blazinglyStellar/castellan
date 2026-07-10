@@ -14,20 +14,25 @@ import (
 
 const ensureUserDepositMemo = `-- name: EnsureUserDepositMemo :one
 UPDATE users
-SET deposit_memo = COALESCE(deposit_memo, gen_random_uuid()::text)
+SET deposit_memo = COALESCE(deposit_memo, $2::VARCHAR(26))
 WHERE id = $1
 RETURNING deposit_memo
 `
 
-func (q *Queries) EnsureUserDepositMemo(ctx context.Context, id uuid.UUID) (pgtype.Text, error) {
-	row := q.db.QueryRow(ctx, ensureUserDepositMemo, id)
+type EnsureUserDepositMemoParams struct {
+	ID      uuid.UUID `json:"id"`
+	NewMemo string    `json:"new_memo"`
+}
+
+func (q *Queries) EnsureUserDepositMemo(ctx context.Context, arg EnsureUserDepositMemoParams) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, ensureUserDepositMemo, arg.ID, arg.NewMemo)
 	var deposit_memo pgtype.Text
 	err := row.Scan(&deposit_memo)
 	return deposit_memo, err
 }
 
 const getUserByDepositMemo = `-- name: GetUserByDepositMemo :one
-SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at FROM users
+SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at FROM users
 WHERE deposit_memo = $1
 LIMIT 1
 `
@@ -42,12 +47,15 @@ func (q *Queries) GetUserByDepositMemo(ctx context.Context, depositMemo pgtype.T
 		&i.PayoutStellarAddress,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Balance,
+		&i.Currency,
+		&i.AccountUpdatedAt,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at FROM users WHERE email = $1 LIMIT 1
+SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at FROM users WHERE email = $1 LIMIT 1
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -60,12 +68,15 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.PayoutStellarAddress,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Balance,
+		&i.Currency,
+		&i.AccountUpdatedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at FROM users WHERE id = $1 LIMIT 1
+SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at FROM users WHERE id = $1 LIMIT 1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
@@ -78,6 +89,9 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.PayoutStellarAddress,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Balance,
+		&i.Currency,
+		&i.AccountUpdatedAt,
 	)
 	return i, err
 }
@@ -87,7 +101,7 @@ INSERT INTO users (email)
 VALUES ($1)
 ON CONFLICT (email) DO UPDATE
   SET updated_at = NOW()
-RETURNING id, email, deposit_memo, payout_stellar_address, created_at, updated_at
+RETURNING id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at
 `
 
 func (q *Queries) UpsertUserByEmail(ctx context.Context, email string) (User, error) {
@@ -100,6 +114,9 @@ func (q *Queries) UpsertUserByEmail(ctx context.Context, email string) (User, er
 		&i.PayoutStellarAddress,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Balance,
+		&i.Currency,
+		&i.AccountUpdatedAt,
 	)
 	return i, err
 }

@@ -13,23 +13,23 @@ import (
 )
 
 const listDepositsByAccountCursor = `-- name: ListDepositsByAccountCursor :many
-SELECT id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason FROM deposits
-WHERE account_id = $1
+SELECT id, user_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason FROM deposits
+WHERE user_id = $1
   AND ($3::timestamptz = '0001-01-01'::timestamptz OR (created_at, id) < ($3::timestamptz, $4::uuid))
 ORDER BY created_at DESC, id DESC
 LIMIT $2
 `
 
 type ListDepositsByAccountCursorParams struct {
-	AccountID uuid.UUID `json:"account_id"`
-	Limit     int32     `json:"limit"`
-	Column3   time.Time `json:"column_3"`
-	Column4   uuid.UUID `json:"column_4"`
+	UserID  uuid.UUID `json:"user_id"`
+	Limit   int32     `json:"limit"`
+	Column3 time.Time `json:"column_3"`
+	Column4 uuid.UUID `json:"column_4"`
 }
 
 func (q *Queries) ListDepositsByAccountCursor(ctx context.Context, arg ListDepositsByAccountCursorParams) ([]Deposit, error) {
 	rows, err := q.db.Query(ctx, listDepositsByAccountCursor,
-		arg.AccountID,
+		arg.UserID,
 		arg.Limit,
 		arg.Column3,
 		arg.Column4,
@@ -43,7 +43,7 @@ func (q *Queries) ListDepositsByAccountCursor(ctx context.Context, arg ListDepos
 		var i Deposit
 		if err := rows.Scan(
 			&i.ID,
-			&i.AccountID,
+			&i.UserID,
 			&i.FromAddress,
 			&i.Amount,
 			&i.Currency,

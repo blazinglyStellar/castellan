@@ -59,29 +59,29 @@ type ListEntriesResponse struct {
 }
 
 func (s *Service) GetAccount(ctx context.Context, ownerID uuid.UUID) (*AccountResponse, error) {
-	account, err := s.queries.GetAccountByOwnerID(ctx, ownerID)
+	user, err := s.queries.GetUserByID(ctx, ownerID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("get account: %w", err)
+		return nil, fmt.Errorf("get user: %w", err)
 	}
 
-	balance, err := numericToDecimal(account.Balance)
+	balance, err := numericToDecimal(user.Balance)
 	if err != nil {
 		return nil, fmt.Errorf("convert balance: %w", err)
 	}
 
 	return &AccountResponse{
-		ID:        account.ID,
+		ID:        user.ID,
 		Balance:   balance.String(),
-		Currency:  string(account.Currency),
-		CreatedAt: account.CreatedAt.Format(isoFormat),
-		UpdatedAt: account.UpdatedAt.Format(isoFormat),
+		Currency:  string(user.Currency),
+		CreatedAt: user.CreatedAt.Format(isoFormat),
+		UpdatedAt: user.AccountUpdatedAt.Format(isoFormat),
 	}, nil
 }
 
-func (s *Service) ListEntries(ctx context.Context, accountID uuid.UUID, entryType string, limit, offset int32) (*ListEntriesResponse, error) {
+func (s *Service) ListEntries(ctx context.Context, userID uuid.UUID, entryType string, limit, offset int32) (*ListEntriesResponse, error) {
 	var entries []repository.LedgerEntry
 	var total int64
 	var err error
@@ -93,7 +93,7 @@ func (s *Service) ListEntries(ctx context.Context, accountID uuid.UUID, entryTyp
 		}
 
 		entries, err = s.queries.ListLedgerEntriesByAccountAndType(ctx, repository.ListLedgerEntriesByAccountAndTypeParams{
-			AccountID: accountID,
+			UserID:    userID,
 			EntryType: et,
 			Limit:     limit,
 			Offset:    offset,
@@ -103,7 +103,7 @@ func (s *Service) ListEntries(ctx context.Context, accountID uuid.UUID, entryTyp
 		}
 
 		total, err = s.queries.CountLedgerEntriesByAccountAndType(ctx, repository.CountLedgerEntriesByAccountAndTypeParams{
-			AccountID: accountID,
+			UserID:    userID,
 			EntryType: et,
 		})
 		if err != nil {
@@ -111,15 +111,15 @@ func (s *Service) ListEntries(ctx context.Context, accountID uuid.UUID, entryTyp
 		}
 	} else {
 		entries, err = s.queries.ListLedgerEntriesByAccount(ctx, repository.ListLedgerEntriesByAccountParams{
-			AccountID: accountID,
-			Limit:     limit,
-			Offset:    offset,
+			UserID: userID,
+			Limit:  limit,
+			Offset: offset,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("list entries: %w", err)
 		}
 
-		total, err = s.queries.CountLedgerEntriesByAccount(ctx, accountID)
+		total, err = s.queries.CountLedgerEntriesByAccount(ctx, userID)
 		if err != nil {
 			return nil, fmt.Errorf("count entries: %w", err)
 		}
@@ -150,20 +150,20 @@ type BalanceResponse struct {
 }
 
 func (s *Service) GetBalance(ctx context.Context, ownerID uuid.UUID) (*BalanceResponse, error) {
-	account, err := s.queries.GetAccountByOwnerID(ctx, ownerID)
+	user, err := s.queries.GetUserByID(ctx, ownerID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("get account: %w", err)
+		return nil, fmt.Errorf("get user: %w", err)
 	}
 
-	balance, err := numericToDecimal(account.Balance)
+	balance, err := numericToDecimal(user.Balance)
 	if err != nil {
 		return nil, fmt.Errorf("convert balance: %w", err)
 	}
 
-	reservations, err := s.queries.GetActiveReservationsSum(ctx, account.ID)
+	reservations, err := s.queries.GetActiveReservationsSum(ctx, user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get active reservations: %w", err)
 	}
@@ -176,15 +176,15 @@ func (s *Service) GetBalance(ctx context.Context, ownerID uuid.UUID) (*BalanceRe
 
 	return &BalanceResponse{
 		Balance:          balance.String(),
-		Currency:         string(account.Currency),
+		Currency:         string(user.Currency),
 		AvailableBalance: available.String(),
 	}, nil
 }
 
 func (s *Service) GetEntry(ctx context.Context, entryID, ownerID uuid.UUID) (*EntryResponse, error) {
 	entry, err := s.queries.GetLedgerEntryByIDAndOwner(ctx, repository.GetLedgerEntryByIDAndOwnerParams{
-		ID:      entryID,
-		OwnerID: ownerID,
+		ID:     entryID,
+		UserID: ownerID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

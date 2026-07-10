@@ -1,6 +1,6 @@
 -- name: InsertDeposit :one
 INSERT INTO deposits (
-    account_id, from_address, amount, currency, memo, tx_hash, status
+    user_id, from_address, amount, currency, memo, tx_hash, status
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
 )
@@ -9,7 +9,7 @@ RETURNING *;
 
 -- name: InsertDepositIgnoreConflict :one
 INSERT INTO deposits (
-    account_id, from_address, amount, currency, memo, tx_hash, status
+    user_id, from_address, amount, currency, memo, tx_hash, status
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
 )
@@ -28,7 +28,7 @@ LIMIT 1;
 
 -- name: ListDepositsByAccount :many
 SELECT * FROM deposits
-WHERE account_id = $1
+WHERE user_id = $1
 ORDER BY created_at DESC;
 
 -- name: UpdateDepositStatus :one

@@ -207,18 +207,13 @@ CREATE TABLE api_endpoints (
     CONSTRAINT unique_provider_route_method UNIQUE (provider_id, route, method)
 );
 
-CREATE TABLE accounts (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_id    UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    balance     NUMERIC(20,10) NOT NULL DEFAULT 0,
-    currency    currency NOT NULL DEFAULT 'XLM',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS balance NUMERIC(20,10) NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS currency currency NOT NULL DEFAULT 'XLM';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS account_updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 CREATE TABLE ledger_entries (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id    UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     entry_type    entry_type NOT NULL,
     amount        NUMERIC(20,10) NOT NULL,
     balance_after NUMERIC(20,10) NOT NULL,
@@ -247,7 +242,7 @@ CREATE TABLE usage_events (
 
 CREATE TABLE deposits (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id      UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     from_address    TEXT NOT NULL,
     amount          NUMERIC(20,10) NOT NULL,
     currency        currency NOT NULL DEFAULT 'XLM',
@@ -258,7 +253,7 @@ CREATE TABLE deposits (
     confirmed_at    TIMESTAMPTZ
 );
 
-CREATE INDEX idx_deposits_account ON deposits (account_id);
+CREATE INDEX idx_deposits_user ON deposits (user_id);
 CREATE INDEX idx_deposits_tx_hash ON deposits (tx_hash);
 CREATE INDEX idx_deposits_status ON deposits (status);
 
@@ -288,7 +283,6 @@ type seedData struct {
 	APIKeyID   uuid.UUID
 	ProviderID uuid.UUID
 	EndpointID uuid.UUID
-	AccountID  uuid.UUID
 }
 
 func seedGatewayTestData(ctx context.Context, t *testing.T, baseURL, balance, price string, rateLimit ...int) seedData {
@@ -296,7 +290,7 @@ func seedGatewayTestData(ctx context.Context, t *testing.T, baseURL, balance, pr
 
 	userID := uuid.New()
 	email := fmt.Sprintf("test-%s@example.com", userID.String())
-	_, err := testPG.Exec(ctx, `INSERT INTO users (id, email) VALUES ($1, $2)`, userID, email)
+	_, err := testPG.Exec(ctx, `INSERT INTO users (id, email, balance) VALUES ($1, $2, $3)`, userID, email, balance)
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
@@ -308,14 +302,6 @@ func seedGatewayTestData(ctx context.Context, t *testing.T, baseURL, balance, pr
 		apiKeyID, userID, keyHash)
 	if err != nil {
 		t.Fatalf("seed api_key: %v", err)
-	}
-
-	accountID := uuid.New()
-	_, err = testPG.Exec(ctx,
-		`INSERT INTO accounts (id, owner_id, balance) VALUES ($1, $2, $3)`,
-		accountID, userID, balance)
-	if err != nil {
-		t.Fatalf("seed account: %v", err)
 	}
 
 	providerID := uuid.New()
@@ -343,7 +329,6 @@ func seedGatewayTestData(ctx context.Context, t *testing.T, baseURL, balance, pr
 		APIKeyID:   apiKeyID,
 		ProviderID: providerID,
 		EndpointID: endpointID,
-		AccountID:  accountID,
 	}
 }
 
@@ -488,11 +473,11 @@ func buildGatewayHandler(
 	}
 
 	balanceChecker := middleware.BalanceCheckerFunc(func(ctx context.Context, ownerID uuid.UUID) (decimal.Decimal, error) {
-		balance, err := testQueries.GetAccountBalance(ctx, ownerID)
+		user, err := testQueries.GetUserByID(ctx, ownerID)
 		if err != nil {
 			return decimal.Zero, fmt.Errorf("balance unavailable: %w", err)
 		}
-		f64, err := balance.Float64Value()
+		f64, err := user.Balance.Float64Value()
 		if err != nil {
 			return decimal.Zero, fmt.Errorf("failed to convert balance: %w", err)
 		}
@@ -521,7 +506,7 @@ func buildGatewayHandler(
 	h = pricingMiddleware(conn)(h)
 	h = middleware.AuthCheck(
 		middleware.KeyValidatorFunc(testQueries.GetKeyByHash),
-		middleware.SessionValidatorFunc(sessionSvc.ValidateSessionToken),
+		middleware.SessionValidatorFunc(sessionSvc.ValidateSession),
 	)(h)
 
 	return h
@@ -640,13 +625,22 @@ func TestGatewayInsufficientBalance(t *testing.T) {
 	ctx := context.Background()
 	seed := seedGatewayTestData(ctx, t, mockUpstream.URL, "0.01", "5.00")
 
+	// Use a unique raw key to avoid api_keys.key_hash collision with other tests.
+	insufficientRawKey := "ca_insufficient-" + seed.APIKeyID.String()
+	if _, err := testPG.Exec(ctx,
+		`UPDATE api_keys SET key_hash = $1 WHERE id = $2`,
+		auth.HashKey(insufficientRawKey), seed.APIKeyID,
+	); err != nil {
+		t.Fatalf("update api key hash: %v", err)
+	}
+
 	ledger := newLedgerTracker()
 	handler := buildGatewayHandler(testPG, ledger, proxy.DefaultConfig())
 
 	req := httptest.NewRequest(http.MethodPost,
 		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
 		strings.NewReader(`{"prompt":"hello"}`))
-	req.Header.Set("Authorization", "Bearer "+testRawKey)
+	req.Header.Set("Authorization", "Bearer "+insufficientRawKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -833,7 +827,7 @@ func seedSessionToken(ctx context.Context, t *testing.T, userID uuid.UUID, durat
 	t.Helper()
 
 	svc := auth.NewSessionService(testQueries)
-	rawToken, _, err := svc.GenerateSessionToken(ctx, userID, "test-session", nil, duration)
+	rawToken, err := svc.CreateSession(ctx, userID, duration)
 	if err != nil {
 		t.Fatalf("seed session token: %v", err)
 	}
@@ -898,17 +892,9 @@ func TestGatewayAPIKeyExpired(t *testing.T) {
 	// Create a fresh user so the expired key has a unique hash.
 	userID := uuid.New()
 	email := fmt.Sprintf("expired-%s@example.com", userID.String())
-	_, err := testPG.Exec(ctx, `INSERT INTO users (id, email) VALUES ($1, $2)`, userID, email)
+	_, err := testPG.Exec(ctx, `INSERT INTO users (id, email, balance) VALUES ($1, $2, $3)`, userID, email, "1000.00")
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
-	}
-
-	accountID := uuid.New()
-	_, err = testPG.Exec(ctx,
-		`INSERT INTO accounts (id, owner_id, balance) VALUES ($1, $2, $3)`,
-		accountID, userID, "1000.00")
-	if err != nil {
-		t.Fatalf("seed account: %v", err)
 	}
 
 	providerID := uuid.New()
@@ -1238,8 +1224,8 @@ func TestGatewayRateLimit_ConsumerIsolation(t *testing.T) {
 
 	// Consumer B — different user, uses the same provider+endpoint
 	userBID := uuid.New()
-	_, err = testPG.Exec(ctx, `INSERT INTO users (id, email) VALUES ($1, $2)`,
-		userBID, fmt.Sprintf("isolation-b-%s@example.com", userBID.String()))
+	_, err = testPG.Exec(ctx, `INSERT INTO users (id, email, balance) VALUES ($1, $2, $3)`,
+		userBID, fmt.Sprintf("isolation-b-%s@example.com", userBID.String()), "1000.00")
 	if err != nil {
 		t.Fatalf("seed user B: %v", err)
 	}
@@ -1250,12 +1236,6 @@ func TestGatewayRateLimit_ConsumerIsolation(t *testing.T) {
 		uuid.New(), userBID, keyHashB)
 	if err != nil {
 		t.Fatalf("seed api key B: %v", err)
-	}
-	_, err = testPG.Exec(ctx,
-		`INSERT INTO accounts (id, owner_id, balance) VALUES ($1, $2, $3)`,
-		uuid.New(), userBID, "1000.00")
-	if err != nil {
-		t.Fatalf("seed account B: %v", err)
 	}
 
 	ledger := newLedgerTracker()
@@ -1304,8 +1284,8 @@ func seedDepositUser(ctx context.Context, t *testing.T, balance string) (seedDat
 	memo := uuid.New().String()
 
 	_, err := testPG.Exec(ctx,
-		`INSERT INTO users (id, email, deposit_memo) VALUES ($1, $2, $3)`,
-		userID, fmt.Sprintf("deposit-%s@example.com", userID.String()), memo)
+		`INSERT INTO users (id, email, deposit_memo, balance) VALUES ($1, $2, $3, $4)`,
+		userID, fmt.Sprintf("deposit-%s@example.com", userID.String()), memo, balance)
 	if err != nil {
 		t.Fatalf("seed deposit user: %v", err)
 	}
@@ -1317,19 +1297,9 @@ func seedDepositUser(ctx context.Context, t *testing.T, balance string) (seedDat
 	if err != nil {
 		t.Fatalf("seed deposit api_key: %v", err)
 	}
-
-	accountID := uuid.New()
-	_, err = testPG.Exec(ctx,
-		`INSERT INTO accounts (id, owner_id, balance) VALUES ($1, $2, $3)`,
-		accountID, userID, balance)
-	if err != nil {
-		t.Fatalf("seed deposit account: %v", err)
-	}
-
 	return seedData{
 		UserID:    userID,
 		APIKeyID:  apiKeyID,
-		AccountID: accountID,
 	}, rawKey
 }
 
@@ -1343,15 +1313,15 @@ func buildDepositHandler() *deposit.Handler {
 	return deposit.NewHandler(svc)
 }
 
-// seedDeposit inserts a single deposit row for the given account.
-func seedDeposit(ctx context.Context, t *testing.T, accountID uuid.UUID, txHash, amount, status, memo string) {
+// seedDeposit inserts a single deposit row for the given user.
+func seedDeposit(ctx context.Context, t *testing.T, userID uuid.UUID, txHash, amount, status, memo string) {
 	t.Helper()
 
 	_, err := testPG.Exec(ctx, `
-		INSERT INTO deposits (account_id, from_address, amount, currency, memo, tx_hash, status)
+		INSERT INTO deposits (user_id, from_address, amount, currency, memo, tx_hash, status)
 		VALUES ($1, $2, $3, 'XLM', $4, $5, $6::deposit_status)
 		ON CONFLICT (tx_hash) DO NOTHING`,
-		accountID, "GABCDEF12345", amount, memo, txHash, status)
+		userID, "GABCDEF12345", amount, memo, txHash, status)
 	if err != nil {
 		t.Fatalf("seed deposit: %v", err)
 	}
@@ -1361,7 +1331,7 @@ func authHandler() func(http.Handler) http.Handler {
 	sessionSvc := auth.NewSessionService(testQueries)
 	return middleware.AuthCheck(
 		middleware.KeyValidatorFunc(testQueries.GetKeyByHash),
-		middleware.SessionValidatorFunc(sessionSvc.ValidateSessionToken),
+		middleware.SessionValidatorFunc(sessionSvc.ValidateSession),
 	)
 }
 
@@ -1463,8 +1433,8 @@ func TestDepositIntent_Unauthenticated(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if body["error"] != "authentication required" {
-		t.Errorf("error = %q, want %q", body["error"], "authentication required")
+	if body["error"] != "missing authorization header" {
+		t.Errorf("error = %q, want %q", body["error"], "missing authorization header")
 	}
 }
 
@@ -1473,8 +1443,8 @@ func TestDepositHistory_ScopedToConsumer(t *testing.T) {
 
 	// Consumer A — seed user and deposits
 	seedA, rawKeyA := seedDepositUser(ctx, t, "1000.00")
-	seedDeposit(ctx, t, seedA.AccountID, "txhash-a1", "100", "confirmed", "memo-a1")
-	seedDeposit(ctx, t, seedA.AccountID, "txhash-a2", "50", "pending", "memo-a2")
+	seedDeposit(ctx, t, seedA.UserID, "txhash-a1", "100", "confirmed", "memo-a1")
+	seedDeposit(ctx, t, seedA.UserID, "txhash-a2", "50", "pending", "memo-a2")
 
 	// Consumer B — seed user, no deposits
 	_, rawKeyB := seedDepositUser(ctx, t, "500.00")
@@ -1494,12 +1464,12 @@ func TestDepositHistory_ScopedToConsumer(t *testing.T) {
 	if recA.Code != http.StatusOK {
 		t.Fatalf("consumer A: expected 200; got %d, body: %s", recA.Code, recA.Body.String())
 	}
-	var depositsA []deposit.Response
-	if err := json.NewDecoder(recA.Body).Decode(&depositsA); err != nil {
+	var respA deposit.DepositListResponse
+	if err := json.NewDecoder(recA.Body).Decode(&respA); err != nil {
 		t.Fatalf("consumer A decode: %v", err)
 	}
-	if len(depositsA) != 2 {
-		t.Fatalf("consumer A: expected 2 deposits, got %d", len(depositsA))
+	if len(respA.Data) != 2 {
+		t.Fatalf("consumer A: expected 2 deposits, got %d", len(respA.Data))
 	}
 
 	// Consumer B — should see 0 deposits
@@ -1507,12 +1477,12 @@ func TestDepositHistory_ScopedToConsumer(t *testing.T) {
 	if recB.Code != http.StatusOK {
 		t.Fatalf("consumer B: expected 200; got %d, body: %s", recB.Code, recB.Body.String())
 	}
-	var depositsB []deposit.Response
-	if err := json.NewDecoder(recB.Body).Decode(&depositsB); err != nil {
+	var respB deposit.DepositListResponse
+	if err := json.NewDecoder(recB.Body).Decode(&respB); err != nil {
 		t.Fatalf("consumer B decode: %v", err)
 	}
-	if len(depositsB) != 0 {
-		t.Fatalf("consumer B: expected 0 deposits, got %d", len(depositsB))
+	if len(respB.Data) != 0 {
+		t.Fatalf("consumer B: expected 0 deposits, got %d", len(respB.Data))
 	}
 }
 
@@ -1532,12 +1502,12 @@ func TestDepositHistory_Empty(t *testing.T) {
 		t.Fatalf("expected 200; got %d, body: %s", rec.Code, rec.Body.String())
 	}
 
-	var deposits []deposit.Response
-	if err := json.NewDecoder(rec.Body).Decode(&deposits); err != nil {
+	var resp deposit.DepositListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(deposits) != 0 {
-		t.Errorf("expected empty list, got %d deposits", len(deposits))
+	if len(resp.Data) != 0 {
+		t.Errorf("expected empty list, got %d deposits", len(resp.Data))
 	}
 }
 
@@ -1557,7 +1527,7 @@ func TestDepositHistory_Unauthenticated(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if body["error"] != "authentication required" {
-		t.Errorf("error = %q, want %q", body["error"], "authentication required")
+	if body["error"] != "missing authorization header" {
+		t.Errorf("error = %q, want %q", body["error"], "missing authorization header")
 	}
 }

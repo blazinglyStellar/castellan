@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/oklog/ulid/v2"
 
 	"castellan/internal/repository/db"
 	"castellan/internal/stellar"
@@ -25,7 +28,13 @@ func NewService(queries repository.Querier, cfg stellar.Config) *Service {
 }
 
 func (s *Service) EnsureDepositMemo(ctx context.Context, userID uuid.UUID) (string, error) {
-	memo, err := s.queries.EnsureUserDepositMemo(ctx, userID)
+	entropy := ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)
+	newMemo := ulid.MustNew(ulid.Timestamp(time.Now()), entropy).String()
+
+	memo, err := s.queries.EnsureUserDepositMemo(ctx, repository.EnsureUserDepositMemoParams{
+		ID:      userID,
+		NewMemo: newMemo,
+	})
 	if err != nil {
 		return "", fmt.Errorf("ensure deposit memo: %w", err)
 	}

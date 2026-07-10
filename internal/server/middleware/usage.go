@@ -96,7 +96,7 @@ func UsageCapture(repo UsageEventRepository, logger *slog.Logger) func(http.Hand
 			}
 
 			if requestID == "" {
-				requestID = "unknown"
+				requestID = uuid.NewString()
 			}
 
 			var statusCode pgtype.Int4

@@ -45,7 +45,7 @@ type mockQuerier struct {
 	memo string
 }
 
-func (m *mockQuerier) EnsureUserDepositMemo(_ context.Context, _ uuid.UUID) (pgtype.Text, error) {
+func (m *mockQuerier) EnsureUserDepositMemo(_ context.Context, _ repository.EnsureUserDepositMemoParams) (pgtype.Text, error) {
 	return pgtype.Text{String: m.memo, Valid: true}, nil
 }
 
@@ -177,7 +177,7 @@ type errorQuerier struct {
 	repository.Querier
 }
 
-func (e *errorQuerier) EnsureUserDepositMemo(_ context.Context, _ uuid.UUID) (pgtype.Text, error) {
+func (e *errorQuerier) EnsureUserDepositMemo(_ context.Context, _ repository.EnsureUserDepositMemoParams) (pgtype.Text, error) {
 	return pgtype.Text{}, errors.New("db error")
 }
 
@@ -199,7 +199,7 @@ type nullMemoQuerier struct {
 	repository.Querier
 }
 
-func (n *nullMemoQuerier) EnsureUserDepositMemo(_ context.Context, _ uuid.UUID) (pgtype.Text, error) {
+func (n *nullMemoQuerier) EnsureUserDepositMemo(_ context.Context, _ repository.EnsureUserDepositMemoParams) (pgtype.Text, error) {
 	return pgtype.Text{Valid: false}, nil
 }
 

@@ -15,6 +15,7 @@ import (
 
 func TestBackToBackCycles_NoDoublePayment(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	providerID := seedProvider(ctx, t, "b2b@example.com", "GA_B2B")
 
@@ -77,6 +78,7 @@ func TestBackToBackCycles_NoDoublePayment(t *testing.T) {
 
 func TestMidCycleCrash_AfterCreateBatch_RecoverySafety(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	providerID := seedProvider(ctx, t, "crash@example.com", "GA_CRASH")
 
@@ -191,10 +193,10 @@ func TestMidCycleCrash_AfterCreateBatch_RecoverySafety(t *testing.T) {
 
 func TestFinalizeBatch_DoubleCall_NoReMark(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	providerID := seedProvider(ctx, t, "double-finalize@example.com", "GA_DFIN")
-	_, acctID := seedConsumerWithAccount(ctx, t, "double-finalize-c1@example.com")
-	seedDeductionLedgerEntry(ctx, t, acctID, "30.00")
+	acctID := seedUsageAndDeduction(ctx, t, providerID, "double-finalize-c1@example.com", "30.00")
 
 	reconciler := NewReconciler(testPool, testQueries)
 
@@ -262,15 +264,13 @@ func TestFinalizeBatch_DoubleCall_NoReMark(t *testing.T) {
 
 func TestConcurrentCycles_NoRace(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProvider(ctx, t, "concurrent-p1@example.com", "GA_CONC_1")
 	p2 := seedProvider(ctx, t, "concurrent-p2@example.com", "GA_CONC_2")
 
-	_, acct1 := seedConsumerWithAccount(ctx, t, "concurrent-c1@example.com")
-	_, acct2 := seedConsumerWithAccount(ctx, t, "concurrent-c2@example.com")
-
-	seedDeductionLedgerEntry(ctx, t, acct1, "40.00")
-	seedDeductionLedgerEntry(ctx, t, acct2, "60.00")
+	_ = seedUsageAndDeduction(ctx, t, p1, "concurrent-c1@example.com", "40.00")
+	_ = seedUsageAndDeduction(ctx, t, p2, "concurrent-c2@example.com", "60.00")
 
 	reconciler := NewReconciler(testPool, testQueries)
 

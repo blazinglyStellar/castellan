@@ -560,22 +560,16 @@ make seed
 make docker-run
 
 # Run database migrations
-DATABASE_URL="postgres://castellan:castellan@localhost:5432/castellan?sslmode=disable" \
-  goose -s -dir migrations postgres "$DATABASE_URL" up
+make migrate
 
-# (The API gateway runs inside Docker — no separate make run needed)
-
-# Run unit tests
-make test
-
-# Run integration tests (requires Docker)
-make itest
-
-# Run full suite with race detection
-go test -race -count=1 ./...
+# Run tests (optional)
+make test # Run unit tests
+make itest # Run integration tests (requires Docker)
+go test -race -count=1 ./... # Run full suite with race detection
 
 # Frontend
-cd dashboard && npm run dev
+cd dashboard-v3
+npm run dev
 ```
 
 See `Makefile` for all commands.
@@ -594,7 +588,7 @@ castellan/
 │   ├── server/           # HTTP server, routes, middleware
 │   └── repository/       # sqlc-generated query layer (db/ + query/)
 ├── migrations/           # Goose SQL migrations
-├── dashboard/            # Next.js 15 web dashboard
+├── dashboard-v3/         # Next.js 15 web dashboard
 ├── docs/                 # PRD, MVP spec, architecture docs
 ├── docker-compose.yml    # Postgres + Redis + API + Settlement Worker for local dev
 └── sqlc.yaml             # sqlc codegen config

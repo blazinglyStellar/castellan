@@ -12,7 +12,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 
-import { getBalance, getDeposits } from "@/lib/api/client";
+import { getBalance, getDeposits, ApiError } from "@/lib/api/client";
 import {
   Card,
   CardContent,
@@ -45,10 +45,14 @@ export function DepositBalanceCard() {
     queryFn: () => getDeposits({ limit: 200 }),
   });
 
-  const isLoading = balanceQuery.isLoading || statsQuery.isLoading;
+  const isBalance404 =
+    balanceQuery.error instanceof ApiError && balanceQuery.error.status === 404;
 
-  if (isLoading) return <BalanceSkeleton />;
-  if (balanceQuery.isError) {
+  if ((balanceQuery.isLoading && !isBalance404) || statsQuery.isLoading) {
+    return <BalanceSkeleton />;
+  }
+
+  if (balanceQuery.isError && !isBalance404) {
     return (
       <ErrorState
         message={
@@ -60,10 +64,13 @@ export function DepositBalanceCard() {
       />
     );
   }
-  if (!balanceQuery.data) return null;
 
-  const balance = parseFloat(balanceQuery.data.balance);
-  const available = parseFloat(balanceQuery.data.available_balance);
+  const balance = !isBalance404 && balanceQuery.data
+    ? parseFloat(balanceQuery.data.balance)
+    : 0;
+  const available = !isBalance404 && balanceQuery.data
+    ? parseFloat(balanceQuery.data.available_balance)
+    : 0;
   const reserved = balance - available;
   const pct = balance > 0 ? (available / balance) * 100 : 0;
   const hasLowBalance = balance > 0 && pct < 20;
@@ -196,18 +203,23 @@ function KpiRow({
 
 function BalanceSkeleton() {
   return (
-    <Card>
+    <Card className="flex flex-1 flex-col">
       <CardHeader className="flex flex-row items-center gap-2 pb-3">
         <Skeleton className="h-4 w-4 rounded-full" />
         <Skeleton className="h-4 w-24" />
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="flex flex-1 flex-col justify-between space-y-4">
         <div>
           <Skeleton className="h-8 w-36" />
           <Skeleton className="mt-1 h-3 w-24" />
         </div>
-        <Skeleton className="h-2 w-full rounded-full" />
-        <Skeleton className="h-3 w-48" />
+        <div className="space-y-1.5">
+          <Skeleton className="h-2 w-full rounded-full" />
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="h-3 w-28" />
+          </div>
+        </div>
         <div className="space-y-2 border-t pt-3">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="flex items-center justify-between">
