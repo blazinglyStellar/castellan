@@ -12,6 +12,7 @@ all: ci build
 
 build:
 	@echo "Building..."
+	@cp docs/openapi.yaml internal/server/openapi.yaml
 	@go build -o main.exe cmd/api/main.go
 
 # Aggregate CI checks (runs before build via `all`)
@@ -33,6 +34,7 @@ vet:
 
 # Run the application
 run:
+	@cp docs/openapi.yaml internal/server/openapi.yaml
 	@go run cmd/api/main.go
 
 # Print docs URL

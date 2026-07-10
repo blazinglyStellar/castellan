@@ -1,23 +1,16 @@
 package server
 
 import (
+	_ "embed"
+	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"sync"
 )
 
-var (
-	openapiOnce sync.Once
-	openapiSpec []byte
-	errOpenapi  error
-)
+//go:embed openapi.yaml
+var openapiSpec []byte
 
-func loadOpenapiSpec() {
-	openapiSpec, errOpenapi = os.ReadFile("docs/openapi.yaml")
-}
-
-var scalarHTML = []byte(`<!doctype html>
+const scalarHTMLTmpl = `<!doctype html>
 <html>
 <head>
   <title>Castellan API</title>
@@ -33,29 +26,34 @@ var scalarHTML = []byte(`<!doctype html>
   <script>
     Scalar.createApiReference('#app', {
       url: '/openapi.yaml',
+      servers: [{ url: '%s' }],
       theme: 'default',
       hideDownloadButton: true,
     })
   </script>
 </body>
-</html>`)
+</html>`
 
 func openapiHandler(w http.ResponseWriter, _ *http.Request) {
-	openapiOnce.Do(loadOpenapiSpec)
-	if errOpenapi != nil {
-		http.Error(w, "openapi spec not found", http.StatusNotFound)
-
-		return
-	}
 	w.Header().Set("Content-Type", "application/x-yaml")
 	if _, err := w.Write(openapiSpec); err != nil {
 		log.Printf("Failed to write response: %v", err)
 	}
 }
 
-func docsHandler(w http.ResponseWriter, _ *http.Request) {
+func docsHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract base URL from request (scheme + Host)
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	baseURL := scheme + "://" + r.Host
+
+	// Generate HTML with base URL embedded
+	html := fmt.Sprintf(scalarHTMLTmpl, baseURL)
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := w.Write(scalarHTML); err != nil {
+	if _, err := w.Write([]byte(html)); err != nil {
 		log.Printf("Failed to write response: %v", err)
 	}
 }

@@ -55,6 +55,30 @@ paths:
                   status:
                     type: string
                     example: ok
+  /openapi.yaml:
+    get:
+      operationId: serveOpenApiSpec
+      summary: Raw OpenAPI specification
+      security: []
+      responses:
+        "200":
+          description: OpenAPI YAML spec
+          content:
+            application/x-yaml:
+              schema:
+                type: string
+  /docs:
+    get:
+      operationId: serveApiDocs
+      summary: Scalar API reference UI
+      security: []
+      responses:
+        "200":
+          description: HTML docs page
+          content:
+            text/html:
+              schema:
+                type: string
 
   # ──────────────────────────────────────────────
   #   API Keys
@@ -100,6 +124,40 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/v1/keys/{id}:
+    patch:
+      operationId: updateKey
+      summary: Update an API key's label or expiration
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: API key ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateKeyRequest"
+      responses:
+        "200":
+          description: Updated API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListKeysItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /api/v1/keys/{id}/revoke:
     post:
       operationId: revokeKey
@@ -119,7 +177,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RevokeKeyResponse"
+                $ref: "#/components/schemas/ListKeysItem"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -213,12 +271,10 @@ paths:
   /api/v1/auth/me:
     get:
       operationId: getMe
-      summary: Get the current user
+      summary: Get the current user (basic profile)
       description: |
-        Returns the authenticated user's profile. The session is read from
-        the `session_token` cookie — no Authorization header is needed for
-        browser requests.
-      security: [{ CookieAuth: [] }]
+        Returns the authenticated user's basic profile (id, email, created_at).
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       responses:
         "200":
           description: Current user
@@ -236,7 +292,7 @@ paths:
       summary: Log the current user out
       description: |
         Revokes the session and clears the `session_token` cookie.
-      security: [{ CookieAuth: [] }]
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       responses:
         "200":
           description: Logged out
@@ -250,6 +306,25 @@ paths:
                     example: logged out
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/v1/me:
+    get:
+      operationId: dashboardMe
+      summary: Get the current user (dashboard profile)
+      description: |
+        Returns the authenticated user's dashboard profile including
+        deposit memo and payout Stellar address.
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      responses:
+        "200":
+          description: Dashboard profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardMeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   # ──────────────────────────────────────────────
   #   Providers
@@ -281,6 +356,7 @@ paths:
     get:
       operationId: listProviders
       summary: List all providers for the authenticated consumer
+      description: Returns providers with aggregated stats (endpoint count, total calls, active consumers).
       security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       responses:
         "200":
@@ -290,7 +366,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Provider"
+                  $ref: "#/components/schemas/OwnerProvider"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
@@ -325,7 +401,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     patch:
       operationId: updateProvider
-      summary: Partially update a provider's name or base URL
+      summary: Partially update a provider
       security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: id
@@ -348,6 +424,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Provider"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteProvider
+      summary: Delete a provider and all its endpoints
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Provider ID
+      responses:
+        "204":
+          description: Provider deleted (no content)
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -390,27 +489,23 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
-    delete:
-      operationId: deleteProvider
-      summary: Delete a provider and all its endpoints
+  /api/v1/discover:
+    get:
+      operationId: listPublicProviders
+      summary: List all active providers (public discovery)
+      description: Returns all active providers visible to consumers, with aggregated stats.
       security: [{ BearerAuth: [] }, { CookieAuth: [] }]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-          description: Provider ID
       responses:
-        "204":
-          description: Provider deleted (no content)
-        "400":
-          $ref: "#/components/responses/BadRequest"
+        "200":
+          description: List of public providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PublicProvider"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -475,6 +570,37 @@ paths:
       responses:
         "200":
           description: List of endpoints
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Endpoint"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/providers/{providerId}/endpoints/public:
+    get:
+      operationId: listPublicEndpoints
+      summary: List active endpoints for a provider (public)
+      description: Returns only active endpoints for the given provider. No auth required for viewing pricing.
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Provider ID
+      responses:
+        "200":
+          description: List of active endpoints
           content:
             application/json:
               schema:
@@ -704,6 +830,25 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/v1/balance:
+    get:
+      operationId: getBalance
+      summary: Get the consumer's balance
+      description: Returns current balance, currency, and available balance (reserved funds excluded).
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      responses:
+        "200":
+          description: Balance details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalanceResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   # ──────────────────────────────────────────────
   #   Deposits
@@ -727,17 +872,31 @@ paths:
   /api/v1/deposits:
     get:
       operationId: listDeposits
-      summary: List deposit history
+      summary: List deposit history (cursor paginated)
       security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Maximum results (max 100)
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Cursor for pagination (timestamp|uuid format)
       responses:
         "200":
-          description: List of deposits
+          description: Cursor-paginated deposit history
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/DepositResponse"
+                $ref: "#/components/schemas/DepositListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
@@ -749,7 +908,7 @@ paths:
   /api/v1/settlements:
     get:
       operationId: listSettlements
-      summary: List settlement batch history
+      summary: List settlement batch history (cursor paginated)
       security: [{ BearerAuth: [] }, { CookieAuth: [] }]
       parameters:
         - name: limit
@@ -761,23 +920,176 @@ paths:
             maximum: 100
             default: 20
           description: Maximum results (max 100)
-        - name: offset
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Cursor for pagination (timestamp|uuid format)
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by batch status
+      responses:
+        "200":
+          description: Cursor-paginated settlement batches
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/settlements/summary:
+    get:
+      operationId: getSettlementSummary
+      summary: Get settlement summary
+      description: Returns total settled amount, currency, and monthly history.
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      responses:
+        "200":
+          description: Settlement summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementSummaryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/settlements/threshold:
+    get:
+      operationId: getSettlementThreshold
+      summary: Get settlement minimum threshold
+      description: Returns the minimum amount required to trigger a settlement payout.
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      responses:
+        "200":
+          description: Settlement threshold
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementThresholdResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ──────────────────────────────────────────────
+  #   Usage
+  # ──────────────────────────────────────────────
+  /api/v1/usage:
+    get:
+      operationId: listUsage
+      summary: List usage events (cursor paginated)
+      description: |
+        Returns usage events for the authenticated consumer. Use `role=provider`
+        to view events from the provider perspective.
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      parameters:
+        - name: role
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [consumer, provider]
+            default: consumer
+          description: View role (consumer sees own usage, provider sees their endpoints' usage)
+        - name: limit
           in: query
           required: false
           schema:
             type: integer
-            minimum: 0
-            default: 0
-          description: Number of results to skip
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Maximum results (max 100)
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Cursor for pagination (timestamp|uuid format)
+        - name: provider_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Filter by provider ID
+        - name: endpoint_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Filter by endpoint ID
+        - name: status_code
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Filter by HTTP status code
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Filter events after this timestamp (RFC 3339)
+        - name: end_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Filter events before this timestamp (RFC 3339)
       responses:
         "200":
-          description: Paginated list of settlement batches
+          description: Cursor-paginated usage events
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListSettlementsResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
+                $ref: "#/components/schemas/UsageListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/earnings:
+    get:
+      operationId: getEarnings
+      summary: Get earnings breakdown
+      description: |
+        Returns total earnings, unsettled earnings, breakdown by provider
+        and endpoint, and a daily sparkline.
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      parameters:
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Start of date range (RFC 3339)
+        - name: end_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: End of date range (RFC 3339)
+      responses:
+        "200":
+          description: Earnings breakdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EarningsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
@@ -786,7 +1098,7 @@ paths:
   # ──────────────────────────────────────────────
   #   Gateway
   # ──────────────────────────────────────────────
-  /api/gateway/{providerId}/{endpoint}:
+  /api/gateway/{providerId}/{endpoint*}:
     parameters:
       - name: providerId
         in: path
@@ -801,29 +1113,17 @@ paths:
         schema:
           type: string
         description: Endpoint route path (e.g. `v1/chat/completions`)
-    post:
-      operationId: proxyRequest
-      summary: Proxy a request to an upstream provider endpoint
+    get:
+      operationId: proxyRequestGet
+      summary: Proxy a GET request to an upstream provider endpoint
       description: |
         Authenticates, resolves pricing, checks balance, reserves funds,
         proxies the request upstream, captures usage, and commits or
         releases the reservation based on upstream response.
       security: [{ BearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              description: Forwarded to the upstream provider
       responses:
         "200":
           description: Upstream response
-          content:
-            application/json:
-              schema:
-                type: object
-                description: Response from the upstream provider
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -876,6 +1176,97 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: proxyRequestPost
+      summary: Proxy a POST request to an upstream provider endpoint
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Forwarded to the upstream provider
+      responses:
+        "200":
+          description: Upstream response
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "402":
+          $ref: "#/components/responses/InsufficientBalance"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimitExceeded"
+        "503":
+          $ref: "#/components/responses/UpstreamError"
+    put:
+      operationId: proxyRequestPut
+      summary: Proxy a PUT request to an upstream provider endpoint
+      security: [{ BearerAuth: [] }]
+      responses:
+        "200":
+          description: Upstream response
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "402":
+          $ref: "#/components/responses/InsufficientBalance"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimitExceeded"
+        "503":
+          $ref: "#/components/responses/UpstreamError"
+    delete:
+      operationId: proxyRequestDelete
+      summary: Proxy a DELETE request to an upstream provider endpoint
+      security: [{ BearerAuth: [] }]
+      responses:
+        "200":
+          description: Upstream response
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "402":
+          $ref: "#/components/responses/InsufficientBalance"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimitExceeded"
+        "503":
+          $ref: "#/components/responses/UpstreamError"
+    patch:
+      operationId: proxyRequestPatch
+      summary: Proxy a PATCH request to an upstream provider endpoint
+      security: [{ BearerAuth: [] }]
+      responses:
+        "200":
+          description: Upstream response
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "402":
+          $ref: "#/components/responses/InsufficientBalance"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimitExceeded"
+        "503":
+          $ref: "#/components/responses/UpstreamError"
 
 components:
   securitySchemes:
@@ -927,6 +1318,52 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    InsufficientBalance:
+      description: Insufficient balance
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: insufficient_balance
+              balance:
+                type: string
+                example: "10.50"
+              required:
+                type: string
+                example: "25.00"
+            required: [error, balance, required]
+    RequestTooLarge:
+      description: Request body too large
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RateLimitExceeded:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: rate_limit_exceeded
+              reset:
+                type: string
+                example: "1712345678"
+              retry_after:
+                type: integer
+                example: 30
+            required: [error, reset, retry_after]
+    UpstreamError:
+      description: Upstream service unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
 
   schemas:
     # ── Shared ──────────────────────────────────
@@ -954,6 +1391,19 @@ components:
             Expiration timestamp. Defaults to 30 days from creation
             if not provided.
       required: [label]
+
+    UpdateKeyRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          description: New label for the key
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: New expiration timestamp
+      minProperties: 1
 
     CreateKeyResponse:
       type: object
@@ -1002,26 +1452,6 @@ components:
           nullable: true
       required: [id, label, status, created_at]
 
-    RevokeKeyResponse:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        label:
-          type: string
-        status:
-          type: string
-          enum: [active, revoked, expired]
-        created_at:
-          type: string
-          format: date-time
-        expires_at:
-          type: string
-          format: date-time
-          nullable: true
-      required: [id, label, status, created_at]
-
     # ── Auth ────────────────────────────────────
     UserResponse:
       type: object
@@ -1040,6 +1470,26 @@ components:
           description: Account creation timestamp
       required: [id, email, created_at]
 
+    DashboardMeResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          description: User role
+        deposit_memo:
+          type: string
+          description: User's unique deposit memo
+        payout_stellar_address:
+          type: string
+          description: User's payout Stellar address (if set)
+      required: [id, email, role, deposit_memo]
+
     # ── Providers ───────────────────────────────
     CreateProviderRequest:
       type: object
@@ -1053,6 +1503,9 @@ components:
           format: uri
           description: Upstream base URL
           example: https://api.openai.com
+        description:
+          type: string
+          description: Optional description
       required: [name, base_url]
 
     UpdateProviderRequest:
@@ -1065,6 +1518,9 @@ components:
           type: string
           format: uri
           description: Upstream base URL
+        description:
+          type: string
+          description: Optional description
       minProperties: 1
 
     UpdateProviderStatusRequest:
@@ -1093,6 +1549,9 @@ components:
         status:
           type: string
           enum: [active, inactive, suspended]
+        description:
+          type: string
+          description: Provider description
         created_at:
           type: string
           format: date-time
@@ -1100,6 +1559,35 @@ components:
           type: string
           format: date-time
       required: [id, owner_id, name, base_url, status, created_at, updated_at]
+
+    OwnerProvider:
+      allOf:
+        - $ref: "#/components/schemas/Provider"
+        - type: object
+          properties:
+            endpoint_count:
+              type: integer
+              description: Number of endpoints under this provider
+            total_calls:
+              type: integer
+              description: Total API calls made to this provider
+            active_consumers:
+              type: integer
+              description: Number of unique consumers using this provider
+          required: [endpoint_count, total_calls, active_consumers]
+
+    PublicProvider:
+      allOf:
+        - $ref: "#/components/schemas/Provider"
+        - type: object
+          properties:
+            total_calls:
+              type: integer
+              description: Total API calls made to this provider
+            active_consumers:
+              type: integer
+              description: Number of unique consumers using this provider
+          required: [total_calls, active_consumers]
 
     # ── Endpoints ───────────────────────────────
     CreateEndpointRequest:
@@ -1126,6 +1614,9 @@ components:
           type: integer
           nullable: true
           description: Max requests per rate limit window
+        description:
+          type: string
+          description: Optional endpoint description
       required: [route, method, price_amount]
 
     UpdateEndpointRequest:
@@ -1147,6 +1638,9 @@ components:
           type: integer
           nullable: true
           description: Max requests per rate limit window
+        description:
+          type: string
+          description: Endpoint description
       minProperties: 1
 
     UpdateEndpointStatusRequest:
@@ -1183,6 +1677,9 @@ components:
         status:
           type: string
           enum: [active, inactive, draft]
+        description:
+          type: string
+          description: Endpoint description
         created_at:
           type: string
           format: date-time
@@ -1212,6 +1709,20 @@ components:
           type: string
           format: date-time
       required: [id, balance, currency, created_at, updated_at]
+
+    BalanceResponse:
+      type: object
+      properties:
+        balance:
+          type: string
+          description: Total balance as a decimal string
+        currency:
+          type: string
+          example: XLM
+        available_balance:
+          type: string
+          description: Available balance (total minus reserved)
+      required: [balance, currency, available_balance]
 
     EntryResponse:
       type: object
@@ -1285,7 +1796,7 @@ components:
           example: XLM
       required: [sep7_uri, qr_code, memo, destination, minimum_amount, asset]
 
-    DepositResponse:
+    DepositItem:
       type: object
       properties:
         id:
@@ -1294,6 +1805,9 @@ components:
           type: string
         currency:
           type: string
+        memo:
+          type: string
+          description: Deposit memo used to identify the sender
         tx_hash:
           type: string
         status:
@@ -1309,18 +1823,32 @@ components:
           nullable: true
       required: [id, amount, currency, tx_hash, status, from_address, created_at]
 
-    # ── Settlements ─────────────────────────────
-    ListSettlementsResponse:
+    DepositListResponse:
       type: object
       properties:
-        batches:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/DepositItem"
+        next_cursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page
+      required: [data]
+
+    # ── Settlements ─────────────────────────────
+    SettlementListResponse:
+      type: object
+      properties:
+        data:
           type: array
           items:
             $ref: "#/components/schemas/SettlementBatch"
-        total:
-          type: integer
-          description: Total number of batches
-      required: [batches, total]
+        next_cursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page
+      required: [data]
 
     SettlementBatch:
       type: object
@@ -1338,6 +1866,10 @@ components:
           type: string
         entry_count:
           type: integer
+        tx_hash:
+          type: string
+          nullable: true
+          description: Stellar transaction hash (once submitted)
         created_at:
           type: string
           format: date-time
@@ -1360,6 +1892,9 @@ components:
         provider_id:
           type: string
           format: uuid
+        provider_name:
+          type: string
+          description: Provider display name
         amount:
           type: string
         currency:
@@ -1371,4 +1906,160 @@ components:
         created_at:
           type: string
           format: date-time
-      required: [id, provider_id, amount, currency, wallet_address, status, created_at]
+      required: [id, provider_id, provider_name, amount, currency, wallet_address, status, created_at]
+
+    SettlementSummaryResponse:
+      type: object
+      properties:
+        total_settled:
+          type: string
+          description: Total amount settled
+        currency:
+          type: string
+        monthly_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/MonthlySettlement"
+      required: [total_settled, currency, monthly_history]
+
+    MonthlySettlement:
+      type: object
+      properties:
+        month:
+          type: string
+          description: Month (YYYY-MM format)
+        amount:
+          type: string
+          description: Amount settled in that month
+      required: [month, amount]
+
+    SettlementThresholdResponse:
+      type: object
+      properties:
+        min_threshold:
+          type: string
+          description: Minimum amount to trigger settlement
+        currency:
+          type: string
+      required: [min_threshold, currency]
+
+    # ── Usage ───────────────────────────────────
+    UsageListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/UsageEventItem"
+        next_cursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page
+      required: [data]
+
+    UsageEventItem:
+      type: object
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        route:
+          type: string
+        method:
+          type: string
+        request_cost:
+          type: string
+          description: Cost of the request
+        currency:
+          type: string
+        status_code:
+          type: integer
+          nullable: true
+          description: HTTP status code of the upstream response
+        latency_ms:
+          type: integer
+          nullable: true
+          description: Request latency in milliseconds
+        response_size:
+          type: integer
+          nullable: true
+          description: Response body size in bytes
+        request_id:
+          type: string
+          description: Unique request identifier
+        provider_name:
+          type: string
+        provider_id:
+          type: string
+          format: uuid
+        endpoint_id:
+          type: string
+          format: uuid
+        usage_status:
+          type: string
+          description: Status of the usage event (completed, pending)
+      required: [id, timestamp, route, method, request_cost, currency, request_id, provider_name, provider_id, endpoint_id, usage_status]
+
+    EarningsResponse:
+      type: object
+      properties:
+        total_earnings:
+          type: string
+          description: Total earnings from all usage
+        unsettled_earnings:
+          type: string
+          description: Earnings not yet settled
+        by_provider:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProviderEarning"
+        by_endpoint:
+          type: array
+          items:
+            $ref: "#/components/schemas/EndpointEarning"
+        sparkline:
+          type: array
+          items:
+            $ref: "#/components/schemas/DailyEarning"
+      required: [total_earnings, unsettled_earnings, by_provider, by_endpoint, sparkline]
+
+    ProviderEarning:
+      type: object
+      properties:
+        provider_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: Provider name
+        total:
+          type: string
+          description: Total earnings for this provider
+      required: [provider_id, name, total]
+
+    EndpointEarning:
+      type: object
+      properties:
+        endpoint_id:
+          type: string
+          format: uuid
+        route:
+          type: string
+        total:
+          type: string
+          description: Total earnings for this endpoint
+      required: [endpoint_id, route, total]
+
+    DailyEarning:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          description: Date (YYYY-MM-DD)
+        amount:
+          type: string
+          description: Earnings on this date
+      required: [date, amount]
