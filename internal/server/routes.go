@@ -67,8 +67,8 @@ func (s *Server) RegisterRoutes() http.Handler {
 
 func (s *Server) GatewayRoutes(mux *http.ServeMux) {
 	handler := http.Handler(s.proxy)
-	handler = middleware.UsageCapture(s.usageRepo, slog.Default())(handler)
 	handler = middleware.Reservation(s.ledger)(handler)
+	handler = middleware.UsageCapture(s.usageRepo, slog.Default())(handler)
 	handler = middleware.MaxBodySize(middleware.MaxBodySizeFromEnv())(handler)
 	handler = middleware.BalanceCheck(s.balance)(handler)
 	handler = middleware.RateLimitCheck(s.rateLimiter)(handler)
