@@ -174,10 +174,11 @@ func (s *StellarSubmitter) submitSinglePayout(
 	)
 
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount: &sourceAccount,
-		Operations:    []txnbuild.Operation{paymentOp},
-		BaseFee:       txnbuild.MinBaseFee,
-		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+		SourceAccount:       &sourceAccount,
+		Operations:          []txnbuild.Operation{paymentOp},
+		BaseFee:             txnbuild.MinBaseFee,
+		Preconditions:       txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+		IncrementSequenceNum: true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("build transaction: %w", err)
@@ -231,13 +232,14 @@ func (s *StellarSubmitter) submitSinglePayout(
 						continue
 					}
 
-					newSource := txnbuild.NewSimpleAccount(s.stellarCfg.HotWalletAddress, newSeq)
-					newTx, buildErr := txnbuild.NewTransaction(txnbuild.TransactionParams{
-						SourceAccount: &newSource,
-						Operations:    []txnbuild.Operation{paymentOp},
-						BaseFee:       txnbuild.MinBaseFee,
-						Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
-					})
+				newSource := txnbuild.NewSimpleAccount(s.stellarCfg.HotWalletAddress, newSeq)
+				newTx, buildErr := txnbuild.NewTransaction(txnbuild.TransactionParams{
+					SourceAccount:       &newSource,
+					Operations:          []txnbuild.Operation{paymentOp},
+					BaseFee:             txnbuild.MinBaseFee,
+					Preconditions:       txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+					IncrementSequenceNum: true,
+				})
 					if buildErr != nil {
 						lastErr = fmt.Errorf("rebuild tx after tx_bad_seq: %w", buildErr)
 						continue
