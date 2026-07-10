@@ -35,13 +35,14 @@ func (m *mockQuerier) CreateProvider(ctx context.Context, arg repository.CreateP
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p := repository.Provider{
-		ID:        uuid.New(),
-		OwnerID:   arg.OwnerID,
-		Name:      arg.Name,
-		BaseUrl:   arg.BaseUrl,
-		Status:    arg.Status,
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
+		ID:          uuid.New(),
+		OwnerID:     arg.OwnerID,
+		Name:        arg.Name,
+		BaseUrl:     arg.BaseUrl,
+		Description: arg.Description,
+		Status:      arg.Status,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
 	}
 	m.providers[p.ID] = p
 	return p, nil
@@ -78,9 +79,14 @@ func (m *mockQuerier) UpdateProvider(ctx context.Context, arg repository.UpdateP
 	}
 	p.Name = arg.Name
 	p.BaseUrl = arg.BaseUrl
+	p.Description = arg.Description
 	p.UpdatedAt = time.Now().UTC()
 	m.providers[arg.ID] = p
 	return p, nil
+}
+
+func (m *mockQuerier) GetProviderStats(ctx context.Context) ([]repository.GetProviderStatsRow, error) {
+	return nil, nil
 }
 
 func (m *mockQuerier) UpdateProviderStatus(ctx context.Context, arg repository.UpdateProviderStatusParams) (repository.Provider, error) {
@@ -130,6 +136,7 @@ func (m *mockQuerier) CreateEndpoint(ctx context.Context, arg repository.CreateE
 		Currency:    arg.Currency,
 		RateLimit:   arg.RateLimit,
 		Status:      arg.Status,
+		Description: arg.Description,
 		CreatedAt:   time.Now().UTC(),
 		UpdatedAt:   time.Now().UTC(),
 	}
@@ -155,15 +162,9 @@ func (m *mockQuerier) ListEndpointsByProvider(ctx context.Context, arg repositor
 		if e.ProviderID != arg.ProviderID {
 			continue
 		}
-		if arg.Status != nil {
-			if statusPtr, ok := arg.Status.(*repository.EndpointStatus); ok {
-				if string(e.Status) != string(*statusPtr) {
-					continue
-				}
-			} else if statusStr, ok := arg.Status.(string); ok {
-				if string(e.Status) != statusStr {
-					continue
-				}
+		if arg.Status.Valid {
+			if string(e.Status) != string(arg.Status.EndpointStatus) {
+				continue
 			}
 		}
 		result = append(result, e)
@@ -183,6 +184,7 @@ func (m *mockQuerier) UpdateEndpoint(ctx context.Context, arg repository.UpdateE
 	e.PriceAmount = arg.PriceAmount
 	e.Currency = arg.Currency
 	e.RateLimit = arg.RateLimit
+	e.Description = arg.Description
 	e.UpdatedAt = time.Now().UTC()
 	m.endpoints[arg.ID] = e
 	return e, nil
@@ -223,7 +225,7 @@ func TestCreateProvider_Success(t *testing.T) {
 	s := NewProviderService(mq)
 	ownerID := uuid.New()
 
-	p, err := s.CreateProvider(context.Background(), ownerID, "My Provider", "https://api.example.com")
+	p, err := s.CreateProvider(context.Background(), ownerID, "My Provider", "https://api.example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +248,7 @@ func TestCreateProvider_Success(t *testing.T) {
 
 func TestCreateProvider_EmptyName(t *testing.T) {
 	s := NewProviderService(newMockQuerier())
-	_, err := s.CreateProvider(context.Background(), uuid.New(), "", "https://api.example.com")
+	_, err := s.CreateProvider(context.Background(), uuid.New(), "", "https://api.example.com", "")
 	if err == nil {
 		t.Fatal("expected error for empty name")
 	}
@@ -255,7 +257,7 @@ func TestCreateProvider_EmptyName(t *testing.T) {
 func TestCreateProvider_LongName(t *testing.T) {
 	s := NewProviderService(newMockQuerier())
 	longName := strings.Repeat("a", 256)
-	_, err := s.CreateProvider(context.Background(), uuid.New(), longName, "https://api.example.com")
+	_, err := s.CreateProvider(context.Background(), uuid.New(), longName, "https://api.example.com", "")
 	if err == nil {
 		t.Fatal("expected error for name > 255 chars")
 	}
@@ -263,7 +265,7 @@ func TestCreateProvider_LongName(t *testing.T) {
 
 func TestCreateProvider_InvalidBaseURL_NoScheme(t *testing.T) {
 	s := NewProviderService(newMockQuerier())
-	_, err := s.CreateProvider(context.Background(), uuid.New(), "Test", "api.example.com")
+	_, err := s.CreateProvider(context.Background(), uuid.New(), "Test", "api.example.com", "")
 	if err == nil {
 		t.Fatal("expected error for URL without scheme")
 	}
@@ -271,7 +273,7 @@ func TestCreateProvider_InvalidBaseURL_NoScheme(t *testing.T) {
 
 func TestCreateProvider_InvalidBaseURL_NotHTTP(t *testing.T) {
 	s := NewProviderService(newMockQuerier())
-	_, err := s.CreateProvider(context.Background(), uuid.New(), "Test", "ftp://files.example.com")
+	_, err := s.CreateProvider(context.Background(), uuid.New(), "Test", "ftp://files.example.com", "")
 	if err == nil {
 		t.Fatal("expected error for non-HTTP scheme")
 	}
@@ -279,7 +281,7 @@ func TestCreateProvider_InvalidBaseURL_NotHTTP(t *testing.T) {
 
 func TestCreateProvider_InvalidBaseURL_NotURL(t *testing.T) {
 	s := NewProviderService(newMockQuerier())
-	_, err := s.CreateProvider(context.Background(), uuid.New(), "Test", "not a url")
+	_, err := s.CreateProvider(context.Background(), uuid.New(), "Test", "not a url", "")
 	if err == nil {
 		t.Fatal("expected error for non-URL string")
 	}
@@ -290,7 +292,7 @@ func TestGetProviderByID_Success(t *testing.T) {
 	s := NewProviderService(mq)
 	ownerID := uuid.New()
 
-	created, err := s.CreateProvider(context.Background(), ownerID, "Test Provider", "https://example.com")
+	created, err := s.CreateProvider(context.Background(), ownerID, "Test Provider", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +320,7 @@ func TestGetProviderByID_NotOwner(t *testing.T) {
 	ownerID := uuid.New()
 	otherUser := uuid.New()
 
-	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,9 +337,9 @@ func TestListProviders(t *testing.T) {
 	ownerID := uuid.New()
 	otherID := uuid.New()
 
-	s.CreateProvider(context.Background(), ownerID, "P1", "https://a.com")
-	s.CreateProvider(context.Background(), ownerID, "P2", "https://b.com")
-	s.CreateProvider(context.Background(), otherID, "P3", "https://c.com")
+	s.CreateProvider(context.Background(), ownerID, "P1", "https://a.com", "")
+	s.CreateProvider(context.Background(), ownerID, "P2", "https://b.com", "")
+	s.CreateProvider(context.Background(), otherID, "P3", "https://c.com", "")
 
 	providers, err := s.ListProviders(context.Background(), ownerID)
 	if err != nil {
@@ -353,12 +355,12 @@ func TestUpdateProvider_Success(t *testing.T) {
 	s := NewProviderService(mq)
 	ownerID := uuid.New()
 
-	created, err := s.CreateProvider(context.Background(), ownerID, "Original", "https://original.com")
+	created, err := s.CreateProvider(context.Background(), ownerID, "Original", "https://original.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	updated, err := s.UpdateProvider(context.Background(), created.ID, ownerID, "Updated", "https://updated.com")
+	updated, err := s.UpdateProvider(context.Background(), created.ID, ownerID, "Updated", "https://updated.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,14 +378,17 @@ func TestPartialUpdateProvider_Success(t *testing.T) {
 		s := NewProviderService(mq)
 		ownerID := uuid.New()
 
-		created, err := s.CreateProvider(context.Background(), ownerID, "Original", "https://original.com")
+		created, err := s.CreateProvider(context.Background(), ownerID, "Original", "https://original.com", "")
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		name := "Updated"
 		baseURL := "https://updated.com"
-		updated, err := s.PartialUpdateProvider(context.Background(), created.ID, ownerID, &name, &baseURL)
+		updated, err := s.PartialUpdateProvider(context.Background(), created.ID, ownerID, partialUpdateProviderInput{
+			Name:    &name,
+			BaseURL: &baseURL,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -400,13 +405,15 @@ func TestPartialUpdateProvider_Success(t *testing.T) {
 		s := NewProviderService(mq)
 		ownerID := uuid.New()
 
-		created, err := s.CreateProvider(context.Background(), ownerID, "Original", "https://original.com")
+		created, err := s.CreateProvider(context.Background(), ownerID, "Original", "https://original.com", "")
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		name := "NameOnly"
-		updated, err := s.PartialUpdateProvider(context.Background(), created.ID, ownerID, &name, nil)
+		updated, err := s.PartialUpdateProvider(context.Background(), created.ID, ownerID, partialUpdateProviderInput{
+			Name: &name,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -423,13 +430,15 @@ func TestPartialUpdateProvider_Success(t *testing.T) {
 		s := NewProviderService(mq)
 		ownerID := uuid.New()
 
-		created, err := s.CreateProvider(context.Background(), ownerID, "Original", "https://original.com")
+		created, err := s.CreateProvider(context.Background(), ownerID, "Original", "https://original.com", "")
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		baseURL := "https://new.example.com"
-		updated, err := s.PartialUpdateProvider(context.Background(), created.ID, ownerID, nil, &baseURL)
+		updated, err := s.PartialUpdateProvider(context.Background(), created.ID, ownerID, partialUpdateProviderInput{
+			BaseURL: &baseURL,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -448,13 +457,15 @@ func TestPartialUpdateProvider_NotOwner(t *testing.T) {
 	ownerID := uuid.New()
 	otherUser := uuid.New()
 
-	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	name := "Hacked"
-	_, err = s.PartialUpdateProvider(context.Background(), created.ID, otherUser, &name, nil)
+	_, err = s.PartialUpdateProvider(context.Background(), created.ID, otherUser, partialUpdateProviderInput{
+		Name: &name,
+	})
 	if err == nil {
 		t.Fatal("expected error for non-owner partial update")
 	}
@@ -463,7 +474,9 @@ func TestPartialUpdateProvider_NotOwner(t *testing.T) {
 func TestPartialUpdateProvider_NotFound(t *testing.T) {
 	s := NewProviderService(newMockQuerier())
 	name := "Test"
-	_, err := s.PartialUpdateProvider(context.Background(), uuid.New(), uuid.New(), &name, nil)
+	_, err := s.PartialUpdateProvider(context.Background(), uuid.New(), uuid.New(), partialUpdateProviderInput{
+		Name: &name,
+	})
 	if err == nil {
 		t.Fatal("expected error for non-existent provider")
 	}
@@ -475,12 +488,12 @@ func TestUpdateProvider_NotOwner(t *testing.T) {
 	ownerID := uuid.New()
 	otherUser := uuid.New()
 
-	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = s.UpdateProvider(context.Background(), created.ID, otherUser, "Hacked", "https://evil.com")
+	_, err = s.UpdateProvider(context.Background(), created.ID, otherUser, "Hacked", "https://evil.com", "")
 	if err == nil {
 		t.Fatal("expected error for non-owner update")
 	}
@@ -491,7 +504,7 @@ func TestUpdateProviderStatus_Success(t *testing.T) {
 	s := NewProviderService(mq)
 	ownerID := uuid.New()
 
-	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,7 +523,7 @@ func TestUpdateProviderStatus_InvalidStatus(t *testing.T) {
 	s := NewProviderService(mq)
 	ownerID := uuid.New()
 
-	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -527,7 +540,7 @@ func TestUpdateProviderStatus_NotOwner(t *testing.T) {
 	ownerID := uuid.New()
 	otherUser := uuid.New()
 
-	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +556,7 @@ func TestDeleteProvider_Success(t *testing.T) {
 	s := NewProviderService(mq)
 	ownerID := uuid.New()
 
-	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +581,7 @@ func TestDeleteProvider_NotOwner(t *testing.T) {
 	ownerID := uuid.New()
 	otherUser := uuid.New()
 
-	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	created, err := s.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,7 +598,7 @@ func TestCreateEndpoint_Success(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,7 +635,7 @@ func TestCreateEndpoint_NotOwnerOfProvider(t *testing.T) {
 	ownerID := uuid.New()
 	otherUser := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +662,7 @@ func TestCreateEndpoint_InvalidRoute(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -687,7 +700,7 @@ func TestCreateEndpoint_InvalidMethod(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -713,7 +726,7 @@ func TestCreateEndpoint_NegativePrice(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -739,7 +752,7 @@ func TestCreateEndpoint_InvalidCurrency(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -765,7 +778,7 @@ func TestCreateEndpoint_InvalidRateLimit(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -792,7 +805,7 @@ func TestGetEndpointByID_Success(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -835,7 +848,7 @@ func TestGetEndpointByID_NotOwner(t *testing.T) {
 	ownerID := uuid.New()
 	otherUser := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -866,7 +879,7 @@ func TestListEndpoints(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -900,7 +913,7 @@ func TestUpdateEndpoint_Success(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -941,7 +954,7 @@ func TestUpdateEndpoint_NotOwner(t *testing.T) {
 	ownerID := uuid.New()
 	otherUser := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -974,7 +987,7 @@ func TestUpdateEndpointStatus_Success(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1005,7 +1018,7 @@ func TestUpdateEndpointStatus_InvalidStatus(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1034,7 +1047,7 @@ func TestUpdateEndpointStatus_NotOwner(t *testing.T) {
 	ownerID := uuid.New()
 	otherUser := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1062,7 +1075,7 @@ func TestDeleteEndpoint_Success(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1099,7 +1112,7 @@ func TestDeleteEndpoint_NotOwner(t *testing.T) {
 	ownerID := uuid.New()
 	otherUser := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1128,7 +1141,7 @@ func TestPartialUpdateEndpoint_Success(t *testing.T) {
 		es := NewEndpointService(mq)
 		ownerID := uuid.New()
 
-		provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+		provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1170,7 +1183,7 @@ func TestPartialUpdateEndpoint_Success(t *testing.T) {
 		es := NewEndpointService(mq)
 		ownerID := uuid.New()
 
-		provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+		provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1208,7 +1221,7 @@ func TestPartialUpdateEndpoint_Success(t *testing.T) {
 		es := NewEndpointService(mq)
 		ownerID := uuid.New()
 
-		provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+		provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1243,7 +1256,7 @@ func TestPartialUpdateEndpoint_Success(t *testing.T) {
 		es := NewEndpointService(mq)
 		ownerID := uuid.New()
 
-		provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+		provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1277,7 +1290,7 @@ func TestPartialUpdateEndpoint_NotOwner(t *testing.T) {
 	ownerID := uuid.New()
 	otherUser := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1317,7 +1330,7 @@ func TestUpdateEndpoint_DuplicateConflict(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1358,7 +1371,7 @@ func TestGetEndpointByID_OwnershipProviderDeleted(t *testing.T) {
 	es := NewEndpointService(mq)
 	ownerID := uuid.New()
 
-	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com")
+	provider, err := ps.CreateProvider(context.Background(), ownerID, "Test", "https://example.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}

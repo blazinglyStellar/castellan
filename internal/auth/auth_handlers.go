@@ -54,6 +54,66 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type DashboardMeResponse struct {
+	ID                   string `json:"id"`
+	Email                string `json:"email"`
+	Role                 string `json:"role"`
+	DepositMemo          string `json:"deposit_memo"`
+	PayoutStellarAddress string `json:"payout_stellar_address,omitempty"`
+}
+
+func (h *Handler) DashboardMe(w http.ResponseWriter, r *http.Request) {
+	consumer := gatewaycontext.GetConsumerInfo(r.Context())
+	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+		return
+	}
+
+	userID, err := uuid.Parse(consumer.ConsumerID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "invalid consumer id", slog.String("error", err.Error()))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid identity"})
+		return
+	}
+
+	user, err := h.queries.GetUserByID(r.Context(), userID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "failed to lookup user", slog.String("error", err.Error()))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "internal error"})
+		return
+	}
+
+	count, err := h.queries.GetUserProviderCount(r.Context(), userID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "failed to check provider count", slog.String("error", err.Error()))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "internal error"})
+		return
+	}
+
+	role := "consumer"
+	if count > 0 {
+		role = "provider"
+	}
+
+	depositMemo := ""
+	if user.DepositMemo.Valid {
+		depositMemo = user.DepositMemo.String
+	}
+
+	payoutAddr := ""
+	if user.PayoutStellarAddress.Valid {
+		payoutAddr = user.PayoutStellarAddress.String
+	}
+
+	writeJSON(w, http.StatusOK, DashboardMeResponse{
+		ID:                   user.ID.String(),
+		Email:                user.Email,
+		Role:                 role,
+		DepositMemo:          depositMemo,
+		PayoutStellarAddress: payoutAddr,
+	})
+}
+
 type logoutResponse struct {
 	Message string `json:"message"`
 }

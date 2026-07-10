@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -222,6 +223,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var upstreamStatusCode int
 	var upstreamBytes int64
 	start := time.Now()
+	requestStart := gatewaycontext.GetRequestStart(r.Context())
 
 	rp := &httputil.ReverseProxy{
 		Director: func(outReq *http.Request) {
@@ -232,6 +234,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			resp.Body = &countingReadCloser{
 				ReadCloser: resp.Body,
 				counter:    &upstreamBytes,
+			}
+
+			if !requestStart.IsZero() {
+				preproxyMs := time.Since(requestStart).Milliseconds()
+				upstreamMs := time.Since(start).Milliseconds()
+				resp.Header.Set("X-Castellan-Preproxy-Ms", strconv.FormatInt(preproxyMs, 10))
+				resp.Header.Set("X-Castellan-Upstream-Ms", strconv.FormatInt(upstreamMs, 10))
 			}
 
 			return nil
@@ -308,6 +317,8 @@ func (p *Proxy) director(outReq *http.Request) {
 	if consumer.ConsumerID != "" {
 		outReq.Header.Set("X-Castellan-Consumer", consumer.ConsumerID)
 	}
+
+	outReq.Header.Del("Authorization")
 }
 
 func (p *Proxy) errorHandler(w http.ResponseWriter, r *http.Request, err error) {

@@ -7,6 +7,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -331,6 +332,58 @@ func (q *Queries) ListSettlementEntriesByBatch(ctx context.Context, batchID uuid
 			&i.Status,
 			&i.CreatedAt,
 			&i.TxHash,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSettlementEntriesByBatchWithProvider = `-- name: ListSettlementEntriesByBatchWithProvider :many
+SELECT se.id, se.batch_id, se.provider_id, se.amount, se.currency, se.wallet_address, se.status, se.created_at, se.tx_hash, p.name::text AS provider_name
+FROM settlement_entries se
+JOIN providers p ON p.id = se.provider_id
+WHERE se.batch_id = $1
+ORDER BY se.created_at DESC
+`
+
+type ListSettlementEntriesByBatchWithProviderRow struct {
+	ID            uuid.UUID             `json:"id"`
+	BatchID       uuid.UUID             `json:"batch_id"`
+	ProviderID    uuid.UUID             `json:"provider_id"`
+	Amount        pgtype.Numeric        `json:"amount"`
+	Currency      Currency              `json:"currency"`
+	WalletAddress string                `json:"wallet_address"`
+	Status        SettlementEntryStatus `json:"status"`
+	CreatedAt     time.Time             `json:"created_at"`
+	TxHash        pgtype.Text           `json:"tx_hash"`
+	ProviderName  string                `json:"provider_name"`
+}
+
+func (q *Queries) ListSettlementEntriesByBatchWithProvider(ctx context.Context, batchID uuid.UUID) ([]ListSettlementEntriesByBatchWithProviderRow, error) {
+	rows, err := q.db.Query(ctx, listSettlementEntriesByBatchWithProvider, batchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSettlementEntriesByBatchWithProviderRow
+	for rows.Next() {
+		var i ListSettlementEntriesByBatchWithProviderRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BatchID,
+			&i.ProviderID,
+			&i.Amount,
+			&i.Currency,
+			&i.WalletAddress,
+			&i.Status,
+			&i.CreatedAt,
+			&i.TxHash,
+			&i.ProviderName,
 		); err != nil {
 			return nil, err
 		}

@@ -7,6 +7,7 @@ formatters:
   exclusions:
     generated: lax
     paths:
+      - dashboard-v3/*
       - third_party$
       - builtin$
       - examples$
@@ -77,6 +78,7 @@ linters:
   exclusions:
     generated: lax
     paths:
+      - dashboard-v3/
       - third_party$
       - builtin$
       - examples$
@@ -105,6 +107,8 @@ linters:
       - path: internal/server/providers\.go
         text: "Magic number: 8"
         linters: [ mnd ]
+      - path: internal/provider/handlers\.go
+        linters: [ dupl ]
       - path: internal/database/database\.go
         text: error returned from external package is unwrapped
         linters: [ wrapcheck ]

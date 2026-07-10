@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:latest
+    image: postgres:17
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_DATABASE}
@@ -27,6 +27,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: api
     command: ["/bin/castellan-api"]
     ports:
       - "${PORT:-8080}:8080"
@@ -58,6 +59,14 @@ services:
       RETRY_MAX_RETRIES: ${RETRY_MAX_RETRIES:-3}
       RETRY_BASE_DELAY: ${RETRY_BASE_DELAY:-200ms}
       RETRY_MAX_DELAY: ${RETRY_MAX_DELAY:-3s}
+      SESSION_STORE_SECRET: ${SESSION_STORE_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      DASHBOARD_URL: ${DASHBOARD_URL}
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8080}
+      SETTLEMENT_MIN_THRESHOLD: ${SETTLEMENT_MIN_THRESHOLD:-0}
     networks:
       - castellan
 
@@ -65,6 +74,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: worker
     command: ["/bin/castellan-worker"]
     restart: unless-stopped
     depends_on:

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"time"
 
 	"castellan/internal/repository/db"
 
@@ -371,4 +372,81 @@ func (r *Reconciler) CountSettlementBatches(ctx context.Context) (int64, error) 
 		return 0, fmt.Errorf("count settlement batches: %w", err)
 	}
 	return count, nil
+}
+
+func (r *Reconciler) GetSettlementSummaryByOwner(ctx context.Context, ownerID uuid.UUID) (decimal.Decimal, error) {
+	numeric, err := r.queries.GetSettlementSummaryByOwner(ctx, ownerID)
+	if err != nil {
+		return decimal.Zero, fmt.Errorf("get settlement summary: %w", err)
+	}
+
+	return NumericToDecimal(numeric)
+}
+
+func (r *Reconciler) GetSettlementMonthlyHistoryByOwner(ctx context.Context, ownerID uuid.UUID, limit int32) ([]MonthlySettlement, error) {
+	rows, err := r.queries.GetSettlementMonthlyHistoryByOwner(ctx, repository.GetSettlementMonthlyHistoryByOwnerParams{
+		OwnerID: ownerID,
+		Limit:   limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get settlement monthly history: %w", err)
+	}
+
+	items := make([]MonthlySettlement, 0, len(rows))
+	for _, row := range rows {
+		amt, err := NumericToDecimal(row.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("convert amount: %w", err)
+		}
+
+		items = append(items, MonthlySettlement{
+			Month:  row.Month,
+			Amount: amt,
+		})
+	}
+
+	return items, nil
+}
+
+func (r *Reconciler) GetSettlementHistoryByOwner(
+	ctx context.Context,
+	ownerID uuid.UUID,
+	cursorTs time.Time,
+	cursorID uuid.UUID,
+	limit int32,
+	status string,
+) ([]repository.SettlementBatch, map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow, error) {
+	var batches []repository.SettlementBatch
+	var err error
+
+	if status != "" {
+		batches, err = r.queries.ListSettlementBatchesByOwnerFiltered(ctx, repository.ListSettlementBatchesByOwnerFilteredParams{
+			OwnerID: ownerID,
+			Limit:   limit,
+			Column3: cursorTs,
+			Column4: cursorID,
+			Column5: status,
+		})
+	} else {
+		batches, err = r.queries.ListSettlementBatchesByOwner(ctx, repository.ListSettlementBatchesByOwnerParams{
+			OwnerID: ownerID,
+			Limit:   limit,
+			Column3: cursorTs,
+			Column4: cursorID,
+		})
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("list settlement batches by owner: %w", err)
+	}
+
+	entriesMap := make(map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow, len(batches))
+	for _, batch := range batches {
+		entries, err := r.queries.ListSettlementEntriesByBatchWithProvider(ctx, batch.ID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list entries for batch %s: %w", batch.ID, err)
+		}
+		entriesMap[batch.ID] = entries
+	}
+
+	return batches, entriesMap, nil
 }

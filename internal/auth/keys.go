@@ -144,6 +144,43 @@ func (s *KeyService) RotateKey(ctx context.Context, keyID, userID uuid.UUID) (ra
 	return rawKey, newKey, nil
 }
 
+// UpdateKeyLabel updates the label of a key after verifying ownership.
+func (s *KeyService) UpdateKeyLabel(ctx context.Context, keyID, userID uuid.UUID, label string) (repository.ApiKey, error) {
+	if _, err := s.GetKeyByID(ctx, keyID, userID); err != nil {
+		return repository.ApiKey{}, err
+	}
+
+	updated, err := s.queries.UpdateKeyLabel(ctx, repository.UpdateKeyLabelParams{
+		ID:    keyID,
+		Label: pgtype.Text{String: label, Valid: label != ""},
+	})
+	if err != nil {
+		return repository.ApiKey{}, fmt.Errorf("update key label: %w", err)
+	}
+	return updated, nil
+}
+
+// UpdateKeyExpiration updates the expiration of a key after verifying ownership.
+func (s *KeyService) UpdateKeyExpiration(ctx context.Context, keyID, userID uuid.UUID, expiresAt *time.Time) (repository.ApiKey, error) {
+	if _, err := s.GetKeyByID(ctx, keyID, userID); err != nil {
+		return repository.ApiKey{}, err
+	}
+
+	exp := pgtype.Timestamptz{Valid: expiresAt != nil}
+	if expiresAt != nil {
+		exp.Time = *expiresAt
+	}
+
+	updated, err := s.queries.UpdateKeyExpiration(ctx, repository.UpdateKeyExpirationParams{
+		ID:        keyID,
+		ExpiresAt: exp,
+	})
+	if err != nil {
+		return repository.ApiKey{}, fmt.Errorf("update key expiration: %w", err)
+	}
+	return updated, nil
+}
+
 // HashKey returns the SHA-256 hex digest of the given key.
 func HashKey(rawKey string) string {
 	hash := sha256.Sum256([]byte(rawKey))

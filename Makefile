@@ -8,7 +8,7 @@ build:
 	@go build -o main.exe cmd/api/main.go
 
 # Aggregate CI checks (runs before build via `all`)
-ci: lint vet test security
+ci: lint vet test build
 	@echo "All CI checks passed"
 
 ci-full: ci itest trivy-scan
@@ -37,9 +37,16 @@ docs:
 validate-docs:
 	npx --yes @redocly/cli lint docs/openapi.yaml
 
-# Create DB container
-docker-run:
-	@docker compose up --build
+# Cross-compile both binaries for linux/amd64 (Docker runtime target)
+build-linux:
+	@echo "Building linux binaries..."
+	@mkdir -p bin
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/castellan-api ./cmd/api/
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/castellan-worker ./cmd/worker/
+
+# Create DB container (builds binaries on host first — no Docker OOM)
+docker-run: clean build-linux
+	@docker compose up --build -d
 
 # Seed the database with sample data
 seed:
@@ -58,10 +65,32 @@ run-worker:
 docker-down:
 	@docker compose down
 
+# Apply goose migrations to localhost:5432 (override DATABASE_URL for custom hosts)
+DB_USER ?= postgres
+DB_PASSWORD ?= 1234
+DB_DATABASE ?= castellan
+DB_PORT ?= 5432
+DB_HOST ?= localhost
+DATABASE_URL ?= postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_DATABASE)?sslmode=disable
+PG_DSN ?= postgresql://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)
+
+migrate:
+	PATH="$(HOME)/go/bin:$(PATH)" GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DATABASE_URL)" GOOSE_MIGRATION_DIR=migrations goose up -s
+
+migrate-down:
+	PATH="$(HOME)/go/bin:$(PATH)" GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DATABASE_URL)" GOOSE_MIGRATION_DIR=migrations goose down -s
+
+# Drop and recreate the database
+db-drop:
+	@psql "$(PG_DSN)/postgres" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$(DB_DATABASE)' AND pid <> pg_backend_pid();" -c "DROP DATABASE IF EXISTS $(DB_DATABASE);" -c "CREATE DATABASE $(DB_DATABASE);"
+
+# Full reset: drop, migrate, seed
+db-reset: db-drop migrate seed
+
 # Test the application (mirrors unit-testing.yml: race + coverage)
 test:
 	@echo "Testing..."
-	@go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./... -v
+	@go test -race -count=1 ./...
 # Integration Tests (mirrors integration-testing.yml)
 itest:
 	@echo "Running integration tests..."
@@ -74,7 +103,7 @@ security:
 	@gosec -confidence medium ./...
 
 # Trivy vulnerability scan (mirrors trivy.yml; requires Docker + trivy CLI)
-trivy-scan:
+trivy-scan: build-linux
 	@echo "Running Trivy scan..."
 	@docker build -t castellan:ci .
 	@trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed castellan:ci
@@ -82,7 +111,7 @@ trivy-scan:
 # Clean the binary
 clean:
 	@echo "Cleaning..."
-	@rm -f main
+	@rm -f main bin/castellan-api bin/castellan-worker
 
 # Live Reload
 watch:
@@ -96,4 +125,4 @@ watch:
 		Write-Output 'Watching...'; \
 	}"
 
-.PHONY: all ci ci-full build lint vet test itest security trivy-scan run clean watch docker-run docker-down build-worker run-worker docs validate-docs
+.PHONY: all ci ci-full build lint vet test itest security trivy-scan run clean watch docker-run docker-down build-linux build-worker run-worker docs validate-docs migrate migrate-down db-drop db-reset

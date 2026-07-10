@@ -26,16 +26,25 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) GetAccount(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) resolveOwnerID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	consumer := gatewaycontext.GetConsumerInfo(r.Context())
 	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
-		return
+		return uuid.UUID{}, false
 	}
 
 	ownerID, err := uuid.Parse(consumer.ConsumerID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		return uuid.UUID{}, false
+	}
+
+	return ownerID, true
+}
+
+func (h *Handler) GetAccount(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := h.resolveOwnerID(w, r)
+	if !ok {
 		return
 	}
 
@@ -53,16 +62,29 @@ func (h *Handler) GetAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, account)
 }
 
-func (h *Handler) ListEntries(w http.ResponseWriter, r *http.Request) {
-	consumer := gatewaycontext.GetConsumerInfo(r.Context())
-	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
+func (h *Handler) GetBalance(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := h.resolveOwnerID(w, r)
+	if !ok {
 		return
 	}
 
-	ownerID, err := uuid.Parse(consumer.ConsumerID)
+	balance, err := h.service.GetBalance(r.Context(), ownerID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to get balance"})
+		return
+	}
+
+	if balance == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{errKey: "account not found"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, balance)
+}
+
+func (h *Handler) ListEntries(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := h.resolveOwnerID(w, r)
+	if !ok {
 		return
 	}
 
@@ -116,15 +138,8 @@ func (h *Handler) ListEntries(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetEntry(w http.ResponseWriter, r *http.Request) {
-	consumer := gatewaycontext.GetConsumerInfo(r.Context())
-	if !consumer.IsAuthenticated || consumer.ConsumerID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{errKey: "authentication required"})
-		return
-	}
-
-	ownerID, err := uuid.Parse(consumer.ConsumerID)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "invalid consumer identity"})
+	ownerID, ok := h.resolveOwnerID(w, r)
+	if !ok {
 		return
 	}
 

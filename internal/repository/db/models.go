@@ -511,6 +511,7 @@ type ApiEndpoint struct {
 	Status      EndpointStatus `json:"status"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
+	Description string         `json:"description"`
 }
 
 type ApiKey struct {
@@ -552,13 +553,14 @@ type LedgerEntry struct {
 }
 
 type Provider struct {
-	ID        uuid.UUID      `json:"id"`
-	OwnerID   uuid.UUID      `json:"owner_id"`
-	Name      string         `json:"name"`
-	BaseUrl   string         `json:"base_url"`
-	Status    ProviderStatus `json:"status"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	ID          uuid.UUID      `json:"id"`
+	OwnerID     uuid.UUID      `json:"owner_id"`
+	Name        string         `json:"name"`
+	BaseUrl     string         `json:"base_url"`
+	Status      ProviderStatus `json:"status"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	Description string         `json:"description"`
 }
 
 type SessionToken struct {

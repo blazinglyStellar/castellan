@@ -41,3 +41,4 @@ main
 .opencode/
 .graphify/
 graphify-out/
+bin/

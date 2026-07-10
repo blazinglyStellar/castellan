@@ -59,7 +59,7 @@ func (m *listDepositsMockQuerier) GetAccountByOwnerID(_ context.Context, _ uuid.
 	return *m.account, nil
 }
 
-func (m *listDepositsMockQuerier) ListDepositsByAccount(_ context.Context, _ uuid.UUID) ([]repository.Deposit, error) {
+func (m *listDepositsMockQuerier) ListDepositsByAccountCursor(_ context.Context, params repository.ListDepositsByAccountCursorParams) ([]repository.Deposit, error) {
 	if m.depositErr != nil {
 		return nil, m.depositErr
 	}
@@ -101,12 +101,12 @@ func TestListDeposits_Empty(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 
-	var deposits []Response
-	if err := json.NewDecoder(w.Body).Decode(&deposits); err != nil {
+	var resp DepositListResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(deposits) != 0 {
-		t.Errorf("len(deposits) = %d, want 0", len(deposits))
+	if len(resp.Data) != 0 {
+		t.Errorf("len(data) = %d, want 0", len(resp.Data))
 	}
 }
 
@@ -160,15 +160,15 @@ func TestListDeposits_Success(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 
-	var deposits []Response
-	if err := json.NewDecoder(w.Body).Decode(&deposits); err != nil {
+	var resp DepositListResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(deposits) != 1 {
-		t.Fatalf("len(deposits) = %d, want 1", len(deposits))
+	if len(resp.Data) != 1 {
+		t.Fatalf("len(data) = %d, want 1", len(resp.Data))
 	}
 
-	d := deposits[0]
+	d := resp.Data[0]
 	if d.ID != deposit.ID.String() {
 		t.Errorf("id = %q, want %q", d.ID, deposit.ID.String())
 	}
@@ -240,12 +240,12 @@ func TestListDeposits_NoAccount(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 
-	var deposits []Response
-	if err := json.NewDecoder(w.Body).Decode(&deposits); err != nil {
+	var resp DepositListResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(deposits) != 0 {
-		t.Errorf("len(deposits) = %d, want 0", len(deposits))
+	if len(resp.Data) != 0 {
+		t.Errorf("len(data) = %d, want 0", len(resp.Data))
 	}
 }
 

@@ -12,16 +12,17 @@ import (
 )
 
 const createProvider = `-- name: CreateProvider :one
-INSERT INTO providers (owner_id, name, base_url, status)
-VALUES ($1, $2, $3, $4)
-RETURNING id, owner_id, name, base_url, status, created_at, updated_at
+INSERT INTO providers (owner_id, name, base_url, description, status)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, owner_id, name, base_url, status, created_at, updated_at, description
 `
 
 type CreateProviderParams struct {
-	OwnerID uuid.UUID      `json:"owner_id"`
-	Name    string         `json:"name"`
-	BaseUrl string         `json:"base_url"`
-	Status  ProviderStatus `json:"status"`
+	OwnerID     uuid.UUID      `json:"owner_id"`
+	Name        string         `json:"name"`
+	BaseUrl     string         `json:"base_url"`
+	Description string         `json:"description"`
+	Status      ProviderStatus `json:"status"`
 }
 
 func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) (Provider, error) {
@@ -29,6 +30,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		arg.OwnerID,
 		arg.Name,
 		arg.BaseUrl,
+		arg.Description,
 		arg.Status,
 	)
 	var i Provider
@@ -40,6 +42,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }
@@ -47,7 +50,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 const deleteProvider = `-- name: DeleteProvider :one
 DELETE FROM providers
 WHERE id = $1
-RETURNING id, owner_id, name, base_url, status, created_at, updated_at
+RETURNING id, owner_id, name, base_url, status, created_at, updated_at, description
 `
 
 func (q *Queries) DeleteProvider(ctx context.Context, id uuid.UUID) (Provider, error) {
@@ -61,12 +64,13 @@ func (q *Queries) DeleteProvider(ctx context.Context, id uuid.UUID) (Provider, e
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }
 
 const getProviderByID = `-- name: GetProviderByID :one
-SELECT id, owner_id, name, base_url, status, created_at, updated_at
+SELECT id, owner_id, name, base_url, status, created_at, updated_at, description
 FROM providers
 WHERE id = $1
 LIMIT 1
@@ -83,18 +87,63 @@ func (q *Queries) GetProviderByID(ctx context.Context, id uuid.UUID) (Provider, 
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }
 
+const getProviderStats = `-- name: GetProviderStats :many
+SELECT
+  p.id,
+  COALESCE(COUNT(DISTINCT ae.id), 0)::bigint AS endpoint_count,
+  COALESCE(COUNT(DISTINCT ue.id), 0)::bigint AS total_calls,
+  COALESCE(COUNT(DISTINCT ue.consumer_id), 0)::bigint AS active_consumers
+FROM providers p
+LEFT JOIN api_endpoints ae ON ae.provider_id = p.id
+LEFT JOIN usage_events ue ON ue.endpoint_id = ae.id
+GROUP BY p.id
+`
+
+type GetProviderStatsRow struct {
+	ID              uuid.UUID `json:"id"`
+	EndpointCount   int64     `json:"endpoint_count"`
+	TotalCalls      int64     `json:"total_calls"`
+	ActiveConsumers int64     `json:"active_consumers"`
+}
+
+func (q *Queries) GetProviderStats(ctx context.Context) ([]GetProviderStatsRow, error) {
+	rows, err := q.db.Query(ctx, getProviderStats)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetProviderStatsRow
+	for rows.Next() {
+		var i GetProviderStatsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EndpointCount,
+			&i.TotalCalls,
+			&i.ActiveConsumers,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAllProviders = `-- name: ListAllProviders :many
-SELECT id, owner_id, name, base_url, status, created_at, updated_at
+SELECT id, owner_id, name, base_url, status, created_at, updated_at, description
 FROM providers
-WHERE ($1 IS NULL OR status = $1)
+WHERE ($1::provider_status IS NULL OR status = $1::provider_status)
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListAllProviders(ctx context.Context, status interface{}) ([]Provider, error) {
+func (q *Queries) ListAllProviders(ctx context.Context, status NullProviderStatus) ([]Provider, error) {
 	rows, err := q.db.Query(ctx, listAllProviders, status)
 	if err != nil {
 		return nil, err
@@ -111,6 +160,7 @@ func (q *Queries) ListAllProviders(ctx context.Context, status interface{}) ([]P
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}
@@ -123,7 +173,7 @@ func (q *Queries) ListAllProviders(ctx context.Context, status interface{}) ([]P
 }
 
 const listProvidersByOwner = `-- name: ListProvidersByOwner :many
-SELECT id, owner_id, name, base_url, status, created_at, updated_at
+SELECT id, owner_id, name, base_url, status, created_at, updated_at, description
 FROM providers
 WHERE owner_id = $1
 ORDER BY created_at DESC
@@ -146,6 +196,7 @@ func (q *Queries) ListProvidersByOwner(ctx context.Context, ownerID uuid.UUID) (
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}
@@ -161,19 +212,26 @@ const updateProvider = `-- name: UpdateProvider :one
 UPDATE providers
 SET name = $2,
     base_url = $3,
+    description = $4,
     updated_at = now()
 WHERE id = $1
-RETURNING id, owner_id, name, base_url, status, created_at, updated_at
+RETURNING id, owner_id, name, base_url, status, created_at, updated_at, description
 `
 
 type UpdateProviderParams struct {
-	ID      uuid.UUID `json:"id"`
-	Name    string    `json:"name"`
-	BaseUrl string    `json:"base_url"`
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	BaseUrl     string    `json:"base_url"`
+	Description string    `json:"description"`
 }
 
 func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) (Provider, error) {
-	row := q.db.QueryRow(ctx, updateProvider, arg.ID, arg.Name, arg.BaseUrl)
+	row := q.db.QueryRow(ctx, updateProvider,
+		arg.ID,
+		arg.Name,
+		arg.BaseUrl,
+		arg.Description,
+	)
 	var i Provider
 	err := row.Scan(
 		&i.ID,
@@ -183,6 +241,7 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }
@@ -192,7 +251,7 @@ UPDATE providers
 SET status = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, owner_id, name, base_url, status, created_at, updated_at
+RETURNING id, owner_id, name, base_url, status, created_at, updated_at, description
 `
 
 type UpdateProviderStatusParams struct {
@@ -211,6 +270,7 @@ func (q *Queries) UpdateProviderStatus(ctx context.Context, arg UpdateProviderSt
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Description,
 	)
 	return i, err
 }

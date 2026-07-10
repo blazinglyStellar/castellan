@@ -32,23 +32,23 @@ func NewService(queries repository.Querier) *Service {
 }
 
 type AccountResponse struct {
-	ID        uuid.UUID       `json:"id"`
-	Balance   decimal.Decimal `json:"balance"`
-	Currency  string          `json:"currency"`
-	CreatedAt string          `json:"created_at"`
-	UpdatedAt string          `json:"updated_at"`
+	ID        uuid.UUID `json:"id"`
+	Balance   string    `json:"balance"`
+	Currency  string    `json:"currency"`
+	CreatedAt string    `json:"created_at"`
+	UpdatedAt string    `json:"updated_at"`
 }
 
 type EntryResponse struct {
-	ID            uuid.UUID       `json:"id"`
-	EntryType     string          `json:"entry_type"`
-	Amount        decimal.Decimal `json:"amount"`
-	BalanceAfter  decimal.Decimal `json:"balance_after"`
-	Currency      string          `json:"currency"`
-	ReferenceType *string         `json:"reference_type,omitempty"`
-	Status        string          `json:"status"`
-	Description   *string         `json:"description,omitempty"`
-	CreatedAt     string          `json:"created_at"`
+	ID            uuid.UUID `json:"id"`
+	EntryType     string    `json:"entry_type"`
+	Amount        string    `json:"amount"`
+	BalanceAfter  string    `json:"balance_after"`
+	Currency      string    `json:"currency"`
+	ReferenceType *string   `json:"reference_type,omitempty"`
+	Status        string    `json:"status"`
+	Description   *string   `json:"description,omitempty"`
+	CreatedAt     string    `json:"created_at"`
 }
 
 type ListEntriesResponse struct {
@@ -74,7 +74,7 @@ func (s *Service) GetAccount(ctx context.Context, ownerID uuid.UUID) (*AccountRe
 
 	return &AccountResponse{
 		ID:        account.ID,
-		Balance:   balance,
+		Balance:   balance.String(),
 		Currency:  string(account.Currency),
 		CreatedAt: account.CreatedAt.Format(isoFormat),
 		UpdatedAt: account.UpdatedAt.Format(isoFormat),
@@ -143,6 +143,44 @@ func (s *Service) ListEntries(ctx context.Context, accountID uuid.UUID, entryTyp
 	return resp, nil
 }
 
+type BalanceResponse struct {
+	Balance          string `json:"balance"`
+	Currency         string `json:"currency"`
+	AvailableBalance string `json:"available_balance"`
+}
+
+func (s *Service) GetBalance(ctx context.Context, ownerID uuid.UUID) (*BalanceResponse, error) {
+	account, err := s.queries.GetAccountByOwnerID(ctx, ownerID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get account: %w", err)
+	}
+
+	balance, err := numericToDecimal(account.Balance)
+	if err != nil {
+		return nil, fmt.Errorf("convert balance: %w", err)
+	}
+
+	reservations, err := s.queries.GetActiveReservationsSum(ctx, account.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get active reservations: %w", err)
+	}
+	reservationsDec, err := numericToDecimal(reservations)
+	if err != nil {
+		return nil, fmt.Errorf("convert reservations: %w", err)
+	}
+
+	available := balance.Sub(reservationsDec)
+
+	return &BalanceResponse{
+		Balance:          balance.String(),
+		Currency:         string(account.Currency),
+		AvailableBalance: available.String(),
+	}, nil
+}
+
 func (s *Service) GetEntry(ctx context.Context, entryID, ownerID uuid.UUID) (*EntryResponse, error) {
 	entry, err := s.queries.GetLedgerEntryByIDAndOwner(ctx, repository.GetLedgerEntryByIDAndOwnerParams{
 		ID:      entryID,
@@ -194,8 +232,8 @@ func toEntryResponse(e repository.LedgerEntry) (*EntryResponse, error) {
 	return &EntryResponse{
 		ID:            e.ID,
 		EntryType:     string(e.EntryType),
-		Amount:        amount,
-		BalanceAfter:  balanceAfter,
+		Amount:        amount.String(),
+		BalanceAfter:  balanceAfter.String(),
 		Currency:      string(e.Currency),
 		ReferenceType: refType,
 		Status:        string(e.Status),

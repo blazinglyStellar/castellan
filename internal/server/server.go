@@ -30,6 +30,7 @@ import (
 	"castellan/internal/server/middleware"
 	"castellan/internal/settlement"
 	"castellan/internal/stellar"
+	"castellan/internal/usage"
 )
 
 type Server struct {
@@ -55,6 +56,7 @@ type Server struct {
 	creditHandler     *deposit.CreditHandler
 	watcher           *deposit.Watcher
 	settlementHandler *settlement.Handler
+	usageHandler      *usage.Handler
 
 	stellarConfig stellar.Config
 
@@ -187,7 +189,11 @@ func NewServer() (*http.Server, error) {
 	})
 
 	dashboardURL := os.Getenv("DASHBOARD_URL")
-	auth.InitGoth(dashboardURL)
+	apiBaseURL := os.Getenv("API_BASE_URL")
+	if apiBaseURL == "" {
+		apiBaseURL = "http://localhost:8080"
+	}
+	auth.InitGoth(dashboardURL, apiBaseURL)
 
 	providerSvc := provider.NewProviderService(queries)
 	endpointSvc := provider.NewEndpointService(queries)
@@ -203,7 +209,10 @@ func NewServer() (*http.Server, error) {
 	}()
 
 	settlementReconciler := settlement.NewReconciler(databaseService.Pool(), queries)
-	settlementHandler := settlement.NewHandler(settlementReconciler)
+	minThreshold := settlementThresholdFromEnv()
+	settlementHandler := settlement.NewHandler(settlementReconciler, settlementReconciler, minThreshold)
+	usageSvc := usage.NewService(queries)
+	usageHandler := usage.NewHandler(usageSvc)
 
 	srv := &Server{
 		port:              port,
@@ -227,6 +236,7 @@ func NewServer() (*http.Server, error) {
 		creditHandler:     creditHandler,
 		watcher:           watcher,
 		settlementHandler: settlementHandler,
+		usageHandler:      usageHandler,
 		stellarConfig:     stellarCfg,
 		windowSeconds:     windowSeconds,
 	}
@@ -276,6 +286,33 @@ func connectRedis() (*redis.Client, error) {
 	)
 
 	return rdb, nil
+}
+
+func settlementThresholdFromEnv() decimal.Decimal {
+	v := os.Getenv("SETTLEMENT_MIN_THRESHOLD")
+	if v == "" {
+		return decimal.Zero
+	}
+
+	d, err := decimal.NewFromString(v)
+	if err != nil {
+		slog.Warn("invalid SETTLEMENT_MIN_THRESHOLD, using default",
+			slog.String("value", v),
+			slog.String("error", err.Error()),
+		)
+
+		return decimal.Zero
+	}
+
+	if d.IsNegative() {
+		slog.Warn("SETTLEMENT_MIN_THRESHOLD must be non-negative, using default",
+			slog.String("value", v),
+		)
+
+		return decimal.Zero
+	}
+
+	return d
 }
 
 func numericToDecimal(n pgtype.Numeric) (decimal.Decimal, error) {
