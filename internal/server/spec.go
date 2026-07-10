@@ -3,6 +3,7 @@ package server
 import (
 	_ "embed"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 )
@@ -47,13 +48,13 @@ func docsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	baseURL := scheme + "://" + r.Host
+	baseURL := html.EscapeString(scheme + "://" + r.Host)
 
 	// Generate HTML with base URL embedded
-	html := fmt.Sprintf(scalarHTMLTmpl, baseURL)
+	htmlStr := fmt.Sprintf(scalarHTMLTmpl, baseURL)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := w.Write([]byte(html)); err != nil {
+	if _, err := w.Write([]byte(htmlStr)); err != nil {
 		log.Printf("Failed to write response: %v", err)
 	}
 }

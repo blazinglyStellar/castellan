@@ -28,7 +28,7 @@ func NewService(queries repository.Querier, cfg stellar.Config) *Service {
 }
 
 func (s *Service) EnsureDepositMemo(ctx context.Context, userID uuid.UUID) (string, error) {
-	entropy := ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)
+	entropy := ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0) //nolint:gosec // ULID entropy, not cryptographic
 	newMemo := ulid.MustNew(ulid.Timestamp(time.Now()), entropy).String()
 
 	memo, err := s.queries.EnsureUserDepositMemo(ctx, repository.EnsureUserDepositMemoParams{
