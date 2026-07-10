@@ -1,5 +1,12 @@
 # Simple Makefile for a Go project
 
+include .env
+export
+
+# Reconstruct from unquoted .env vars (the .env DATABASE_URL has quotes that Make includes literally)
+override DATABASE_URL := postgresql://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_DATABASE)?sslmode=disable
+override PG_DSN := postgresql://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)
+
 # Default: run all CI checks, then build
 all: ci build
 
@@ -64,15 +71,6 @@ run-worker:
 # Shutdown DB container
 docker-down:
 	@docker compose down
-
-# Apply goose migrations to localhost:5432 (override DATABASE_URL for custom hosts)
-DB_USER ?= postgres
-DB_PASSWORD ?= 1234
-DB_DATABASE ?= castellan
-DB_PORT ?= 5432
-DB_HOST ?= localhost
-DATABASE_URL ?= postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_DATABASE)?sslmode=disable
-PG_DSN ?= postgresql://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)
 
 migrate:
 	PATH="$(HOME)/go/bin:$(PATH)" GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DATABASE_URL)" GOOSE_MIGRATION_DIR=migrations goose up -s
