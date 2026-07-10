@@ -41,7 +41,7 @@ func (h *Handler) DepositIntent(w http.ResponseWriter, r *http.Request) {
 	asset := "XLM"
 
 	uri := BuildSEP7URI(destination, memo, minAmount, asset)
-	qrCode, err := GenerateQRCode(uri)
+	qrCode, err := GenerateQRCode(destination)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to generate QR code"})
 		return
