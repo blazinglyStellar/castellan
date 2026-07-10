@@ -16,7 +16,6 @@ DECLARE
     v_weather_id        UUID;
     v_ai_id             UUID;
     v_blockchain_id     UUID;
-    v_owner_account_id  UUID;
     v_batch_count       INT;
     v_batch_id          UUID;
     v_balance_after     NUMERIC(20,10);
@@ -60,11 +59,6 @@ BEGIN
 
     IF v_weather_id IS NULL OR v_ai_id IS NULL OR v_blockchain_id IS NULL THEN
         RAISE EXCEPTION 'Go-seeded providers not found. Run the Go seed first.';
-    END IF;
-
-    SELECT id INTO v_owner_account_id FROM accounts WHERE owner_id = v_owner_id;
-    IF v_owner_account_id IS NULL THEN
-        RAISE EXCEPTION 'Provider account not found. Run the Go seed first.';
     END IF;
 
     -- Idempotency: skip if we already have more than the Go seed's 3 batches
@@ -119,19 +113,19 @@ BEGIN
             );
         END LOOP;
 
-        -- Credit provider owner account for completed batches
+        -- Credit provider owner for completed batches
         IF batch_statuses[v_idx] = 'completed' THEN
-            UPDATE accounts
+            UPDATE users
             SET balance = balance + batch_totals[v_idx]::NUMERIC(20,10),
-                updated_at = now()
-            WHERE id = v_owner_account_id
+                account_updated_at = now()
+            WHERE id = v_owner_id
             RETURNING balance INTO v_balance_after;
 
             INSERT INTO ledger_entries (
-                account_id, entry_type, amount, balance_after,
+                user_id, entry_type, amount, balance_after,
                 currency, reference_id, reference_type, status, description, created_at
             ) VALUES (
-                v_owner_account_id,
+                v_owner_id,
                 'settlement'::entry_type,
                 batch_totals[v_idx]::NUMERIC(20,10),
                 v_balance_after,
@@ -143,8 +137,8 @@ BEGIN
                 '2026-07-09 00:00:00+00'::TIMESTAMPTZ - (batch_days_ago[v_idx] || ' days')::INTERVAL
             );
 
-            RAISE NOTICE '  Account % credited +%s XLM (balance: %)',
-                substring(v_owner_account_id::TEXT, 1, 8),
+            RAISE NOTICE '  User % credited +%s XLM (balance: %)',
+                substring(v_owner_id::TEXT, 1, 8),
                 batch_totals[v_idx],
                 v_balance_after;
         END IF;

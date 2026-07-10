@@ -39,7 +39,7 @@ services:
     environment:
       PORT: ${PORT:-8080}
       DB_HOST: postgres
-      DB_PORT: 5432
+      DB_PORT: "5432"
       DB_DATABASE: ${DB_DATABASE}
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -82,7 +82,7 @@ services:
         condition: service_started
     environment:
       DB_HOST: postgres
-      DB_PORT: 5432
+      DB_PORT: "5432"
       DB_DATABASE: ${DB_DATABASE}
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -94,7 +94,7 @@ services:
       WALLET_SECRET_KEY: ${WALLET_SECRET_KEY}
       STELLAR_DEPOSIT_MIN_AMOUNT: ${STELLAR_DEPOSIT_MIN_AMOUNT:-5}
       SETTLEMENT_INTERVAL: ${SETTLEMENT_INTERVAL:-5m}
-      SETTLEMENT_MIN_THRESHOLD: ${SETTLEMENT_MIN_THRESHOLD:-0}
+      SETTLEMENT_MIN_THRESHOLD: ${SETTLEMENT_MIN_THRESHOLD:-5}
     networks:
       - castellan
 

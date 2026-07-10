@@ -100,26 +100,20 @@ CREATE TYPE entry_type AS ENUM ('deposit', 'reservation', 'deduction', 'refund',
 CREATE TYPE ledger_status AS ENUM ('pending', 'completed', 'failed', 'cancelled');
 
 CREATE TABLE users (
-    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email                   TEXT NOT NULL UNIQUE,
-    deposit_memo            TEXT UNIQUE,
-    payout_stellar_address  TEXT,
-    created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE accounts (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_id    UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    balance     NUMERIC(20,10) NOT NULL DEFAULT 0,
-    currency    currency NOT NULL DEFAULT 'XLM',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email                TEXT NOT NULL UNIQUE,
+    deposit_memo         TEXT UNIQUE,
+    payout_stellar_address TEXT,
+    balance              NUMERIC(20,10) NOT NULL DEFAULT 0,
+    currency             currency NOT NULL DEFAULT 'XLM',
+    account_updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE ledger_entries (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id    UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     entry_type    entry_type NOT NULL,
     amount        NUMERIC(20,10) NOT NULL,
     balance_after NUMERIC(20,10) NOT NULL,
@@ -131,13 +125,12 @@ CREATE TABLE ledger_entries (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_ledger_account ON ledger_entries (account_id);
+CREATE INDEX idx_ledger_user ON ledger_entries (user_id);
 CREATE INDEX idx_ledger_reference ON ledger_entries (reference_id);
 `
 
 type testSeed struct {
-	UserID    uuid.UUID
-	AccountID uuid.UUID
+	UserID uuid.UUID
 }
 
 func seedTestData(ctx context.Context, t *testing.T, balance string) testSeed {
@@ -145,20 +138,12 @@ func seedTestData(ctx context.Context, t *testing.T, balance string) testSeed {
 
 	userID := uuid.New()
 	email := fmt.Sprintf("test-%s@example.com", userID.String())
-	_, err := testPool.Exec(ctx, `INSERT INTO users (id, email) VALUES ($1, $2)`, userID, email)
+	_, err := testPool.Exec(ctx, `INSERT INTO users (id, email, balance) VALUES ($1, $2, $3)`, userID, email, balance)
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 
-	accountID := uuid.New()
-	_, err = testPool.Exec(ctx,
-		`INSERT INTO accounts (id, owner_id, balance) VALUES ($1, $2, $3)`,
-		accountID, userID, balance)
-	if err != nil {
-		t.Fatalf("seed account: %v", err)
-	}
-
-	return testSeed{UserID: userID, AccountID: accountID}
+	return testSeed{UserID: userID}
 }
 
 func seedUserOnly(ctx context.Context, t *testing.T) uuid.UUID {
@@ -186,13 +171,8 @@ func TestReserveBalance_Success(t *testing.T) {
 		t.Fatalf("ReserveBalance: %v", err)
 	}
 
-	if result.Account.OwnerID != seed.UserID {
-		t.Errorf("expected owner %s, got %s", seed.UserID, result.Account.OwnerID)
-	}
-
-	bal, _ := result.Account.Balance.Float64Value()
-	if !bal.Valid || bal.Float64 != 50 {
-		t.Errorf("expected balance 50, got %v", bal.Float64)
+	if result.Entry.UserID != seed.UserID {
+		t.Errorf("expected user %s, got %s", seed.UserID, result.Entry.UserID)
 	}
 
 	if result.Entry.EntryType != repository.EntryTypeReservation {
@@ -221,12 +201,12 @@ func TestReserveBalance_InsufficientBalance(t *testing.T) {
 		t.Fatalf("expected ErrInsufficientBalance, got %v", err)
 	}
 
-	account, err := testQueries.GetAccountByOwnerID(ctx, seed.UserID)
+	user, err := testQueries.GetUserByID(ctx, seed.UserID)
 	if err != nil {
-		t.Fatalf("fetch account: %v", err)
+		t.Fatalf("fetch user: %v", err)
 	}
 
-	bal, _ := account.Balance.Float64Value()
+	bal, _ := user.Balance.Float64Value()
 	if !bal.Valid || bal.Float64 != 10 {
 		t.Errorf("expected balance unchanged at 10, got %v", bal.Float64)
 	}
@@ -244,14 +224,14 @@ func TestReserveBalance_AutoCreateAccount(t *testing.T) {
 		t.Fatalf("expected ErrInsufficientBalance (account created with 0 balance), got %v", err)
 	}
 
-	account, err := testQueries.GetAccountByOwnerID(ctx, userID)
+	user, err := testQueries.GetUserByID(ctx, userID)
 	if err != nil {
-		t.Fatalf("fetch account: %v", err)
+		t.Fatalf("fetch user: %v", err)
 	}
 
-	bal, _ := account.Balance.Float64Value()
+	bal, _ := user.Balance.Float64Value()
 	if !bal.Valid || bal.Float64 != 0 {
-		t.Errorf("expected balance 0 for auto-created account, got %v", bal.Float64)
+		t.Errorf("expected balance 0 for new user, got %v", bal.Float64)
 	}
 }
 
@@ -284,12 +264,12 @@ func TestReserveBalance_Concurrent(t *testing.T) {
 		t.Errorf("concurrent reserve error: %v", err)
 	}
 
-	account, err := testQueries.GetAccountByOwnerID(ctx, seed.UserID)
+	user, err := testQueries.GetUserByID(ctx, seed.UserID)
 	if err != nil {
-		t.Fatalf("fetch account: %v", err)
+		t.Fatalf("fetch user: %v", err)
 	}
 
-	bal, _ := account.Balance.Float64Value()
+	bal, _ := user.Balance.Float64Value()
 	if !bal.Valid {
 		t.Fatal("balance is null")
 	}
@@ -317,21 +297,21 @@ func TestConfirmReservation(t *testing.T) {
 		t.Fatalf("ConfirmReservation: %v", err)
 	}
 
-	account, err := testQueries.GetAccountByOwnerID(ctx, seed.UserID)
+	user, err := testQueries.GetUserByID(ctx, seed.UserID)
 	if err != nil {
-		t.Fatalf("fetch account: %v", err)
+		t.Fatalf("fetch user: %v", err)
 	}
 
-	bal, _ := account.Balance.Float64Value()
+	bal, _ := user.Balance.Float64Value()
 	if !bal.Valid || bal.Float64 != 70 {
 		t.Errorf("expected balance 70 (still deducted), got %v", bal.Float64)
 	}
 
 	refUUID, _ := uuid.Parse(requestID)
 	entries, err := testQueries.ListLedgerEntriesByAccount(ctx, repository.ListLedgerEntriesByAccountParams{
-		AccountID: account.ID,
-		Limit:     10,
-		Offset:    0,
+		UserID: user.ID,
+		Limit:  10,
+		Offset: 0,
 	})
 	if err != nil {
 		t.Fatalf("list entries: %v", err)
@@ -406,21 +386,21 @@ func TestReleaseReservation(t *testing.T) {
 		t.Fatalf("ReleaseReservation: %v", err)
 	}
 
-	account, err := testQueries.GetAccountByOwnerID(ctx, seed.UserID)
+	user, err := testQueries.GetUserByID(ctx, seed.UserID)
 	if err != nil {
-		t.Fatalf("fetch account: %v", err)
+		t.Fatalf("fetch user: %v", err)
 	}
 
-	bal, _ := account.Balance.Float64Value()
+	bal, _ := user.Balance.Float64Value()
 	if !bal.Valid || bal.Float64 != 100 {
 		t.Errorf("expected balance restored to 100, got %v", bal.Float64)
 	}
 
 	refUUID, _ := uuid.Parse(requestID)
 	entries, err := testQueries.ListLedgerEntriesByAccount(ctx, repository.ListLedgerEntriesByAccountParams{
-		AccountID: account.ID,
-		Limit:     10,
-		Offset:    0,
+		UserID: user.ID,
+		Limit:  10,
+		Offset: 0,
 	})
 	if err != nil {
 		t.Fatalf("list entries: %v", err)
@@ -455,33 +435,22 @@ func TestReleaseReservation_NotFound(t *testing.T) {
 	}
 }
 
-func TestGetOrCreateAccount(t *testing.T) {
+func TestUserBalance(t *testing.T) {
 	ctx := context.Background()
 	userID := seedUserOnly(ctx, t)
 
-	repo := ledger.NewPostgresRepository(testPool)
-
-	account, err := repo.GetOrCreateAccount(ctx, userID)
+	user, err := testQueries.GetUserByID(ctx, userID)
 	if err != nil {
-		t.Fatalf("GetOrCreateAccount: %v", err)
+		t.Fatalf("fetch user: %v", err)
 	}
 
-	if account.OwnerID != userID {
-		t.Errorf("expected owner %s, got %s", userID, account.OwnerID)
+	if user.ID != userID {
+		t.Errorf("expected user id %s, got %s", userID, user.ID)
 	}
 
-	bal, _ := account.Balance.Float64Value()
+	bal, _ := user.Balance.Float64Value()
 	if !bal.Valid || bal.Float64 != 0 {
-		t.Errorf("expected balance 0 for new account, got %v", bal.Float64)
-	}
-
-	second, err := repo.GetOrCreateAccount(ctx, userID)
-	if err != nil {
-		t.Fatalf("GetOrCreateAccount (second): %v", err)
-	}
-
-	if second.ID != account.ID {
-		t.Errorf("expected same account id %s, got %s", account.ID, second.ID)
+		t.Errorf("expected balance 0 for new user, got %v", bal.Float64)
 	}
 }
 
@@ -504,9 +473,13 @@ func TestListEntriesByAccount(t *testing.T) {
 		t.Fatalf("second reserve: %v", err)
 	}
 
-	entries, err := repo.ListEntriesByAccount(ctx, seed.AccountID, 10, 0)
+	entries, err := testQueries.ListLedgerEntriesByAccount(ctx, repository.ListLedgerEntriesByAccountParams{
+		UserID: seed.UserID,
+		Limit:  10,
+		Offset: 0,
+	})
 	if err != nil {
-		t.Fatalf("ListEntriesByAccount: %v", err)
+		t.Fatalf("ListLedgerEntriesByAccount: %v", err)
 	}
 
 	if len(entries) != 2 {
@@ -523,7 +496,11 @@ func TestListEntriesByAccount(t *testing.T) {
 		t.Errorf("expected second entry amount 10, got %v", secondAmt.Float64)
 	}
 
-	paginated, err := repo.ListEntriesByAccount(ctx, seed.AccountID, 1, 0)
+	paginated, err := testQueries.ListLedgerEntriesByAccount(ctx, repository.ListLedgerEntriesByAccountParams{
+		UserID: seed.UserID,
+		Limit:  1,
+		Offset: 0,
+	})
 	if err != nil {
 		t.Fatalf("paginated list: %v", err)
 	}
@@ -532,7 +509,11 @@ func TestListEntriesByAccount(t *testing.T) {
 		t.Fatalf("expected 1 entry with limit 1, got %d", len(paginated))
 	}
 
-	empty, err := repo.ListEntriesByAccount(ctx, seed.AccountID, 10, 10)
+	empty, err := testQueries.ListLedgerEntriesByAccount(ctx, repository.ListLedgerEntriesByAccountParams{
+		UserID: seed.UserID,
+		Limit:  10,
+		Offset: 10,
+	})
 	if err != nil {
 		t.Fatalf("offset list: %v", err)
 	}

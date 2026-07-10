@@ -10,7 +10,6 @@ DECLARE
     v_endpoint_id     UUID := '06ec1ef5-723f-4f43-9bd8-910eb397f8f9';
     v_consumer_id     UUID := '67e39047-d85d-4669-a4bc-32a130fd7e8d';
     v_cost            NUMERIC(20,10) := 0.001;
-    v_consumer_account_id UUID;
     v_balance_after   NUMERIC(20,10);
     v_usage_id        UUID;
 
@@ -23,12 +22,9 @@ DECLARE
     latencies     INT[]  := ARRAY[120,95,180, 75,110,1200,90,65, 85,130,55,190,850, 100,140,70, 115,85,3000,95,150, 105,80,160,950, 110,45,135, 90,500];
     resp_sizes    INT[]  := ARRAY[1024,2048,512, 4096,2048,0,1024,8192, 2048,4096,1024,512,0, 2048,1024,4096, 2048,1024,0,8192,2048, 1024,4096,512,0, 2048,1024,4096, 2048,256];
 BEGIN
-    SELECT id INTO v_consumer_account_id FROM accounts WHERE owner_id = v_consumer_id;
-
-    RAISE NOTICE 'Consumer account: %', v_consumer_account_id;
+    RAISE NOTICE 'Consumer user: %', v_consumer_id;
 
     FOR i IN 1 .. 30 LOOP
-        -- Calculate backdated timestamp (day_offset from Jul 9)
         v_usage_id := NULL;
 
         INSERT INTO usage_events (
@@ -61,22 +57,20 @@ BEGIN
         -- Ledger entry for completed/refunded events
         IF statuses[i] IN ('completed', 'reserved', 'refunded') THEN
             IF statuses[i] = 'refunded' THEN
-                -- Refund: add back the cost
-                UPDATE accounts SET balance = balance + v_cost, updated_at = now()
-                WHERE id = v_consumer_account_id
+                UPDATE users SET balance = balance + v_cost, account_updated_at = now()
+                WHERE id = v_consumer_id
                 RETURNING balance INTO v_balance_after;
             ELSE
-                -- Completed/reserved: deduct the cost
-                UPDATE accounts SET balance = balance - v_cost, updated_at = now()
-                WHERE id = v_consumer_account_id
+                UPDATE users SET balance = balance - v_cost, account_updated_at = now()
+                WHERE id = v_consumer_id
                 RETURNING balance INTO v_balance_after;
             END IF;
 
             INSERT INTO ledger_entries (
-                account_id, entry_type, amount, balance_after,
+                user_id, entry_type, amount, balance_after,
                 currency, reference_id, reference_type, status, description, created_at
             ) VALUES (
-                v_consumer_account_id,
+                v_consumer_id,
                 (CASE WHEN statuses[i] = 'refunded' THEN 'refund' ELSE 'deduction' END)::entry_type,
                 CASE WHEN statuses[i] = 'refunded' THEN v_cost ELSE -v_cost END,
                 v_balance_after,

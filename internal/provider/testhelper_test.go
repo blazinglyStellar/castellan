@@ -108,6 +108,7 @@ CREATE TABLE providers (
 	owner_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 	name        TEXT NOT NULL,
 	base_url    TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
 	status      provider_status NOT NULL DEFAULT 'active',
 	created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -121,9 +122,27 @@ CREATE TABLE api_endpoints (
 	price_amount    NUMERIC(20,10) NOT NULL,
 	currency        currency NOT NULL DEFAULT 'XLM',
 	rate_limit      INT,
+	description     TEXT NOT NULL DEFAULT '',
 	status          endpoint_status NOT NULL DEFAULT 'active',
 	created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
 	CONSTRAINT unique_provider_route_method UNIQUE (provider_id, route, method)
+);
+
+CREATE TYPE usage_status AS ENUM ('pending', 'reserved', 'completed', 'refunded', 'failed');
+
+CREATE TABLE usage_events (
+	id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+	consumer_id   UUID NOT NULL REFERENCES users(id),
+	provider_id   UUID NOT NULL REFERENCES providers(id),
+	endpoint_id   UUID NOT NULL REFERENCES api_endpoints(id),
+	request_cost  NUMERIC(20,10) NOT NULL,
+	currency      currency NOT NULL DEFAULT 'XLM',
+	status_code   INT,
+	latency_ms    INT,
+	response_size INT,
+	request_id    TEXT NOT NULL UNIQUE,
+	status        usage_status NOT NULL DEFAULT 'pending',
+	created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `

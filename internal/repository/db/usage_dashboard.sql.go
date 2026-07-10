@@ -16,13 +16,13 @@ import (
 const getActiveReservationsSum = `-- name: GetActiveReservationsSum :one
 SELECT COALESCE(SUM(amount), 0)::numeric AS total
 FROM ledger_entries
-WHERE account_id = $1
+WHERE user_id = $1
   AND entry_type = 'reservation'
   AND status = 'pending'
 `
 
-func (q *Queries) GetActiveReservationsSum(ctx context.Context, accountID uuid.UUID) (pgtype.Numeric, error) {
-	row := q.db.QueryRow(ctx, getActiveReservationsSum, accountID)
+func (q *Queries) GetActiveReservationsSum(ctx context.Context, userID uuid.UUID) (pgtype.Numeric, error) {
+	row := q.db.QueryRow(ctx, getActiveReservationsSum, userID)
 	var total pgtype.Numeric
 	err := row.Scan(&total)
 	return total, err
@@ -216,7 +216,7 @@ func (q *Queries) GetTotalEarningsByProviderInRange(ctx context.Context, arg Get
 const getUnsettledEarningsByProvider = `-- name: GetUnsettledEarningsByProvider :one
 SELECT COALESCE(SUM(le.amount), 0)::numeric AS total
 FROM ledger_entries le
-WHERE le.account_id = (SELECT a.id FROM accounts a JOIN providers p ON p.owner_id = a.owner_id WHERE p.id = $1)
+WHERE le.user_id = (SELECT p.owner_id FROM providers p WHERE p.id = $1)
   AND le.entry_type = 'settlement'
   AND le.status = 'pending'
 `

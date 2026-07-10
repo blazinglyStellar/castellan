@@ -16,7 +16,7 @@ const confirmDeposit = `-- name: ConfirmDeposit :one
 UPDATE deposits
 SET status = 'confirmed', confirmed_at = now()
 WHERE id = $1
-RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
+RETURNING id, user_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
 `
 
 func (q *Queries) ConfirmDeposit(ctx context.Context, id uuid.UUID) (Deposit, error) {
@@ -24,7 +24,7 @@ func (q *Queries) ConfirmDeposit(ctx context.Context, id uuid.UUID) (Deposit, er
 	var i Deposit
 	err := row.Scan(
 		&i.ID,
-		&i.AccountID,
+		&i.UserID,
 		&i.FromAddress,
 		&i.Amount,
 		&i.Currency,
@@ -39,7 +39,7 @@ func (q *Queries) ConfirmDeposit(ctx context.Context, id uuid.UUID) (Deposit, er
 }
 
 const getDepositByID = `-- name: GetDepositByID :one
-SELECT id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason FROM deposits
+SELECT id, user_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason FROM deposits
 WHERE id = $1
 LIMIT 1
 `
@@ -49,7 +49,7 @@ func (q *Queries) GetDepositByID(ctx context.Context, id uuid.UUID) (Deposit, er
 	var i Deposit
 	err := row.Scan(
 		&i.ID,
-		&i.AccountID,
+		&i.UserID,
 		&i.FromAddress,
 		&i.Amount,
 		&i.Currency,
@@ -64,7 +64,7 @@ func (q *Queries) GetDepositByID(ctx context.Context, id uuid.UUID) (Deposit, er
 }
 
 const getDepositByTxHash = `-- name: GetDepositByTxHash :one
-SELECT id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason FROM deposits
+SELECT id, user_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason FROM deposits
 WHERE tx_hash = $1
 LIMIT 1
 `
@@ -74,7 +74,7 @@ func (q *Queries) GetDepositByTxHash(ctx context.Context, txHash string) (Deposi
 	var i Deposit
 	err := row.Scan(
 		&i.ID,
-		&i.AccountID,
+		&i.UserID,
 		&i.FromAddress,
 		&i.Amount,
 		&i.Currency,
@@ -90,16 +90,16 @@ func (q *Queries) GetDepositByTxHash(ctx context.Context, txHash string) (Deposi
 
 const insertDeposit = `-- name: InsertDeposit :one
 INSERT INTO deposits (
-    account_id, from_address, amount, currency, memo, tx_hash, status
+    user_id, from_address, amount, currency, memo, tx_hash, status
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
 )
 ON CONFLICT (tx_hash) DO NOTHING
-RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
+RETURNING id, user_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
 `
 
 type InsertDepositParams struct {
-	AccountID   uuid.UUID      `json:"account_id"`
+	UserID      uuid.UUID      `json:"user_id"`
 	FromAddress string         `json:"from_address"`
 	Amount      pgtype.Numeric `json:"amount"`
 	Currency    Currency       `json:"currency"`
@@ -110,7 +110,7 @@ type InsertDepositParams struct {
 
 func (q *Queries) InsertDeposit(ctx context.Context, arg InsertDepositParams) (Deposit, error) {
 	row := q.db.QueryRow(ctx, insertDeposit,
-		arg.AccountID,
+		arg.UserID,
 		arg.FromAddress,
 		arg.Amount,
 		arg.Currency,
@@ -121,7 +121,7 @@ func (q *Queries) InsertDeposit(ctx context.Context, arg InsertDepositParams) (D
 	var i Deposit
 	err := row.Scan(
 		&i.ID,
-		&i.AccountID,
+		&i.UserID,
 		&i.FromAddress,
 		&i.Amount,
 		&i.Currency,
@@ -137,16 +137,16 @@ func (q *Queries) InsertDeposit(ctx context.Context, arg InsertDepositParams) (D
 
 const insertDepositIgnoreConflict = `-- name: InsertDepositIgnoreConflict :one
 INSERT INTO deposits (
-    account_id, from_address, amount, currency, memo, tx_hash, status
+    user_id, from_address, amount, currency, memo, tx_hash, status
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
 )
 ON CONFLICT (tx_hash) DO NOTHING
-RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
+RETURNING id, user_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
 `
 
 type InsertDepositIgnoreConflictParams struct {
-	AccountID   uuid.UUID      `json:"account_id"`
+	UserID      uuid.UUID      `json:"user_id"`
 	FromAddress string         `json:"from_address"`
 	Amount      pgtype.Numeric `json:"amount"`
 	Currency    Currency       `json:"currency"`
@@ -157,7 +157,7 @@ type InsertDepositIgnoreConflictParams struct {
 
 func (q *Queries) InsertDepositIgnoreConflict(ctx context.Context, arg InsertDepositIgnoreConflictParams) (Deposit, error) {
 	row := q.db.QueryRow(ctx, insertDepositIgnoreConflict,
-		arg.AccountID,
+		arg.UserID,
 		arg.FromAddress,
 		arg.Amount,
 		arg.Currency,
@@ -168,7 +168,7 @@ func (q *Queries) InsertDepositIgnoreConflict(ctx context.Context, arg InsertDep
 	var i Deposit
 	err := row.Scan(
 		&i.ID,
-		&i.AccountID,
+		&i.UserID,
 		&i.FromAddress,
 		&i.Amount,
 		&i.Currency,
@@ -183,13 +183,13 @@ func (q *Queries) InsertDepositIgnoreConflict(ctx context.Context, arg InsertDep
 }
 
 const listDepositsByAccount = `-- name: ListDepositsByAccount :many
-SELECT id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason FROM deposits
-WHERE account_id = $1
+SELECT id, user_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason FROM deposits
+WHERE user_id = $1
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListDepositsByAccount(ctx context.Context, accountID uuid.UUID) ([]Deposit, error) {
-	rows, err := q.db.Query(ctx, listDepositsByAccount, accountID)
+func (q *Queries) ListDepositsByAccount(ctx context.Context, userID uuid.UUID) ([]Deposit, error) {
+	rows, err := q.db.Query(ctx, listDepositsByAccount, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +199,7 @@ func (q *Queries) ListDepositsByAccount(ctx context.Context, accountID uuid.UUID
 		var i Deposit
 		if err := rows.Scan(
 			&i.ID,
-			&i.AccountID,
+			&i.UserID,
 			&i.FromAddress,
 			&i.Amount,
 			&i.Currency,
@@ -224,7 +224,7 @@ const markDepositRejected = `-- name: MarkDepositRejected :one
 UPDATE deposits
 SET status = 'failed', reason = $2
 WHERE id = $1
-RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
+RETURNING id, user_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
 `
 
 type MarkDepositRejectedParams struct {
@@ -237,7 +237,7 @@ func (q *Queries) MarkDepositRejected(ctx context.Context, arg MarkDepositReject
 	var i Deposit
 	err := row.Scan(
 		&i.ID,
-		&i.AccountID,
+		&i.UserID,
 		&i.FromAddress,
 		&i.Amount,
 		&i.Currency,
@@ -255,7 +255,7 @@ const updateDepositStatus = `-- name: UpdateDepositStatus :one
 UPDATE deposits
 SET status = $2
 WHERE id = $1
-RETURNING id, account_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
+RETURNING id, user_id, from_address, amount, currency, memo, tx_hash, status, created_at, confirmed_at, reason
 `
 
 type UpdateDepositStatusParams struct {
@@ -268,7 +268,7 @@ func (q *Queries) UpdateDepositStatus(ctx context.Context, arg UpdateDepositStat
 	var i Deposit
 	err := row.Scan(
 		&i.ID,
-		&i.AccountID,
+		&i.UserID,
 		&i.FromAddress,
 		&i.Amount,
 		&i.Currency,

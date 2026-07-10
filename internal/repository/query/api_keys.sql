@@ -60,11 +60,10 @@ SELECT
     k.created_at,
     k.expires_at,
     u.email,
-    a.id AS account_id,
-    a.balance,
-    a.currency
+    u.id AS account_id,
+    u.balance,
+    u.currency
 FROM api_keys k
 JOIN users u ON k.user_id = u.id
-JOIN accounts a ON u.id = a.owner_id
 WHERE k.key_hash = $1
 LIMIT 1;

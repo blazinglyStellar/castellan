@@ -95,14 +95,14 @@ ORDER BY date;
 -- name: GetUnsettledEarningsByProvider :one
 SELECT COALESCE(SUM(le.amount), 0)::numeric AS total
 FROM ledger_entries le
-WHERE le.account_id = (SELECT a.id FROM accounts a JOIN providers p ON p.owner_id = a.owner_id WHERE p.id = $1)
+WHERE le.user_id = (SELECT p.owner_id FROM providers p WHERE p.id = $1)
   AND le.entry_type = 'settlement'
   AND le.status = 'pending';
 
 -- name: GetActiveReservationsSum :one
 SELECT COALESCE(SUM(amount), 0)::numeric AS total
 FROM ledger_entries
-WHERE account_id = $1
+WHERE user_id = $1
   AND entry_type = 'reservation'
   AND status = 'pending';
 

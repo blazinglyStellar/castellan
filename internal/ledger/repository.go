@@ -26,16 +26,15 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 }
 
 func numericToDecimal(n pgtype.Numeric) (decimal.Decimal, error) {
-	f64, err := n.Float64Value()
-	if err != nil {
-		return decimal.Zero, fmt.Errorf("convert numeric to float64: %w", err)
-	}
-
-	if !f64.Valid {
+	if !n.Valid {
 		return decimal.Zero, errors.New("numeric is null")
 	}
 
-	return decimal.NewFromFloat(f64.Float64), nil
+	if n.NaN {
+		return decimal.Zero, errors.New("numeric is NaN")
+	}
+
+	return decimal.NewFromBigInt(n.Int, n.Exp), nil
 }
 
 func decimalToNumeric(d decimal.Decimal) (pgtype.Numeric, error) {
@@ -61,8 +60,7 @@ func pgtypeUUIDFromUUID(u uuid.UUID) pgtype.UUID {
 }
 
 type ReserveBalanceResult struct {
-	Account repository.Account
-	Entry   repository.LedgerEntry
+	Entry repository.LedgerEntry
 }
 
 func (r *PostgresRepository) ReserveBalance(
@@ -87,18 +85,12 @@ func (r *PostgresRepository) ReserveBalance(
 
 	defer tx.Rollback(ctx)
 
-	q := repository.New(tx)
-
-	if _, err := q.GetOrCreateAccount(ctx, ownerID); err != nil {
-		return nil, fmt.Errorf("get or create account: %w", err)
+	var balance pgtype.Numeric
+	if err := tx.QueryRow(ctx, `SELECT balance FROM users WHERE id = $1 FOR UPDATE`, ownerID).Scan(&balance); err != nil {
+		return nil, fmt.Errorf("lock user balance: %w", err)
 	}
 
-	account, err := q.GetAccountForUpdate(ctx, ownerID)
-	if err != nil {
-		return nil, fmt.Errorf("lock account: %w", err)
-	}
-
-	balanceDec, err := numericToDecimal(account.Balance)
+	balanceDec, err := numericToDecimal(balance)
 	if err != nil {
 		return nil, fmt.Errorf("parse balance: %w", err)
 	}
@@ -113,11 +105,7 @@ func (r *PostgresRepository) ReserveBalance(
 		return nil, fmt.Errorf("convert new balance: %w", err)
 	}
 
-	account, err = q.UpdateAccountBalance(ctx, repository.UpdateAccountBalanceParams{
-		ID:      account.ID,
-		Balance: newBalanceNumeric,
-	})
-	if err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE users SET balance = $2, account_updated_at = now() WHERE id = $1`, ownerID, newBalanceNumeric); err != nil {
 		return nil, fmt.Errorf("update balance: %w", err)
 	}
 
@@ -126,8 +114,10 @@ func (r *PostgresRepository) ReserveBalance(
 		return nil, fmt.Errorf("convert amount: %w", err)
 	}
 
+	q := repository.New(tx)
+
 	entry, err := q.InsertLedgerEntry(ctx, repository.InsertLedgerEntryParams{
-		AccountID:     account.ID,
+		UserID:        ownerID,
 		EntryType:     repository.EntryTypeReservation,
 		Amount:        amountNumeric,
 		BalanceAfter:  newBalanceNumeric,
@@ -145,7 +135,7 @@ func (r *PostgresRepository) ReserveBalance(
 		return nil, fmt.Errorf("commit transaction: %w", err)
 	}
 
-	return &ReserveBalanceResult{Account: account, Entry: entry}, nil
+	return &ReserveBalanceResult{Entry: entry}, nil
 }
 
 func (r *PostgresRepository) ConfirmReservation(ctx context.Context, requestID string) error {
@@ -188,7 +178,7 @@ func (r *PostgresRepository) ConfirmReservation(ctx context.Context, requestID s
 	}
 
 	if _, err := q.InsertLedgerEntry(ctx, repository.InsertLedgerEntryParams{
-		AccountID:     entry.AccountID,
+		UserID:        entry.UserID,
 		EntryType:     repository.EntryTypeDeduction,
 		Amount:        entry.Amount,
 		BalanceAfter:  entry.BalanceAfter,
@@ -240,9 +230,9 @@ func (r *PostgresRepository) ReleaseReservation(ctx context.Context, requestID s
 		return errors.New("entry reference does not point to a reservation")
 	}
 
-	account, err := q.GetAccountByIDForUpdate(ctx, entry.AccountID)
-	if err != nil {
-		return fmt.Errorf("lock account: %w", err)
+	var balance pgtype.Numeric
+	if err := tx.QueryRow(ctx, `SELECT balance FROM users WHERE id = $1 FOR UPDATE`, entry.UserID).Scan(&balance); err != nil {
+		return fmt.Errorf("lock user balance: %w", err)
 	}
 
 	amountDec, err := numericToDecimal(entry.Amount)
@@ -250,7 +240,7 @@ func (r *PostgresRepository) ReleaseReservation(ctx context.Context, requestID s
 		return fmt.Errorf("parse entry amount: %w", err)
 	}
 
-	balanceDec, err := numericToDecimal(account.Balance)
+	balanceDec, err := numericToDecimal(balance)
 	if err != nil {
 		return fmt.Errorf("parse balance: %w", err)
 	}
@@ -261,10 +251,7 @@ func (r *PostgresRepository) ReleaseReservation(ctx context.Context, requestID s
 		return fmt.Errorf("convert refunded balance: %w", err)
 	}
 
-	if _, err := q.UpdateAccountBalance(ctx, repository.UpdateAccountBalanceParams{
-		ID:      account.ID,
-		Balance: refundedNumeric,
-	}); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE users SET balance = $2, account_updated_at = now() WHERE id = $1`, entry.UserID, refundedNumeric); err != nil {
 		return fmt.Errorf("refund balance: %w", err)
 	}
 
@@ -276,11 +263,11 @@ func (r *PostgresRepository) ReleaseReservation(ctx context.Context, requestID s
 	}
 
 	if _, err := q.InsertLedgerEntry(ctx, repository.InsertLedgerEntryParams{
-		AccountID:     account.ID,
+		UserID:        entry.UserID,
 		EntryType:     repository.EntryTypeRefund,
 		Amount:        entry.Amount,
 		BalanceAfter:  refundedNumeric,
-		Currency:      account.Currency,
+		Currency:      entry.Currency,
 		ReferenceID:   entry.ReferenceID,
 		ReferenceType: entry.ReferenceType,
 		Status:        repository.LedgerStatusCompleted,
@@ -294,32 +281,4 @@ func (r *PostgresRepository) ReleaseReservation(ctx context.Context, requestID s
 	}
 
 	return nil
-}
-
-func (r *PostgresRepository) GetOrCreateAccount(ctx context.Context, ownerID uuid.UUID) (repository.Account, error) {
-	q := repository.New(r.pool)
-	account, err := q.GetOrCreateAccount(ctx, ownerID)
-	if err != nil {
-		return repository.Account{}, fmt.Errorf("get or create account: %w", err)
-	}
-
-	return account, nil
-}
-
-func (r *PostgresRepository) ListEntriesByAccount(
-	ctx context.Context,
-	accountID uuid.UUID,
-	limit, offset int32,
-) ([]repository.LedgerEntry, error) {
-	q := repository.New(r.pool)
-	entries, err := q.ListLedgerEntriesByAccount(ctx, repository.ListLedgerEntriesByAccountParams{
-		AccountID: accountID,
-		Limit:     limit,
-		Offset:    offset,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list ledger entries: %w", err)
-	}
-
-	return entries, nil
 }

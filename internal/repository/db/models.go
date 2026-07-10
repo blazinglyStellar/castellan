@@ -491,15 +491,6 @@ func (ns NullUsageStatus) Value() (driver.Value, error) {
 	return string(ns.UsageStatus), nil
 }
 
-type Account struct {
-	ID        uuid.UUID      `json:"id"`
-	OwnerID   uuid.UUID      `json:"owner_id"`
-	Balance   pgtype.Numeric `json:"balance"`
-	Currency  Currency       `json:"currency"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-}
-
 type ApiEndpoint struct {
 	ID          uuid.UUID      `json:"id"`
 	ProviderID  uuid.UUID      `json:"provider_id"`
@@ -526,7 +517,7 @@ type ApiKey struct {
 
 type Deposit struct {
 	ID          uuid.UUID          `json:"id"`
-	AccountID   uuid.UUID          `json:"account_id"`
+	UserID      uuid.UUID          `json:"user_id"`
 	FromAddress string             `json:"from_address"`
 	Amount      pgtype.Numeric     `json:"amount"`
 	Currency    Currency           `json:"currency"`
@@ -540,7 +531,7 @@ type Deposit struct {
 
 type LedgerEntry struct {
 	ID            uuid.UUID      `json:"id"`
-	AccountID     uuid.UUID      `json:"account_id"`
+	UserID        uuid.UUID      `json:"user_id"`
 	EntryType     EntryType      `json:"entry_type"`
 	Amount        pgtype.Numeric `json:"amount"`
 	BalanceAfter  pgtype.Numeric `json:"balance_after"`
@@ -619,10 +610,13 @@ type UsageEvent struct {
 }
 
 type User struct {
-	ID                   uuid.UUID   `json:"id"`
-	Email                string      `json:"email"`
-	DepositMemo          pgtype.Text `json:"deposit_memo"`
-	PayoutStellarAddress pgtype.Text `json:"payout_stellar_address"`
-	CreatedAt            time.Time   `json:"created_at"`
-	UpdatedAt            time.Time   `json:"updated_at"`
+	ID                   uuid.UUID      `json:"id"`
+	Email                string         `json:"email"`
+	DepositMemo          pgtype.Text    `json:"deposit_memo"`
+	PayoutStellarAddress pgtype.Text    `json:"payout_stellar_address"`
+	CreatedAt            time.Time      `json:"created_at"`
+	UpdatedAt            time.Time      `json:"updated_at"`
+	Balance              pgtype.Numeric `json:"balance"`
+	Currency             Currency       `json:"currency"`
+	AccountUpdatedAt     time.Time      `json:"account_updated_at"`
 }

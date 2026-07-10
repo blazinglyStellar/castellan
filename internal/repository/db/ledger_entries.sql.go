@@ -14,11 +14,11 @@ import (
 
 const countLedgerEntriesByAccount = `-- name: CountLedgerEntriesByAccount :one
 SELECT COUNT(*) FROM ledger_entries
-WHERE account_id = $1
+WHERE user_id = $1
 `
 
-func (q *Queries) CountLedgerEntriesByAccount(ctx context.Context, accountID uuid.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countLedgerEntriesByAccount, accountID)
+func (q *Queries) CountLedgerEntriesByAccount(ctx context.Context, userID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countLedgerEntriesByAccount, userID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -26,23 +26,23 @@ func (q *Queries) CountLedgerEntriesByAccount(ctx context.Context, accountID uui
 
 const countLedgerEntriesByAccountAndType = `-- name: CountLedgerEntriesByAccountAndType :one
 SELECT COUNT(*) FROM ledger_entries
-WHERE account_id = $1 AND entry_type = $2
+WHERE user_id = $1 AND entry_type = $2
 `
 
 type CountLedgerEntriesByAccountAndTypeParams struct {
-	AccountID uuid.UUID `json:"account_id"`
+	UserID    uuid.UUID `json:"user_id"`
 	EntryType EntryType `json:"entry_type"`
 }
 
 func (q *Queries) CountLedgerEntriesByAccountAndType(ctx context.Context, arg CountLedgerEntriesByAccountAndTypeParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countLedgerEntriesByAccountAndType, arg.AccountID, arg.EntryType)
+	row := q.db.QueryRow(ctx, countLedgerEntriesByAccountAndType, arg.UserID, arg.EntryType)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const getLedgerEntryByID = `-- name: GetLedgerEntryByID :one
-SELECT id, account_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at FROM ledger_entries
+SELECT id, user_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at FROM ledger_entries
 WHERE id = $1
 LIMIT 1
 `
@@ -52,7 +52,7 @@ func (q *Queries) GetLedgerEntryByID(ctx context.Context, id uuid.UUID) (LedgerE
 	var i LedgerEntry
 	err := row.Scan(
 		&i.ID,
-		&i.AccountID,
+		&i.UserID,
 		&i.EntryType,
 		&i.Amount,
 		&i.BalanceAfter,
@@ -67,23 +67,22 @@ func (q *Queries) GetLedgerEntryByID(ctx context.Context, id uuid.UUID) (LedgerE
 }
 
 const getLedgerEntryByIDAndOwner = `-- name: GetLedgerEntryByIDAndOwner :one
-SELECT le.id, le.account_id, le.entry_type, le.amount, le.balance_after, le.currency, le.reference_id, le.reference_type, le.status, le.description, le.created_at FROM ledger_entries le
-JOIN accounts a ON a.id = le.account_id
-WHERE le.id = $1 AND a.owner_id = $2
+SELECT le.id, le.user_id, le.entry_type, le.amount, le.balance_after, le.currency, le.reference_id, le.reference_type, le.status, le.description, le.created_at FROM ledger_entries le
+WHERE le.id = $1 AND le.user_id = $2
 LIMIT 1
 `
 
 type GetLedgerEntryByIDAndOwnerParams struct {
-	ID      uuid.UUID `json:"id"`
-	OwnerID uuid.UUID `json:"owner_id"`
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
 }
 
 func (q *Queries) GetLedgerEntryByIDAndOwner(ctx context.Context, arg GetLedgerEntryByIDAndOwnerParams) (LedgerEntry, error) {
-	row := q.db.QueryRow(ctx, getLedgerEntryByIDAndOwner, arg.ID, arg.OwnerID)
+	row := q.db.QueryRow(ctx, getLedgerEntryByIDAndOwner, arg.ID, arg.UserID)
 	var i LedgerEntry
 	err := row.Scan(
 		&i.ID,
-		&i.AccountID,
+		&i.UserID,
 		&i.EntryType,
 		&i.Amount,
 		&i.BalanceAfter,
@@ -98,7 +97,7 @@ func (q *Queries) GetLedgerEntryByIDAndOwner(ctx context.Context, arg GetLedgerE
 }
 
 const getLedgerEntryByReferenceID = `-- name: GetLedgerEntryByReferenceID :one
-SELECT id, account_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at FROM ledger_entries
+SELECT id, user_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at FROM ledger_entries
 WHERE reference_id = $1
 LIMIT 1
 `
@@ -108,7 +107,7 @@ func (q *Queries) GetLedgerEntryByReferenceID(ctx context.Context, referenceID p
 	var i LedgerEntry
 	err := row.Scan(
 		&i.ID,
-		&i.AccountID,
+		&i.UserID,
 		&i.EntryType,
 		&i.Amount,
 		&i.BalanceAfter,
@@ -124,16 +123,16 @@ func (q *Queries) GetLedgerEntryByReferenceID(ctx context.Context, referenceID p
 
 const insertLedgerEntry = `-- name: InsertLedgerEntry :one
 INSERT INTO ledger_entries (
-    account_id, entry_type, amount, balance_after, currency,
+    user_id, entry_type, amount, balance_after, currency,
     reference_id, reference_type, status, description
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9
 )
-RETURNING id, account_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at
+RETURNING id, user_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at
 `
 
 type InsertLedgerEntryParams struct {
-	AccountID     uuid.UUID      `json:"account_id"`
+	UserID        uuid.UUID      `json:"user_id"`
 	EntryType     EntryType      `json:"entry_type"`
 	Amount        pgtype.Numeric `json:"amount"`
 	BalanceAfter  pgtype.Numeric `json:"balance_after"`
@@ -146,7 +145,7 @@ type InsertLedgerEntryParams struct {
 
 func (q *Queries) InsertLedgerEntry(ctx context.Context, arg InsertLedgerEntryParams) (LedgerEntry, error) {
 	row := q.db.QueryRow(ctx, insertLedgerEntry,
-		arg.AccountID,
+		arg.UserID,
 		arg.EntryType,
 		arg.Amount,
 		arg.BalanceAfter,
@@ -159,7 +158,7 @@ func (q *Queries) InsertLedgerEntry(ctx context.Context, arg InsertLedgerEntryPa
 	var i LedgerEntry
 	err := row.Scan(
 		&i.ID,
-		&i.AccountID,
+		&i.UserID,
 		&i.EntryType,
 		&i.Amount,
 		&i.BalanceAfter,
@@ -174,20 +173,20 @@ func (q *Queries) InsertLedgerEntry(ctx context.Context, arg InsertLedgerEntryPa
 }
 
 const listLedgerEntriesByAccount = `-- name: ListLedgerEntriesByAccount :many
-SELECT id, account_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at FROM ledger_entries
-WHERE account_id = $1
+SELECT id, user_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at FROM ledger_entries
+WHERE user_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
 `
 
 type ListLedgerEntriesByAccountParams struct {
-	AccountID uuid.UUID `json:"account_id"`
-	Limit     int32     `json:"limit"`
-	Offset    int32     `json:"offset"`
+	UserID uuid.UUID `json:"user_id"`
+	Limit  int32     `json:"limit"`
+	Offset int32     `json:"offset"`
 }
 
 func (q *Queries) ListLedgerEntriesByAccount(ctx context.Context, arg ListLedgerEntriesByAccountParams) ([]LedgerEntry, error) {
-	rows, err := q.db.Query(ctx, listLedgerEntriesByAccount, arg.AccountID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listLedgerEntriesByAccount, arg.UserID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +196,7 @@ func (q *Queries) ListLedgerEntriesByAccount(ctx context.Context, arg ListLedger
 		var i LedgerEntry
 		if err := rows.Scan(
 			&i.ID,
-			&i.AccountID,
+			&i.UserID,
 			&i.EntryType,
 			&i.Amount,
 			&i.BalanceAfter,
@@ -219,14 +218,14 @@ func (q *Queries) ListLedgerEntriesByAccount(ctx context.Context, arg ListLedger
 }
 
 const listLedgerEntriesByAccountAndType = `-- name: ListLedgerEntriesByAccountAndType :many
-SELECT id, account_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at FROM ledger_entries
-WHERE account_id = $1 AND entry_type = $2
+SELECT id, user_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at FROM ledger_entries
+WHERE user_id = $1 AND entry_type = $2
 ORDER BY created_at DESC
 LIMIT $3 OFFSET $4
 `
 
 type ListLedgerEntriesByAccountAndTypeParams struct {
-	AccountID uuid.UUID `json:"account_id"`
+	UserID    uuid.UUID `json:"user_id"`
 	EntryType EntryType `json:"entry_type"`
 	Limit     int32     `json:"limit"`
 	Offset    int32     `json:"offset"`
@@ -234,7 +233,7 @@ type ListLedgerEntriesByAccountAndTypeParams struct {
 
 func (q *Queries) ListLedgerEntriesByAccountAndType(ctx context.Context, arg ListLedgerEntriesByAccountAndTypeParams) ([]LedgerEntry, error) {
 	rows, err := q.db.Query(ctx, listLedgerEntriesByAccountAndType,
-		arg.AccountID,
+		arg.UserID,
 		arg.EntryType,
 		arg.Limit,
 		arg.Offset,
@@ -248,7 +247,7 @@ func (q *Queries) ListLedgerEntriesByAccountAndType(ctx context.Context, arg Lis
 		var i LedgerEntry
 		if err := rows.Scan(
 			&i.ID,
-			&i.AccountID,
+			&i.UserID,
 			&i.EntryType,
 			&i.Amount,
 			&i.BalanceAfter,
@@ -272,14 +271,13 @@ func (q *Queries) ListLedgerEntriesByAccountAndType(ctx context.Context, arg Lis
 const markProviderLedgerEntriesSettled = `-- name: MarkProviderLedgerEntriesSettled :many
 UPDATE ledger_entries le
 SET reference_id = $2, reference_type = $3
-FROM accounts a
-INNER JOIN usage_events ue ON ue.consumer_id = a.owner_id
-WHERE le.account_id = a.id
+FROM usage_events ue
+WHERE le.user_id = ue.consumer_id
   AND ue.provider_id = $1
   AND ue.status = 'completed'
   AND le.entry_type = 'deduction'
   AND le.reference_id IS NULL
-RETURNING le.id, le.account_id, le.entry_type, le.amount, le.balance_after, le.currency, le.reference_id, le.reference_type, le.status, le.description, le.created_at
+RETURNING le.id, le.user_id, le.entry_type, le.amount, le.balance_after, le.currency, le.reference_id, le.reference_type, le.status, le.description, le.created_at
 `
 
 type MarkProviderLedgerEntriesSettledParams struct {
@@ -299,7 +297,7 @@ func (q *Queries) MarkProviderLedgerEntriesSettled(ctx context.Context, arg Mark
 		var i LedgerEntry
 		if err := rows.Scan(
 			&i.ID,
-			&i.AccountID,
+			&i.UserID,
 			&i.EntryType,
 			&i.Amount,
 			&i.BalanceAfter,
@@ -324,7 +322,7 @@ const updateLedgerEntryStatus = `-- name: UpdateLedgerEntryStatus :one
 UPDATE ledger_entries
 SET status = $2
 WHERE id = $1
-RETURNING id, account_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at
+RETURNING id, user_id, entry_type, amount, balance_after, currency, reference_id, reference_type, status, description, created_at
 `
 
 type UpdateLedgerEntryStatusParams struct {
@@ -337,7 +335,7 @@ func (q *Queries) UpdateLedgerEntryStatus(ctx context.Context, arg UpdateLedgerE
 	var i LedgerEntry
 	err := row.Scan(
 		&i.ID,
-		&i.AccountID,
+		&i.UserID,
 		&i.EntryType,
 		&i.Amount,
 		&i.BalanceAfter,

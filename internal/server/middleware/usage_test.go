@@ -136,8 +136,8 @@ func TestUsageCaptureSuccess(t *testing.T) {
 	if params.RequestID != requestID {
 		t.Fatalf("expected request_id %s; got %s", requestID, params.RequestID)
 	}
-	if params.Status != repository.UsageStatusPending {
-		t.Fatalf("expected status %q; got %q", repository.UsageStatusPending, params.Status)
+	if params.Status != repository.UsageStatusCompleted {
+		t.Fatalf("expected status %q; got %q", repository.UsageStatusCompleted, params.Status)
 	}
 	if !params.StatusCode.Valid || params.StatusCode.Int32 != 200 {
 		t.Fatalf("expected status_code 200; got %+v", params.StatusCode)

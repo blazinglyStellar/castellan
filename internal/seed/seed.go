@@ -46,12 +46,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, queries repository.Querier) er
 		return fmt.Errorf("seed usage events: %w", err)
 	}
 
-	consumerAccountID, providerAccountID, err := getAccountIDs(ctx, pool, consumerID, providerOwnerID)
-	if err != nil {
-		return fmt.Errorf("get account ids: %w", err)
-	}
-
-	if err := seedLedgerEntries(ctx, pool, consumerAccountID, providerAccountID); err != nil {
+	if err := seedLedgerEntries(ctx, pool, consumerID, providerOwnerID); err != nil {
 		return fmt.Errorf("seed ledger entries: %w", err)
 	}
 

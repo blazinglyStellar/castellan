@@ -45,15 +45,13 @@ func (m *mockMonitor) MonitorTransaction(_ context.Context, _ string) (Transacti
 
 func TestRecoverFailed_SalvagesPreviouslyFailed(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProvider(ctx, t, "recover-p1@example.com", "GA_RECOVER_1")
 	p2 := seedProvider(ctx, t, "recover-p2@example.com", "GA_RECOVER_2")
 
-	consumer1, acct1 := seedConsumerWithAccount(ctx, t, "recover-c1@example.com")
-	consumer2, acct2 := seedConsumerWithAccount(ctx, t, "recover-c2@example.com")
-
-	seedDeductionLedgerEntry(ctx, t, acct1, "15.00")
-	seedDeductionLedgerEntry(ctx, t, acct2, "25.00")
+	acct1 := seedUsageAndDeduction(ctx, t, p1, "recover-c1@example.com", "15.00")
+	acct2 := seedUsageAndDeduction(ctx, t, p2, "recover-c2@example.com", "25.00")
 
 	reconciler := NewReconciler(testPool, testQueries)
 
@@ -124,10 +122,10 @@ func TestRecoverFailed_SalvagesPreviouslyFailed(t *testing.T) {
 	for _, ledgerAcctID := range []uuid.UUID{acct1, acct2} {
 		ledgerEntries, err := testQueries.ListLedgerEntriesByAccount(
 			ctx,
-			repository.ListLedgerEntriesByAccountParams{
-				AccountID: ledgerAcctID,
-				Limit:     10,
-				Offset:    0,
+			repository.	ListLedgerEntriesByAccountParams{
+				UserID: ledgerAcctID,
+				Limit:  10,
+				Offset: 0,
 			},
 		)
 		if err != nil {
@@ -140,12 +138,11 @@ func TestRecoverFailed_SalvagesPreviouslyFailed(t *testing.T) {
 		}
 	}
 
-	_ = consumer1
-	_ = consumer2
 }
 
 func TestRecoverFailed_NoopWhenMonitorStillFails(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProvider(ctx, t, "recover-noop@example.com", "GA_NOOP")
 
@@ -203,6 +200,7 @@ func TestRecoverFailed_NoopWhenMonitorStillFails(t *testing.T) {
 
 func TestGetSettlementHistory_ReturnsBatchesWithEntries(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProvider(ctx, t, "history-p1@example.com", "GA_HIST_1")
 	p2 := seedProvider(ctx, t, "history-p2@example.com", "GA_HIST_2")
@@ -258,6 +256,7 @@ func TestGetSettlementHistory_ReturnsBatchesWithEntries(t *testing.T) {
 
 func TestGetSettlementHistory_Pagination(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProvider(ctx, t, "pagination-p1@example.com", "GA_PAGE_1")
 
@@ -303,6 +302,7 @@ func TestGetSettlementHistory_Pagination(t *testing.T) {
 
 func TestCreateBatch_InsertsBatchAndEntries(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProvider(ctx, t, "cb-p1@example.com", "GAXXXX1")
 	p2 := seedProvider(ctx, t, "cb-p2@example.com", "GAXXXX2")
@@ -403,6 +403,7 @@ func TestCreateBatch_InsertsBatchAndEntries(t *testing.T) {
 
 func TestCreateBatch_EmptyPayouts(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 	reconciler := NewReconciler(testPool, testQueries)
 
 	_, _, err := reconciler.CreateBatch(ctx, nil)
@@ -418,6 +419,7 @@ func TestCreateBatch_EmptyPayouts(t *testing.T) {
 
 func TestCreateBatch_AtomicityOnFailure(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProvider(ctx, t, "atomic-p1@example.com", "GAATOM")
 
@@ -465,6 +467,7 @@ func TestCreateBatch_AtomicityOnFailure(t *testing.T) {
 
 func TestCreateBatch_SinglePayout(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProvider(ctx, t, "single@example.com", "GASINGLE")
 
@@ -506,52 +509,41 @@ func TestCreateBatch_SinglePayout(t *testing.T) {
 
 func seedConsumerWithAccount(
 	ctx context.Context, t *testing.T, email string,
-) (userID uuid.UUID, accountID uuid.UUID) {
+) uuid.UUID {
 	t.Helper()
 
-	userID = uuid.New()
+	userID := uuid.New()
 	_, err := testPool.Exec(ctx,
-		`INSERT INTO users (id, email) VALUES ($1, $2)`,
+		`INSERT INTO users (id, email, balance, currency) VALUES ($1, $2, 1000, 'XLM')`,
 		userID, email)
 	if err != nil {
 		t.Fatalf("seed consumer user: %v", err)
 	}
 
-	accountID = uuid.New()
-	_, err = testPool.Exec(ctx,
-		`INSERT INTO accounts (id, owner_id, balance, currency) VALUES ($1, $2, 1000, 'XLM')`,
-		accountID, userID)
-	if err != nil {
-		t.Fatalf("seed account: %v", err)
-	}
-
-	return userID, accountID
+	return userID
 }
 
 func seedDeductionLedgerEntry(
 	ctx context.Context, t *testing.T,
-	accountID uuid.UUID, amount string,
+	userID uuid.UUID, amount string,
 ) {
 	t.Helper()
 
 	_, err := testPool.Exec(ctx,
-		`INSERT INTO ledger_entries (account_id, entry_type, amount, balance_after, currency, status)
-		 VALUES ($1, 'deduction', $2, (SELECT balance FROM accounts WHERE id = $1), 'XLM', 'completed')`,
-		accountID, amount)
+		`INSERT INTO ledger_entries (user_id, entry_type, amount, balance_after, currency, status)
+		 VALUES ($1, 'deduction', $2, (SELECT balance FROM users WHERE id = $1), 'XLM', 'completed')`,
+		userID, amount)
 	if err != nil {
 		t.Fatalf("seed ledger entry: %v", err)
 	}
 }
-
 func TestFinalizeBatch_AllSuccess(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProvider(ctx, t, "fb-all-p1@example.com", "GASUCCESS")
-	consumer1, acct1 := seedConsumerWithAccount(ctx, t, "fb-all-c1@example.com")
-	consumer2, acct2 := seedConsumerWithAccount(ctx, t, "fb-all-c2@example.com")
-
-	seedDeductionLedgerEntry(ctx, t, acct1, "10.00")
-	seedDeductionLedgerEntry(ctx, t, acct2, "5.75")
+	acct1 := seedUsageAndDeduction(ctx, t, p1, "fb-all-c1@example.com", "10.00")
+	acct2 := seedUsageAndDeduction(ctx, t, p1, "fb-all-c2@example.com", "5.75")
 
 	reconciler := NewReconciler(testPool, testQueries)
 
@@ -602,9 +594,9 @@ func TestFinalizeBatch_AllSuccess(t *testing.T) {
 		ledgerEntries, err := testQueries.ListLedgerEntriesByAccount(
 			ctx,
 			repository.ListLedgerEntriesByAccountParams{
-				AccountID: ledgerAcctID,
-				Limit:     10,
-				Offset:    0,
+				UserID: ledgerAcctID,
+				Limit:  10,
+				Offset: 0,
 			},
 		)
 		if err != nil {
@@ -626,22 +618,17 @@ func TestFinalizeBatch_AllSuccess(t *testing.T) {
 			}
 		}
 	}
-
-	_ = consumer1
-	_ = consumer2
 }
 
 func TestFinalizeBatch_PartialFailure(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProvider(ctx, t, "fb-partial-p1@example.com", "GAP1")
 	p2 := seedProvider(ctx, t, "fb-partial-p2@example.com", "GAP2")
 
-	consumer1, acct1 := seedConsumerWithAccount(ctx, t, "fb-partial-c1@example.com")
-	consumer2, acct2 := seedConsumerWithAccount(ctx, t, "fb-partial-c2@example.com")
-
-	seedDeductionLedgerEntry(ctx, t, acct1, "20.00")
-	seedDeductionLedgerEntry(ctx, t, acct2, "30.00")
+	acct1 := seedUsageAndDeduction(ctx, t, p1, "fb-partial-c1@example.com", "20.00")
+	acct2 := seedUsageAndDeduction(ctx, t, p2, "fb-partial-c2@example.com", "30.00")
 
 	reconciler := NewReconciler(testPool, testQueries)
 
@@ -710,9 +697,9 @@ func TestFinalizeBatch_PartialFailure(t *testing.T) {
 	p1LedgerEntries, err := testQueries.ListLedgerEntriesByAccount(
 		ctx,
 		repository.ListLedgerEntriesByAccountParams{
-			AccountID: acct1,
-			Limit:     10,
-			Offset:    0,
+			UserID: acct1,
+			Limit:  10,
+			Offset: 0,
 		},
 	)
 	if err != nil {
@@ -729,9 +716,9 @@ func TestFinalizeBatch_PartialFailure(t *testing.T) {
 	p2LedgerEntries, err := testQueries.ListLedgerEntriesByAccount(
 		ctx,
 		repository.ListLedgerEntriesByAccountParams{
-			AccountID: acct2,
-			Limit:     10,
-			Offset:    0,
+			UserID: acct2,
+			Limit:  10,
+			Offset: 0,
 		},
 	)
 	if err != nil {
@@ -745,12 +732,11 @@ func TestFinalizeBatch_PartialFailure(t *testing.T) {
 		}
 	}
 
-	_ = consumer1
-	_ = consumer2
 }
 
 func TestFinalizeBatch_Idempotent(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProvider(ctx, t, "fb-idem-p1@example.com", "GAIDEM")
 
@@ -799,6 +785,7 @@ func TestFinalizeBatch_Idempotent(t *testing.T) {
 
 func TestFinalizeBatch_UnknownBatch(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	reconciler := NewReconciler(testPool, testQueries)
 	err := reconciler.FinalizeBatch(ctx, uuid.New(), []PayoutResult{})
@@ -809,11 +796,11 @@ func TestFinalizeBatch_UnknownBatch(t *testing.T) {
 
 func TestFinalizeBatch_AtomicityOnFailure(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProvider(ctx, t, "fb-atomic-p1@example.com", "GAATOM")
 
-	consumer1, acct1 := seedConsumerWithAccount(ctx, t, "fb-atomic-c1@example.com")
-	seedDeductionLedgerEntry(ctx, t, acct1, "100.00")
+	acct1 := seedUsageAndDeduction(ctx, t, p1, "fb-atomic-c1@example.com", "100.00")
 
 	reconciler := NewReconciler(testPool, testQueries)
 
@@ -861,7 +848,7 @@ func TestFinalizeBatch_AtomicityOnFailure(t *testing.T) {
 
 	var markedCount int
 	err = testPool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM ledger_entries WHERE account_id = $1 AND reference_id IS NOT NULL`,
+		`SELECT COUNT(*) FROM ledger_entries WHERE user_id = $1 AND reference_id IS NOT NULL`,
 		acct1,
 	).Scan(&markedCount)
 	if err != nil {
@@ -871,6 +858,4 @@ func TestFinalizeBatch_AtomicityOnFailure(t *testing.T) {
 		t.Errorf("expected 0 marked ledger entries after rollback, got %d", markedCount)
 	}
 
-	_ = consumer1
-	_ = acct1
 }

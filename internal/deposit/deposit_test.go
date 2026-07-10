@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"os"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/oklog/ulid/v2"
 	"github.com/shopspring/decimal"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -103,7 +105,7 @@ CREATE TYPE deposit_status AS ENUM ('pending', 'confirmed', 'failed');
 CREATE TABLE users (
     id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email                   TEXT NOT NULL UNIQUE,
-    deposit_memo            TEXT UNIQUE,
+    deposit_memo            VARCHAR(26) UNIQUE,
     payout_stellar_address  TEXT,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -157,7 +159,8 @@ func seedCreditTestUser(ctx context.Context, t *testing.T, balance string) (uuid
 	t.Helper()
 
 	userID := uuid.New()
-	memo := uuid.New().String()
+	entropy := ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)
+	memo := ulid.MustNew(ulid.Timestamp(time.Now()), entropy).String()
 	email := fmt.Sprintf("credit-%s@example.com", userID.String())
 
 	_, err := testPool.Exec(ctx,
@@ -290,7 +293,7 @@ func TestCreditDepositIntegration_UnknownMemo(t *testing.T) {
 		TxHash:      "tx-unknown-" + uuid.New().String(),
 		FromAddress: "GBBBBB",
 		Amount:      decimal.NewFromInt(10),
-		Memo:        uuid.New().String(), // not seeded for any user
+		Memo:        ulid.MustNew(ulid.Timestamp(time.Now()), ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)).String(), // not seeded for any user
 		Asset:       "XLM",
 	}
 

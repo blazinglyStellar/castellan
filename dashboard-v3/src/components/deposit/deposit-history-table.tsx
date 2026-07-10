@@ -20,6 +20,7 @@ import { useCursorPagination } from "@/lib/use-cursor-pagination";
 import { getDeposits } from "@/lib/api/client";
 import type { Deposit } from "@/lib/api/types";
 import { formatShortDateTime, formatAmount, StatusBadge } from "@/lib/format";
+import { STELLAR_EXPLORER_URL } from "@/lib/stellar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,8 +38,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-const STELLAR_EXPLORER = "https://stellar.expert/explorer/public/tx";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Status" },
@@ -149,7 +148,7 @@ export function DepositHistoryTable() {
             asChild
           >
             <a
-              href={`${STELLAR_EXPLORER}/${row.original.tx_hash}`}
+              href={`${STELLAR_EXPLORER_URL}/${row.original.tx_hash}`}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
@@ -302,15 +301,23 @@ function LoadingSkeleton() {
       </CardHeader>
       <CardContent className="p-0">
         <div className="space-y-0">
+          <div className="flex items-center gap-4 border-b px-4 py-3">
+            <Skeleton className="h-3 w-8" />
+            <Skeleton className="h-3 w-12" />
+            <Skeleton className="h-3 w-10" />
+            <Skeleton className="h-3 flex-1" />
+            <Skeleton className="h-3 w-14" />
+          </div>
           {Array.from({ length: 5 }).map((_, i) => (
             <div
               key={i}
-              className="flex items-center gap-4 border-t px-4 py-3"
+              className="flex items-center gap-4 border-b px-4 py-3"
             >
               <Skeleton className="h-4 w-4 rounded-full" />
               <Skeleton className="h-3 w-20" />
               <Skeleton className="h-4 w-16 rounded" />
               <Skeleton className="h-3 flex-1" />
+              <Skeleton className="h-6 w-14 rounded-md" />
               <Skeleton className="h-3 w-16" />
             </div>
           ))}

@@ -1,6 +1,6 @@
 -- name: InsertLedgerEntry :one
 INSERT INTO ledger_entries (
-    account_id, entry_type, amount, balance_after, currency,
+    user_id, entry_type, amount, balance_after, currency,
     reference_id, reference_type, status, description
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9
@@ -19,13 +19,13 @@ LIMIT 1;
 
 -- name: ListLedgerEntriesByAccount :many
 SELECT * FROM ledger_entries
-WHERE account_id = $1
+WHERE user_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: ListLedgerEntriesByAccountAndType :many
 SELECT * FROM ledger_entries
-WHERE account_id = $1 AND entry_type = $2
+WHERE user_id = $1 AND entry_type = $2
 ORDER BY created_at DESC
 LIMIT $3 OFFSET $4;
 
@@ -37,24 +37,22 @@ RETURNING *;
 
 -- name: CountLedgerEntriesByAccount :one
 SELECT COUNT(*) FROM ledger_entries
-WHERE account_id = $1;
+WHERE user_id = $1;
 
 -- name: CountLedgerEntriesByAccountAndType :one
 SELECT COUNT(*) FROM ledger_entries
-WHERE account_id = $1 AND entry_type = $2;
+WHERE user_id = $1 AND entry_type = $2;
 
 -- name: GetLedgerEntryByIDAndOwner :one
 SELECT le.* FROM ledger_entries le
-JOIN accounts a ON a.id = le.account_id
-WHERE le.id = $1 AND a.owner_id = $2
+WHERE le.id = $1 AND le.user_id = $2
 LIMIT 1;
 
 -- name: MarkProviderLedgerEntriesSettled :many
 UPDATE ledger_entries le
 SET reference_id = $2, reference_type = $3
-FROM accounts a
-INNER JOIN usage_events ue ON ue.consumer_id = a.owner_id
-WHERE le.account_id = a.id
+FROM usage_events ue
+WHERE le.user_id = ue.consumer_id
   AND ue.provider_id = $1
   AND ue.status = 'completed'
   AND le.entry_type = 'deduction'

@@ -170,8 +170,12 @@ func TestAuthCheckMalformedHeader(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, "/api/gateway/", nil)
 			request.Header.Set("Authorization", tt.header)
 
+			var mockSession SessionValidator
+			if strings.HasPrefix(tt.header, "Bearer ") {
+				mockSession = &mockSessionValidator{err: auth.ErrSessionNotFound}
+			}
 			mock := &mockKeyValidator{}
-			AuthCheck(mock, nil)(handler).ServeHTTP(recorder, request)
+			AuthCheck(mock, mockSession)(handler).ServeHTTP(recorder, request)
 
 			if recorder.Code != http.StatusUnauthorized {
 				t.Fatalf("expected status %d; got %d", http.StatusUnauthorized, recorder.Code)

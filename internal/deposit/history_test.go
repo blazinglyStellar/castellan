@@ -43,23 +43,23 @@ func TestListDeposits_Unauthenticated(t *testing.T) {
 
 type listDepositsMockQuerier struct {
 	repository.Querier
-	account    *repository.Account
+	user       *repository.User
 	deposits   []repository.Deposit
-	accountErr error
+	userErr    error
 	depositErr error
 }
 
-func (m *listDepositsMockQuerier) GetAccountByOwnerID(_ context.Context, _ uuid.UUID) (repository.Account, error) {
-	if m.accountErr != nil {
-		return repository.Account{}, m.accountErr
+func (m *listDepositsMockQuerier) GetUserByID(_ context.Context, _ uuid.UUID) (repository.User, error) {
+	if m.userErr != nil {
+		return repository.User{}, m.userErr
 	}
-	if m.account == nil {
-		return repository.Account{}, pgx.ErrNoRows
+	if m.user == nil {
+		return repository.User{}, pgx.ErrNoRows
 	}
-	return *m.account, nil
+	return *m.user, nil
 }
 
-func (m *listDepositsMockQuerier) ListDepositsByAccountCursor(_ context.Context, params repository.ListDepositsByAccountCursorParams) ([]repository.Deposit, error) {
+func (m *listDepositsMockQuerier) ListDepositsByAccountCursor(_ context.Context, _ repository.ListDepositsByAccountCursorParams) ([]repository.Deposit, error) {
 	if m.depositErr != nil {
 		return nil, m.depositErr
 	}
@@ -70,16 +70,13 @@ func TestListDeposits_Empty(t *testing.T) {
 	t.Parallel()
 
 	userID := uuid.New()
-	accountID := uuid.New()
 
 	mq := &listDepositsMockQuerier{
-		account: &repository.Account{
-			ID:        accountID,
-			OwnerID:   userID,
+		user: &repository.User{
+			ID:        userID,
 			Balance:   pgtype.Numeric{Valid: true, Int: new(big.Int), Exp: 0},
 			Currency:  repository.CurrencyXLM,
 			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
 		},
 		deposits: []repository.Deposit{},
 	}
@@ -114,13 +111,12 @@ func TestListDeposits_Success(t *testing.T) {
 	t.Parallel()
 
 	userID := uuid.New()
-	accountID := uuid.New()
 	now := time.Now()
 	confirmedAt := now.Add(30 * time.Second)
 
 	deposit := repository.Deposit{
 		ID:          uuid.New(),
-		AccountID:   accountID,
+		UserID:      userID,
 		FromAddress: "GABC12345",
 		Amount:      pgtype.Numeric{Valid: true, Int: big.NewInt(5000), Exp: 0},
 		Currency:    repository.CurrencyXLM,
@@ -132,13 +128,11 @@ func TestListDeposits_Success(t *testing.T) {
 	}
 
 	mq := &listDepositsMockQuerier{
-		account: &repository.Account{
-			ID:        accountID,
-			OwnerID:   userID,
+		user: &repository.User{
+			ID:        userID,
 			Balance:   pgtype.Numeric{Valid: true, Int: new(big.Int), Exp: 0},
 			Currency:  repository.CurrencyXLM,
 			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
 		},
 		deposits: []repository.Deposit{deposit},
 	}
@@ -220,7 +214,7 @@ func TestListDeposits_NoAccount(t *testing.T) {
 	userID := uuid.New()
 
 	mq := &listDepositsMockQuerier{
-		accountErr: pgx.ErrNoRows,
+		userErr: pgx.ErrNoRows,
 	}
 
 	svc := &Service{queries: mq, cfg: stellar.DefaultConfig()}
@@ -255,7 +249,7 @@ func TestListDeposits_AccountQueryError(t *testing.T) {
 	userID := uuid.New()
 
 	mq := &listDepositsMockQuerier{
-		accountErr: errors.New("db error"),
+		userErr: errors.New("db error"),
 	}
 
 	svc := &Service{queries: mq, cfg: stellar.DefaultConfig()}
@@ -280,16 +274,13 @@ func TestListDeposits_ListError(t *testing.T) {
 	t.Parallel()
 
 	userID := uuid.New()
-	accountID := uuid.New()
 
 	mq := &listDepositsMockQuerier{
-		account: &repository.Account{
-			ID:        accountID,
-			OwnerID:   userID,
+		user: &repository.User{
+			ID:        userID,
 			Balance:   pgtype.Numeric{Valid: true, Int: new(big.Int), Exp: 0},
 			Currency:  repository.CurrencyXLM,
 			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
 		},
 		depositErr: errors.New("db list error"),
 	}

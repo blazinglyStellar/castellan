@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"math/big"
@@ -69,7 +68,7 @@ type mockQuerier struct {
 	mu        sync.Mutex
 	providers map[uuid.UUID]repository.Provider
 	endpoints map[uuid.UUID]repository.ApiEndpoint
-	accounts  map[uuid.UUID]repository.Account
+	users     map[uuid.UUID]repository.User
 	entries   []repository.LedgerEntry
 	entryIdx  int
 }
@@ -78,7 +77,7 @@ func newMockQuerier() *mockQuerier {
 	return &mockQuerier{
 		providers: make(map[uuid.UUID]repository.Provider),
 		endpoints: make(map[uuid.UUID]repository.ApiEndpoint),
-		accounts:  make(map[uuid.UUID]repository.Account),
+		users:     make(map[uuid.UUID]repository.User),
 		entries:   nil,
 	}
 }
@@ -266,60 +265,14 @@ func (m *mockQuerier) GetProviderStats(_ context.Context) ([]repository.GetProvi
 	return nil, nil
 }
 
-// ---------------------------------------------------------------------------
-// Account mock methods
-// ---------------------------------------------------------------------------
-
-func (m *mockQuerier) GetAccountByOwnerID(_ context.Context, ownerID uuid.UUID) (repository.Account, error) {
+func (m *mockQuerier) GetUserByID(_ context.Context, id uuid.UUID) (repository.User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	a, ok := m.accounts[ownerID]
+	u, ok := m.users[id]
 	if !ok {
-		return repository.Account{}, pgx.ErrNoRows
+		return repository.User{}, pgx.ErrNoRows
 	}
-	return a, nil
-}
-
-func (m *mockQuerier) GetOrCreateAccount(_ context.Context, ownerID uuid.UUID) (repository.Account, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if a, ok := m.accounts[ownerID]; ok {
-		return a, nil
-	}
-	a := repository.Account{
-		ID:        uuid.New(),
-		OwnerID:   ownerID,
-		Balance:   pgtype.Numeric{Int: big.NewInt(0), Exp: 0, Valid: true},
-		Currency:  repository.CurrencyXLM,
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
-	}
-	m.accounts[ownerID] = a
-	return a, nil
-}
-
-func (m *mockQuerier) GetAccountBalance(_ context.Context, ownerID uuid.UUID) (pgtype.Numeric, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	a, ok := m.accounts[ownerID]
-	if !ok {
-		return pgtype.Numeric{}, errors.New("not found")
-	}
-	return a.Balance, nil
-}
-
-func (m *mockQuerier) UpdateAccountBalance(_ context.Context, arg repository.UpdateAccountBalanceParams) (repository.Account, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for ownerID, a := range m.accounts {
-		if a.ID == arg.ID {
-			a.Balance = arg.Balance
-			a.UpdatedAt = time.Now().UTC()
-			m.accounts[ownerID] = a
-			return a, nil
-		}
-	}
-	return repository.Account{}, errors.New("account not found")
+	return u, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +285,7 @@ func (m *mockQuerier) InsertLedgerEntry(_ context.Context, arg repository.Insert
 	m.entryIdx++
 	e := repository.LedgerEntry{
 		ID:            uuid.New(),
-		AccountID:     arg.AccountID,
+		UserID:        arg.UserID,
 		EntryType:     arg.EntryType,
 		Amount:        arg.Amount,
 		BalanceAfter:  arg.BalanceAfter,
@@ -362,12 +315,8 @@ func (m *mockQuerier) GetLedgerEntryByIDAndOwner(_ context.Context, arg reposito
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, e := range m.entries {
-		if e.ID == arg.ID {
-			for _, a := range m.accounts {
-				if a.ID == e.AccountID && a.OwnerID == arg.OwnerID {
-					return e, nil
-				}
-			}
+		if e.ID == arg.ID && e.UserID == arg.UserID {
+			return e, nil
 		}
 	}
 	return repository.LedgerEntry{}, pgx.ErrNoRows
@@ -390,7 +339,7 @@ func (m *mockQuerier) ListLedgerEntriesByAccount(_ context.Context, arg reposito
 	var result []repository.LedgerEntry
 	for i := len(m.entries) - 1; i >= 0; i-- {
 		e := m.entries[i]
-		if e.AccountID == arg.AccountID {
+		if e.UserID == arg.UserID {
 			result = append(result, e)
 		}
 	}
@@ -411,7 +360,7 @@ func (m *mockQuerier) ListLedgerEntriesByAccountAndType(_ context.Context, arg r
 	var result []repository.LedgerEntry
 	for i := len(m.entries) - 1; i >= 0; i-- {
 		e := m.entries[i]
-		if e.AccountID == arg.AccountID && e.EntryType == arg.EntryType {
+		if e.UserID == arg.UserID && e.EntryType == arg.EntryType {
 			result = append(result, e)
 		}
 	}
@@ -426,12 +375,12 @@ func (m *mockQuerier) ListLedgerEntriesByAccountAndType(_ context.Context, arg r
 	return result[start:end], nil
 }
 
-func (m *mockQuerier) CountLedgerEntriesByAccount(_ context.Context, accountID uuid.UUID) (int64, error) {
+func (m *mockQuerier) CountLedgerEntriesByAccount(_ context.Context, userID uuid.UUID) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var count int64
 	for _, e := range m.entries {
-		if e.AccountID == accountID {
+		if e.UserID == userID {
 			count++
 		}
 	}
@@ -443,7 +392,7 @@ func (m *mockQuerier) CountLedgerEntriesByAccountAndType(_ context.Context, arg 
 	defer m.mu.Unlock()
 	var count int64
 	for _, e := range m.entries {
-		if e.AccountID == arg.AccountID && e.EntryType == arg.EntryType {
+		if e.UserID == arg.UserID && e.EntryType == arg.EntryType {
 			count++
 		}
 	}
@@ -547,11 +496,11 @@ func (m *mockLedgerService) Reserve(_ context.Context, consumerID uuid.UUID, amo
 	m.reservations[referenceID] = amount
 	if m.mq != nil {
 		m.mq.mu.Lock()
-		if a, ok := m.mq.accounts[consumerID]; ok {
+		if u, ok := m.mq.users[consumerID]; ok {
 			bigFloat := new(big.Float).SetFloat64(m.balance.InexactFloat64())
 			intVal, _ := bigFloat.Int(nil)
-			a.Balance = pgtype.Numeric{Int: intVal, Exp: 0, Valid: true}
-			m.mq.accounts[consumerID] = a
+			u.Balance = pgtype.Numeric{Int: intVal, Exp: 0, Valid: true}
+			m.mq.users[consumerID] = u
 		}
 		m.mq.mu.Unlock()
 	}
@@ -579,11 +528,11 @@ func (m *mockLedgerService) Release(_ context.Context, referenceID string) error
 	delete(m.reservations, referenceID)
 	if m.mq != nil {
 		m.mq.mu.Lock()
-		if a, ok := m.mq.accounts[m.consumerID]; ok {
+		if u, ok := m.mq.users[m.consumerID]; ok {
 			bigFloat := new(big.Float).SetFloat64(m.balance.InexactFloat64())
 			intVal, _ := bigFloat.Int(nil)
-			a.Balance = pgtype.Numeric{Int: intVal, Exp: 0, Valid: true}
-			m.mq.accounts[m.consumerID] = a
+			u.Balance = pgtype.Numeric{Int: intVal, Exp: 0, Valid: true}
+			m.mq.users[m.consumerID] = u
 		}
 		m.mq.mu.Unlock()
 	}
@@ -597,32 +546,32 @@ func (m *mockLedgerService) GetBalance() decimal.Decimal {
 }
 
 // ---------------------------------------------------------------------------
-// Account / entry test helpers
+// User / entry test helpers
 // ---------------------------------------------------------------------------
 
-func seedAccount(t *testing.T, mq *mockQuerier, ownerID uuid.UUID, balance decimal.Decimal) uuid.UUID {
+func seedUser(t *testing.T, mq *mockQuerier, userID uuid.UUID, balance decimal.Decimal) {
 	t.Helper()
 	bigFloat := new(big.Float).SetFloat64(balance.InexactFloat64())
 	intVal, _ := bigFloat.Int(nil)
 	num := pgtype.Numeric{Int: intVal, Exp: 0, Valid: true}
-	a, err := mq.GetOrCreateAccount(context.Background(), ownerID)
-	if err != nil {
-		t.Fatal(err)
+	u := repository.User{
+		ID:               userID,
+		Balance:          num,
+		Currency:         repository.CurrencyXLM,
+		AccountUpdatedAt: time.Now().UTC(),
 	}
-	a.Balance = num
 	mq.mu.Lock()
-	mq.accounts[ownerID] = a
+	mq.users[userID] = u
 	mq.mu.Unlock()
-	return a.ID
 }
 
-func seedEntry(t *testing.T, mq *mockQuerier, accountID uuid.UUID, entryType repository.EntryType, amount decimal.Decimal) repository.LedgerEntry {
+func seedEntry(t *testing.T, mq *mockQuerier, userID uuid.UUID, entryType repository.EntryType, amount decimal.Decimal) repository.LedgerEntry {
 	t.Helper()
 	bigFloat := new(big.Float).SetFloat64(amount.InexactFloat64())
 	intVal, _ := bigFloat.Int(nil)
 	amountNum := pgtype.Numeric{Int: intVal, Exp: 0, Valid: true}
 	e, err := mq.InsertLedgerEntry(context.Background(), repository.InsertLedgerEntryParams{
-		AccountID:    accountID,
+		UserID:       userID,
 		EntryType:    entryType,
 		Amount:       amountNum,
 		BalanceAfter: amountNum,
@@ -861,14 +810,11 @@ func newTestServerWithAccounts(upstreamURL string, consumerID uuid.UUID, initial
 	return &Server{
 		proxy: pxy,
 		balance: middleware.BalanceCheckerFunc(func(ctx context.Context, ownerID uuid.UUID) (decimal.Decimal, error) {
-			if _, err := mq.GetOrCreateAccount(ctx, ownerID); err != nil {
-				return decimal.Zero, fmt.Errorf("get or create account: %w", err)
-			}
-			bal, err := mq.GetAccountBalance(ctx, ownerID)
+			u, err := mq.GetUserByID(ctx, ownerID)
 			if err != nil {
-				return decimal.Zero, errors.New("account not found")
+				return decimal.Zero, errors.New("user not found")
 			}
-			f64, err := bal.Float64Value()
+			f64, err := u.Balance.Float64Value()
 			if err != nil {
 				return decimal.Zero, err
 			}
@@ -928,7 +874,7 @@ func TestGatewayLifecycle_BalanceDecreases(t *testing.T) {
 	defer upstream.Close()
 
 	s, mq, mls := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(100))
-	seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
+	seedUser(t, mq, consumerID, decimal.NewFromFloat(100))
 
 	providerID := uuid.New()
 	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
@@ -968,7 +914,7 @@ func TestGatewayLifecycle_UpstreamFailure(t *testing.T) {
 	defer upstream.Close()
 
 	s, mq, mls := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(100))
-	seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
+	seedUser(t, mq, consumerID, decimal.NewFromFloat(100))
 
 	providerID := uuid.New()
 	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
@@ -1004,7 +950,7 @@ func TestGatewayInsufficientBalance_NoEntries(t *testing.T) {
 	defer upstream.Close()
 
 	s, mq, _ := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(5))
-	accountID := seedAccount(t, mq, consumerID, decimal.NewFromFloat(5))
+	seedUser(t, mq, consumerID, decimal.NewFromFloat(5))
 
 	providerID := uuid.New()
 	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
@@ -1030,7 +976,7 @@ func TestGatewayInsufficientBalance_NoEntries(t *testing.T) {
 		t.Fatalf("expected 402, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 
-	total, err := mq.CountLedgerEntriesByAccount(context.Background(), accountID)
+	total, err := mq.CountLedgerEntriesByAccount(context.Background(), consumerID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1048,7 +994,7 @@ func TestGatewayLifecycle_BalanceEndpoint(t *testing.T) {
 	defer upstream.Close()
 
 	s, mq, _ := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(100))
-	seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
+	seedUser(t, mq, consumerID, decimal.NewFromFloat(100))
 
 	providerID := uuid.New()
 	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
@@ -1103,7 +1049,7 @@ func TestGatewayLifecycle_BalanceEndpoint(t *testing.T) {
 func TestAccountHandler_GetAccount_Success(t *testing.T) {
 	consumerID := uuid.New()
 	s, mq, _ := newTestServerWithAccounts("http://example.com", consumerID, decimal.NewFromFloat(50))
-	seedAccount(t, mq, consumerID, decimal.NewFromFloat(50))
+	seedUser(t, mq, consumerID, decimal.NewFromFloat(50))
 
 	handler := s.RegisterRoutes()
 
@@ -1181,11 +1127,11 @@ func TestAccountHandler_GetAccount_NotFound(t *testing.T) {
 func TestAccountHandler_ListEntries_Success(t *testing.T) {
 	consumerID := uuid.New()
 	s, mq, _ := newTestServerWithAccounts("http://example.com", consumerID, decimal.NewFromFloat(100))
-	accountID := seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
+	seedUser(t, mq, consumerID, decimal.NewFromFloat(100))
 
-	seedEntry(t, mq, accountID, repository.EntryTypeDeduction, decimal.NewFromFloat(10))
-	seedEntry(t, mq, accountID, repository.EntryTypeDeduction, decimal.NewFromFloat(20))
-	seedEntry(t, mq, accountID, repository.EntryTypeDeposit, decimal.NewFromFloat(50))
+	seedEntry(t, mq, consumerID, repository.EntryTypeDeduction, decimal.NewFromFloat(10))
+	seedEntry(t, mq, consumerID, repository.EntryTypeDeduction, decimal.NewFromFloat(20))
+	seedEntry(t, mq, consumerID, repository.EntryTypeDeposit, decimal.NewFromFloat(50))
 
 	handler := s.RegisterRoutes()
 
@@ -1216,11 +1162,11 @@ func TestAccountHandler_ListEntries_Success(t *testing.T) {
 func TestAccountHandler_ListEntries_Filtered(t *testing.T) {
 	consumerID := uuid.New()
 	s, mq, _ := newTestServerWithAccounts("http://example.com", consumerID, decimal.NewFromFloat(100))
-	accountID := seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
+	seedUser(t, mq, consumerID, decimal.NewFromFloat(100))
 
-	seedEntry(t, mq, accountID, repository.EntryTypeDeduction, decimal.NewFromFloat(10))
-	seedEntry(t, mq, accountID, repository.EntryTypeDeduction, decimal.NewFromFloat(20))
-	seedEntry(t, mq, accountID, repository.EntryTypeDeposit, decimal.NewFromFloat(50))
+	seedEntry(t, mq, consumerID, repository.EntryTypeDeduction, decimal.NewFromFloat(10))
+	seedEntry(t, mq, consumerID, repository.EntryTypeDeduction, decimal.NewFromFloat(20))
+	seedEntry(t, mq, consumerID, repository.EntryTypeDeposit, decimal.NewFromFloat(50))
 
 	handler := s.RegisterRoutes()
 
@@ -1260,9 +1206,9 @@ func TestAccountHandler_ListEntries_Filtered(t *testing.T) {
 func TestAccountHandler_GetEntry_Success(t *testing.T) {
 	consumerID := uuid.New()
 	s, mq, _ := newTestServerWithAccounts("http://example.com", consumerID, decimal.NewFromFloat(100))
-	accountID := seedAccount(t, mq, consumerID, decimal.NewFromFloat(100))
+	seedUser(t, mq, consumerID, decimal.NewFromFloat(100))
 
-	seeded := seedEntry(t, mq, accountID, repository.EntryTypeDeduction, decimal.NewFromFloat(10))
+	seeded := seedEntry(t, mq, consumerID, repository.EntryTypeDeduction, decimal.NewFromFloat(10))
 
 	handler := s.RegisterRoutes()
 
@@ -1289,9 +1235,9 @@ func TestAccountHandler_GetEntry_NotFound(t *testing.T) {
 	consumerA := uuid.New()
 	consumerB := uuid.New()
 	s, mq, _ := newTestServerWithAccounts("http://example.com", consumerA, decimal.NewFromFloat(100))
-	accountA := seedAccount(t, mq, consumerA, decimal.NewFromFloat(100))
+	seedUser(t, mq, consumerA, decimal.NewFromFloat(100))
 
-	seeded := seedEntry(t, mq, accountA, repository.EntryTypeDeduction, decimal.NewFromFloat(10))
+	seeded := seedEntry(t, mq, consumerA, repository.EntryTypeDeduction, decimal.NewFromFloat(10))
 
 	handler := s.RegisterRoutes()
 

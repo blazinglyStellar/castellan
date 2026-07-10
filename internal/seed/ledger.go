@@ -8,16 +8,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func seedLedgerEntries(ctx context.Context, pool *pgxpool.Pool, consumerAccountID, providerAccountID uuid.UUID) error {
-	if err := seedConsumerLedger(ctx, pool, consumerAccountID); err != nil {
+func seedLedgerEntries(ctx context.Context, pool *pgxpool.Pool, consumerUserID, providerUserID uuid.UUID) error {
+	if err := seedConsumerLedger(ctx, pool, consumerUserID); err != nil {
 		return err
 	}
-	return seedProviderLedger(ctx, pool, providerAccountID)
+	return seedProviderLedger(ctx, pool, providerUserID)
 }
 
-func seedConsumerLedger(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID) error {
+func seedConsumerLedger(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID) error {
 	var count int64
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_entries WHERE account_id = $1`, accountID).Scan(&count); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_entries WHERE user_id = $1`, userID).Scan(&count); err != nil {
 		return fmt.Errorf("count ledger entries: %w", err)
 	}
 	if count > 0 {
@@ -45,15 +45,15 @@ func seedConsumerLedger(ctx context.Context, pool *pgxpool.Pool, accountID uuid.
 
 	for _, e := range entries {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO ledger_entries (account_id, entry_type, amount, balance_after, currency, status, description)
+			INSERT INTO ledger_entries (user_id, entry_type, amount, balance_after, currency, status, description)
 			VALUES ($1, $2, $3, $4, 'XLM', 'completed', $5)
-		`, accountID, e.entryType, e.amount, e.balanceAfter, e.description); err != nil {
+		`, userID, e.entryType, e.amount, e.balanceAfter, e.description); err != nil {
 			return fmt.Errorf("insert ledger entry %s: %w", e.entryType, err)
 		}
 	}
 
-	if _, err := tx.Exec(ctx, `UPDATE accounts SET balance = $2, updated_at = now() WHERE id = $1`,
-		accountID, "699.84"); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE users SET balance = $2, account_updated_at = now() WHERE id = $1`,
+		userID, "699.84"); err != nil {
 		return fmt.Errorf("update consumer balance: %w", err)
 	}
 
@@ -63,9 +63,9 @@ func seedConsumerLedger(ctx context.Context, pool *pgxpool.Pool, accountID uuid.
 	return nil
 }
 
-func seedProviderLedger(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID) error {
+func seedProviderLedger(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID) error {
 	var count int64
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_entries WHERE account_id = $1`, accountID).Scan(&count); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_entries WHERE user_id = $1`, userID).Scan(&count); err != nil {
 		return fmt.Errorf("count ledger entries: %w", err)
 	}
 	if count > 0 {
@@ -90,15 +90,15 @@ func seedProviderLedger(ctx context.Context, pool *pgxpool.Pool, accountID uuid.
 
 	for _, e := range entries {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO ledger_entries (account_id, entry_type, amount, balance_after, currency, status, description)
+			INSERT INTO ledger_entries (user_id, entry_type, amount, balance_after, currency, status, description)
 			VALUES ($1, $2, $3, $4, 'XLM', 'completed', $5)
-		`, accountID, e.entryType, e.amount, e.balanceAfter, e.description); err != nil {
+		`, userID, e.entryType, e.amount, e.balanceAfter, e.description); err != nil {
 			return fmt.Errorf("insert ledger entry %s: %w", e.entryType, err)
 		}
 	}
 
-	if _, err := tx.Exec(ctx, `UPDATE accounts SET balance = $2, updated_at = now() WHERE id = $1`,
-		accountID, "1550.00"); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE users SET balance = $2, account_updated_at = now() WHERE id = $1`,
+		userID, "1550.00"); err != nil {
 		return fmt.Errorf("update provider balance: %w", err)
 	}
 

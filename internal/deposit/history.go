@@ -44,19 +44,19 @@ type DepositListResponse struct { //nolint:revive
 
 // ListDepositsCursor retrieves deposits with cursor pagination.
 func (s *Service) ListDepositsCursor(ctx context.Context, userID uuid.UUID, cursorTs time.Time, cursorID uuid.UUID, limit int32) (*DepositListResponse, error) {
-	account, err := s.queries.GetAccountByOwnerID(ctx, userID)
+	_, err := s.queries.GetUserByID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return &DepositListResponse{Data: []DepositItem{}}, nil
 		}
-		return nil, fmt.Errorf("get account: %w", err)
+		return nil, fmt.Errorf("get user: %w", err)
 	}
 
 	rows, err := s.queries.ListDepositsByAccountCursor(ctx, repository.ListDepositsByAccountCursorParams{
-		AccountID: account.ID,
-		Limit:     limit + 1,
-		Column3:   cursorTs,
-		Column4:   cursorID,
+		UserID:  userID,
+		Limit:   limit + 1,
+		Column3: cursorTs,
+		Column4: cursorID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list deposits: %w", err)

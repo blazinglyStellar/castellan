@@ -79,7 +79,7 @@ function IntentDetails({ data }: { data: IntentResponse }) {
           </div>
         )}
         <p className="text-center text-[10px] text-muted-foreground">
-          Scan with your Stellar wallet
+          Scan to auto-fill the address
         </p>
       </div>
 

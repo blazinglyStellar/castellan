@@ -103,7 +103,8 @@ func (s *StellarSubmitter) SubmitPayouts(
 		txHash, subErr := s.submitSinglePayout(ctx, fullKP, payout)
 		if subErr != nil {
 			if errors.Is(subErr, ErrTxSequenceConsumed) {
-				s.log.WarnContext(ctx, "payout sequence consumed, marking as pending for recovery",
+				s.log.WarnContext(
+					ctx, "payout sequence consumed, marking as pending for recovery",
 					slog.String("provider_id", payout.ProviderID.String()),
 					slog.String("entry_id", entry.ID.String()),
 				)
@@ -174,10 +175,11 @@ func (s *StellarSubmitter) submitSinglePayout(
 	)
 
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount: &sourceAccount,
-		Operations:    []txnbuild.Operation{paymentOp},
-		BaseFee:       txnbuild.MinBaseFee,
-		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+		SourceAccount:        &sourceAccount,
+		Operations:           []txnbuild.Operation{paymentOp},
+		BaseFee:              txnbuild.MinBaseFee,
+		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+		IncrementSequenceNum: true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("build transaction: %w", err)
@@ -212,7 +214,8 @@ func (s *StellarSubmitter) submitSinglePayout(
 		if err != nil {
 			if isTxBadSeq(err) {
 				if attempt == 0 {
-					s.log.WarnContext(ctx, "sequence already consumed by concurrent process, rebuilding tx",
+					s.log.WarnContext(
+						ctx, "sequence already consumed by concurrent process, rebuilding tx",
 						slog.String("provider_id", payout.ProviderID.String()),
 						slog.Int64("sequence", seqNum),
 					)
@@ -233,10 +236,11 @@ func (s *StellarSubmitter) submitSinglePayout(
 
 					newSource := txnbuild.NewSimpleAccount(s.stellarCfg.HotWalletAddress, newSeq)
 					newTx, buildErr := txnbuild.NewTransaction(txnbuild.TransactionParams{
-						SourceAccount: &newSource,
-						Operations:    []txnbuild.Operation{paymentOp},
-						BaseFee:       txnbuild.MinBaseFee,
-						Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+						SourceAccount:        &newSource,
+						Operations:           []txnbuild.Operation{paymentOp},
+						BaseFee:              txnbuild.MinBaseFee,
+						Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+						IncrementSequenceNum: true,
 					})
 					if buildErr != nil {
 						lastErr = fmt.Errorf("rebuild tx after tx_bad_seq: %w", buildErr)
@@ -255,7 +259,8 @@ func (s *StellarSubmitter) submitSinglePayout(
 					continue
 				}
 
-				s.log.WarnContext(ctx, "sequence already consumed, recovering tx hash",
+				s.log.WarnContext(
+					ctx, "sequence already consumed, recovering tx hash",
 					slog.String("provider_id", payout.ProviderID.String()),
 					slog.Int("attempt", attempt),
 					slog.Int64("sequence", seqNum),
@@ -301,7 +306,8 @@ func (s *StellarSubmitter) findTxHashBySequence(ctx context.Context, payout Prov
 		}
 	}
 
-	s.log.WarnContext(ctx, "no successful transaction found for sequence",
+	s.log.WarnContext(
+		ctx, "no successful transaction found for sequence",
 		slog.Int64("sequence", seqNum),
 		slog.String("destination", payout.WalletAddress),
 		slog.String("amount", payout.Amount.String()),

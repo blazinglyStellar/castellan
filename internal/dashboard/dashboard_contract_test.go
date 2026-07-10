@@ -497,28 +497,20 @@ func seedBaseData(ctx context.Context, t *testing.T) {
 
 	// Users
 	for _, u := range []struct {
-		id    uuid.UUID
-		email string
+		id       uuid.UUID
+		email    string
+		balance  string
+		currency string
 	}{
-		{testConsumerID, "consumer@test.com"},
-		{testProviderID, "provider-owner@test.com"},
+		{testConsumerID, "consumer@test.com", "1000.00", "XLM"},
+		{testProviderID, "provider-owner@test.com", "0", "XLM"},
 	} {
 		_, err := testPool.Exec(ctx,
-			`INSERT INTO users (id, email) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
-			u.id, u.email)
+			`INSERT INTO users (id, email, balance, currency) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+			u.id, u.email, u.balance, u.currency)
 		if err != nil {
 			t.Fatalf("seed user %s: %v", u.id, err)
 		}
-	}
-
-	// Account for consumer with known balance
-	_, err := testPool.Exec(ctx,
-		`INSERT INTO accounts (id, owner_id, balance, currency)
-		 VALUES ($1, $2, 1000.00, 'XLM')
-		 ON CONFLICT (owner_id) DO UPDATE SET balance = 1000.00`,
-		uuid.MustParse("00000000-0000-0000-0000-000000000100"), testConsumerID)
-	if err != nil {
-		t.Fatalf("seed account: %v", err)
 	}
 
 	// Providers
@@ -588,7 +580,7 @@ func seedLedgerEntries(ctx context.Context, t *testing.T) {
 
 	// Deposit
 	_, err := testPool.Exec(ctx,
-		`INSERT INTO ledger_entries (id, account_id, entry_type, amount, balance_after, currency, status, created_at)
+		`INSERT INTO ledger_entries (id, user_id, entry_type, amount, balance_after, currency, status, created_at)
 		 VALUES ($1, $2, 'deposit', 1000.00, 1000.00, 'XLM', 'completed', $3)
 		 ON CONFLICT (id) DO NOTHING`,
 		uuid.MustParse("00000000-0000-0000-0000-000000000200"), accountID, now.Add(-2*time.Hour))
@@ -598,7 +590,7 @@ func seedLedgerEntries(ctx context.Context, t *testing.T) {
 
 	// Deduction
 	_, err = testPool.Exec(ctx,
-		`INSERT INTO ledger_entries (id, account_id, entry_type, amount, balance_after, currency, status, created_at)
+		`INSERT INTO ledger_entries (id, user_id, entry_type, amount, balance_after, currency, status, created_at)
 		 VALUES ($1, $2, 'deduction', -0.05, 999.95, 'XLM', 'completed', $3)
 		 ON CONFLICT (id) DO NOTHING`,
 		uuid.MustParse("00000000-0000-0000-0000-000000000201"), accountID, now.Add(-1*time.Hour))
@@ -635,7 +627,7 @@ func cleanDB(ctx context.Context, t *testing.T) {
 	t.Helper()
 	tables := []string{
 		"settlement_entries", "settlement_batches", "deposits",
-		"usage_events", "ledger_entries", "accounts",
+		"usage_events", "ledger_entries",
 		"api_endpoints", "providers", "api_keys", "users",
 	}
 	for _, table := range tables {

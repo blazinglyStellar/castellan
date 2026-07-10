@@ -122,6 +122,8 @@ linters:
         - (github.com/jackc/pgx/v5.Tx).Rollback
     errchkjson:
       check-error-free-encoding: false
+    nolintlint:
+      allow-unused: true
     goconst:
       min-occurrences: 10
     varnamelen:

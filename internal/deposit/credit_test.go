@@ -5,12 +5,15 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math/rand"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/oklog/ulid/v2"
 	"github.com/shopspring/decimal"
 
 	"castellan/internal/repository/db"
@@ -20,11 +23,12 @@ import (
 var testCfg = stellar.Config{MinDepositAmount: decimal.NewFromInt(5)}
 
 func validOp() PaymentOperation {
+	entropy := ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)
 	return PaymentOperation{
 		TxHash:      "abc123",
 		FromAddress: "GBBBBB",
 		Amount:      decimal.NewFromInt(10),
-		Memo:        uuid.New().String(),
+		Memo:        ulid.MustNew(ulid.Timestamp(time.Now()), entropy).String(),
 		Asset:       "XLM",
 	}
 }
@@ -32,7 +36,6 @@ func validOp() PaymentOperation {
 type mockCreditQuerier struct {
 	repository.Querier
 	getUserByDepositMemoFunc func(context.Context, pgtype.Text) (repository.User, error)
-	getOrCreateAccountFunc   func(context.Context, uuid.UUID) (repository.Account, error)
 	insertDepositFunc        func(context.Context, repository.InsertDepositParams) (repository.Deposit, error)
 }
 
@@ -41,13 +44,6 @@ func (m *mockCreditQuerier) GetUserByDepositMemo(ctx context.Context, memo pgtyp
 		return m.getUserByDepositMemoFunc(ctx, memo)
 	}
 	return repository.User{}, errors.New("unexpected call to GetUserByDepositMemo")
-}
-
-func (m *mockCreditQuerier) GetOrCreateAccount(ctx context.Context, ownerID uuid.UUID) (repository.Account, error) {
-	if m.getOrCreateAccountFunc != nil {
-		return m.getOrCreateAccountFunc(ctx, ownerID)
-	}
-	return repository.Account{}, errors.New("unexpected call to GetOrCreateAccount")
 }
 
 func (m *mockCreditQuerier) InsertDeposit(ctx context.Context, arg repository.InsertDepositParams) (repository.Deposit, error) {
@@ -74,7 +70,7 @@ func TestCreditDeposit_InvalidMemo(t *testing.T) {
 
 	h := testHandler(nil)
 	op := validOp()
-	op.Memo = "not-a-uuid"
+	op.Memo = "0123456789012345678901234567" // > 26 chars
 
 	err := h.CreditDeposit(context.Background(), op)
 	if err != nil {
@@ -122,9 +118,6 @@ func TestCreditDeposit_NonXlmAsset(t *testing.T) {
 		getUserByDepositMemoFunc: func(_ context.Context, _ pgtype.Text) (repository.User, error) {
 			return repository.User{ID: uuid.New()}, nil
 		},
-		getOrCreateAccountFunc: func(_ context.Context, _ uuid.UUID) (repository.Account, error) {
-			return repository.Account{ID: uuid.New()}, nil
-		},
 		insertDepositFunc: func(_ context.Context, arg repository.InsertDepositParams) (repository.Deposit, error) {
 			inserted = true
 			if arg.Status != repository.DepositStatusFailed {
@@ -155,9 +148,6 @@ func TestCreditDeposit_BelowMinAmount(t *testing.T) {
 		getUserByDepositMemoFunc: func(_ context.Context, _ pgtype.Text) (repository.User, error) {
 			return repository.User{ID: uuid.New()}, nil
 		},
-		getOrCreateAccountFunc: func(_ context.Context, _ uuid.UUID) (repository.Account, error) {
-			return repository.Account{ID: uuid.New()}, nil
-		},
 		insertDepositFunc: func(_ context.Context, arg repository.InsertDepositParams) (repository.Deposit, error) {
 			inserted = true
 			if arg.Status != repository.DepositStatusFailed {
@@ -187,9 +177,6 @@ func TestCreditDeposit_InsertFailedDepositError(t *testing.T) {
 		getUserByDepositMemoFunc: func(_ context.Context, _ pgtype.Text) (repository.User, error) {
 			return repository.User{ID: uuid.New()}, nil
 		},
-		getOrCreateAccountFunc: func(_ context.Context, _ uuid.UUID) (repository.Account, error) {
-			return repository.Account{ID: uuid.New()}, nil
-		},
 		insertDepositFunc: func(_ context.Context, _ repository.InsertDepositParams) (repository.Deposit, error) {
 			return repository.Deposit{}, errors.New("insert failed")
 		},
@@ -202,25 +189,6 @@ func TestCreditDeposit_InsertFailedDepositError(t *testing.T) {
 	err := h.CreditDeposit(context.Background(), op)
 	if err == nil {
 		t.Fatal("expected error when insert failed deposit fails, got nil")
-	}
-}
-
-func TestCreditDeposit_GetOrCreateAccountError(t *testing.T) {
-	t.Parallel()
-
-	q := &mockCreditQuerier{
-		getUserByDepositMemoFunc: func(_ context.Context, _ pgtype.Text) (repository.User, error) {
-			return repository.User{ID: uuid.New()}, nil
-		},
-		getOrCreateAccountFunc: func(_ context.Context, _ uuid.UUID) (repository.Account, error) {
-			return repository.Account{}, errors.New("db error")
-		},
-	}
-	h := testHandler(q)
-
-	err := h.CreditDeposit(context.Background(), validOp())
-	if err == nil {
-		t.Fatal("expected error for get-or-create-account failure, got nil")
 	}
 }
 
@@ -242,7 +210,7 @@ func TestCreditDeposit_LogSanitization(t *testing.T) {
 	}
 
 	op := validOp()
-	op.Memo = "not-a-uuid"
+	op.Memo = "0123456789012345678901234567"
 
 	_ = h.CreditDeposit(context.Background(), op)
 

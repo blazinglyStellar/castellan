@@ -118,14 +118,9 @@ CREATE TABLE providers (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE accounts (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_id    UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    balance     NUMERIC(20,10) NOT NULL DEFAULT 0,
-    currency    currency NOT NULL DEFAULT 'XLM',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS balance NUMERIC(20,10) DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS currency currency NOT NULL DEFAULT 'XLM';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS account_updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 CREATE TABLE usage_events (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -139,18 +134,9 @@ CREATE TABLE usage_events (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE accounts (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_id    UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    balance     NUMERIC(20,10) NOT NULL DEFAULT 0,
-    currency    currency NOT NULL DEFAULT 'XLM',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 CREATE TABLE ledger_entries (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id    UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     entry_type    entry_type NOT NULL,
     amount        NUMERIC(20,10) NOT NULL,
     balance_after NUMERIC(20,10) NOT NULL,
@@ -239,8 +225,8 @@ func seedSettledProvider(ctx context.Context, t *testing.T, providerID uuid.UUID
 
 	batchID := uuid.New()
 	_, err := testPool.Exec(ctx,
-		`INSERT INTO settlement_batches (id, status, total_amount, currency, entry_count)
-		 VALUES ($1, 'completed', $2, 'XLM', 1)`,
+		`INSERT INTO settlement_batches (id, status, total_amount, currency, entry_count, completed_at)
+		 VALUES ($1, 'completed', $2, 'XLM', 1, now())`,
 		batchID, amount)
 	if err != nil {
 		t.Fatalf("seed settlement batch: %v", err)
@@ -257,6 +243,7 @@ func seedSettledProvider(ctx context.Context, t *testing.T, providerID uuid.UUID
 
 func TestAggregate_ReturnsUnsettledProviders(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProviderWithUsageEvents(ctx, t, "p1@example.com", "GAXXXX1", []string{"10.50", "5.25"})
 	p2 := seedProviderWithUsageEvents(ctx, t, "p2@example.com", "GAXXXX2", []string{"20.00"})
@@ -304,6 +291,7 @@ func TestAggregate_ReturnsUnsettledProviders(t *testing.T) {
 
 func TestAggregate_SkipsSettledProviders(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	p1 := seedProviderWithUsageEvents(ctx, t, "settled-p1@example.com", "GAXXXX1", []string{"100.00"})
 	p2 := seedProviderWithUsageEvents(ctx, t, "settled-p2@example.com", "GAXXXX2", []string{"50.00"})
@@ -326,6 +314,7 @@ func TestAggregate_SkipsSettledProviders(t *testing.T) {
 
 func TestAggregate_SkipsZeroAmount(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	_ = seedProviderWithUsageEvents(ctx, t, "zero@example.com", "GAZERO", []string{"0.00"})
 
@@ -344,6 +333,7 @@ func TestAggregate_SkipsZeroAmount(t *testing.T) {
 
 func TestAggregate_SkipsNoWallet(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	_ = seedProviderWithUsageEvents(ctx, t, "nowallet@example.com", "", []string{"50.00"})
 
@@ -362,6 +352,7 @@ func TestAggregate_SkipsNoWallet(t *testing.T) {
 
 func TestAggregate_Idempotent(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	seedProviderWithUsageEvents(ctx, t, "idem@example.com", "GAIDEM", []string{"30.00", "20.00"})
 
@@ -393,6 +384,7 @@ func TestAggregate_Idempotent(t *testing.T) {
 
 func TestAggregate_NoMutations(t *testing.T) {
 	ctx := context.Background()
+	t.Cleanup(func() { cleanupSettlementData(ctx, t) })
 
 	seedProviderWithUsageEvents(ctx, t, "nomut@example.com", "GANOMUT", []string{"15.00"})
 

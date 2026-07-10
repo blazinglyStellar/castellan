@@ -50,8 +50,8 @@ UPDATE settlement_batches
 SET
     status = $2,
     completed_at = CASE
-        WHEN $2 IN ('completed', 'failed') THEN COALESCE(completed_at, now())
-        WHEN $2 IN ('pending', 'processing') THEN NULL
+        WHEN $2 IN ('completed'::batch_status, 'failed'::batch_status) THEN COALESCE(completed_at, now())
+        WHEN $2 IN ('pending'::batch_status, 'processing'::batch_status) THEN NULL
         ELSE completed_at
     END
 WHERE id = $1

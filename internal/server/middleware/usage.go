@@ -96,7 +96,7 @@ func UsageCapture(repo UsageEventRepository, logger *slog.Logger) func(http.Hand
 			}
 
 			if requestID == "" {
-				requestID = "unknown"
+				requestID = uuid.NewString()
 			}
 
 			var statusCode pgtype.Int4
@@ -127,7 +127,7 @@ func UsageCapture(repo UsageEventRepository, logger *slog.Logger) func(http.Hand
 				LatencyMs:    latencyMs,
 				ResponseSize: responseSize,
 				RequestID:    requestID,
-				Status:       repository.UsageStatusPending,
+				Status:       repository.UsageStatusCompleted,
 			})
 			if err != nil {
 				logger.ErrorContext(persistCtx, "failed to persist usage event",

@@ -119,16 +119,12 @@ func NewServer() (*http.Server, error) {
 	rateLimiter := gateway.NewRedisRateLimiter(rdb, windowSeconds)
 
 	balancer := middleware.BalanceCheckerFunc(func(ctx context.Context, ownerID uuid.UUID) (decimal.Decimal, error) {
-		if _, err := queries.GetOrCreateAccount(ctx, ownerID); err != nil {
-			return decimal.Zero, fmt.Errorf("get or create account: %w", err)
-		}
-
-		balance, err := queries.GetAccountBalance(ctx, ownerID)
+		user, err := queries.GetUserByID(ctx, ownerID)
 		if err != nil {
-			return decimal.Zero, fmt.Errorf("balance unavailable: %w", err)
+			return decimal.Zero, fmt.Errorf("get user: %w", err)
 		}
 
-		f64, err := balance.Float64Value()
+		f64, err := user.Balance.Float64Value()
 		if err != nil {
 			return decimal.Zero, fmt.Errorf("failed to convert balance: %w", err)
 		}
