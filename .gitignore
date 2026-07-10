@@ -44,4 +44,4 @@ graphify-out/
 bin/
 api
 worker
-internal/server/openapi.yaml
+
