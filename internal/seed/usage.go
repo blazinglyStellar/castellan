@@ -1,4 +1,4 @@
-//nolint:mnd,gosec // seed data constants and math/rand are acceptable for development seeding
+//nolint:mnd // seed data constants and math/rand are acceptable for development seeding
 package seed
 
 import (
@@ -25,7 +25,7 @@ func seedUsageEvents(ctx context.Context, pool *pgxpool.Pool, consumerID uuid.UU
 		return nil
 	}
 
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	rng := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec G404
 	now := time.Now()
 
 	statuses := []struct {

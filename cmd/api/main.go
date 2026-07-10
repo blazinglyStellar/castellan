@@ -50,11 +50,11 @@ func main() {
 		seedCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		if err := seed.Run(seedCtx, dbService.Pool(), queries); err != nil {
 			cancel()
-			dbService.Close()
+			_ = dbService.Close() // #nosec G104
 			log.Fatalf("seed failed: %v", err)
 		}
 		cancel()
-		dbService.Close()
+		_ = dbService.Close() // #nosec G104
 		log.Println("seed complete")
 	}
 

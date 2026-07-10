@@ -21,10 +21,10 @@ func main() {
 
 	ctx := context.Background()
 	if err := seed.Run(ctx, dbService.Pool(), queries); err != nil {
-		dbService.Close()
+		_ = dbService.Close() // #nosec G104
 		log.Fatalf("seed failed: %v", err)
 	}
 
-	dbService.Close()
+	_ = dbService.Close() // #nosec G104
 	log.Println("seed complete")
 }
