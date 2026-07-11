@@ -21,6 +21,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.Handle("GET /auth/{provider}/callback", http.HandlerFunc(s.oauthHandler.Callback))
 	mux.Handle("GET /api/v1/auth/me", s.authMiddleware(http.HandlerFunc(s.authHandler.Me)))
 	mux.Handle("POST /api/v1/auth/logout", s.authMiddleware(http.HandlerFunc(s.authHandler.Logout)))
+	mux.Handle("GET /api/v1/auth/logout", http.HandlerFunc(s.authHandler.LogoutRedirect))
 	mux.Handle("GET /api/v1/keys", s.authMiddleware(http.HandlerFunc(s.keyHandler.ListKeys)))
 	mux.Handle("POST /api/v1/keys", s.authMiddleware(http.HandlerFunc(s.keyHandler.CreateKey)))
 	mux.Handle("GET /api/v1/discover", s.authMiddleware(http.HandlerFunc(s.providerHandler.ListPublicProviders)))

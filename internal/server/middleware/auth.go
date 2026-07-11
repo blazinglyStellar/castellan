@@ -104,7 +104,7 @@ func AuthCheck(validator KeyValidator, sessionValidator SessionValidator) func(h
 				}
 				switch {
 				case errors.Is(err, auth.ErrSessionNotFound):
-					writeJSON(r.Context(), w, http.StatusUnauthorized, map[string]string{errKey: "invalid api key"})
+					writeJSON(r.Context(), w, http.StatusUnauthorized, map[string]string{errKey: "invalid session"})
 				case errors.Is(err, auth.ErrSessionNotActive):
 					writeJSON(r.Context(), w, http.StatusUnauthorized, map[string]string{errKey: "session token revoked"})
 				case errors.Is(err, auth.ErrSessionExpired):

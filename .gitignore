@@ -44,4 +44,5 @@ graphify-out/
 bin/
 api
 worker
-
+dashboard-v3/
+stitch*
