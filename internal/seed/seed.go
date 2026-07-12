@@ -31,6 +31,10 @@ func Run(ctx context.Context, pool *pgxpool.Pool, queries repository.Querier) er
 		return fmt.Errorf("seed payout address: %w", err)
 	}
 
+	if err := provider.SeedHttpbinProvider(ctx, pool, queries); err != nil {
+		return fmt.Errorf("seed httpbin provider: %w", err)
+	}
+
 	if err := provider.SeedProviders(ctx, queries, providerOwnerID); err != nil {
 		return fmt.Errorf("seed providers: %w", err)
 	}

@@ -229,7 +229,7 @@ func NewServer() (*http.Server, error) {
 		keyValidator:      keyValidator,
 		sessionValidator:  sessionValidator,
 		authHandler:       auth.NewHandler(sessionSvc, queries),
-		oauthHandler:      auth.NewOAuthHandler(queries, sessionSvc, dashboardURL),
+		oauthHandler:      auth.NewOAuthHandler(databaseService.Pool(), queries, sessionSvc, dashboardURL),
 		providerHandler:   provider.NewProviderHandler(providerSvc),
 		endpointHandler:   provider.NewEndpointHandler(endpointSvc),
 		accountHandler:    accounts.NewHandler(accountSvc, stellarCfg.HorizonURL),

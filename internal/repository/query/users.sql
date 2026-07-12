@@ -14,7 +14,7 @@ INSERT INTO users (email)
 VALUES ($1)
 ON CONFLICT (email) DO UPDATE
   SET updated_at = NOW()
-RETURNING *;
+RETURNING *, (created_at = updated_at) AS is_new;
 
 -- name: GetUserByEmail :one
 SELECT * FROM users WHERE email = $1 LIMIT 1;

@@ -104,7 +104,7 @@ type Querier interface {
 	UpdateSessionTokenStatus(ctx context.Context, arg UpdateSessionTokenStatusParams) (SessionToken, error)
 	UpdateSettlementBatchStatus(ctx context.Context, arg UpdateSettlementBatchStatusParams) (SettlementBatch, error)
 	UpdateSettlementEntryStatus(ctx context.Context, arg UpdateSettlementEntryStatusParams) (SettlementEntry, error)
-	UpsertUserByEmail(ctx context.Context, email string) (User, error)
+	UpsertUserByEmail(ctx context.Context, email string) (UpsertUserByEmailRow, error)
 	UpsertWatcherCursor(ctx context.Context, cursor string) error
 }
 

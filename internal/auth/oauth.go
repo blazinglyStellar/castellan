@@ -6,9 +6,11 @@ import (
 	"os"
 	"time"
 
+	"castellan/internal/provider"
 	"castellan/internal/repository/db"
 
 	"github.com/gorilla/sessions"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/gothic"
 	"github.com/markbates/goth/providers/github"
@@ -18,13 +20,15 @@ import (
 const cookieStoreMaxAge = 86400 * 7 // 7 days in seconds
 
 type OAuthHandler struct {
+	pool           *pgxpool.Pool
 	queries        repository.Querier
 	sessionService *SessionService
 	dashboardURL   string
 }
 
-func NewOAuthHandler(queries repository.Querier, sessionService *SessionService, dashboardURL string) *OAuthHandler {
+func NewOAuthHandler(pool *pgxpool.Pool, queries repository.Querier, sessionService *SessionService, dashboardURL string) *OAuthHandler {
 	return &OAuthHandler{
+		pool:           pool,
 		queries:        queries,
 		sessionService: sessionService,
 		dashboardURL:   dashboardURL,
@@ -52,36 +56,36 @@ func InitGoth(_ string, apiBaseURL string) {
 }
 
 func (h *OAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	provider := r.PathValue("provider")
+	oauthProvider := r.PathValue("provider")
 
-	if provider != "google" && provider != "github" {
+	if oauthProvider != "google" && oauthProvider != "github" {
 		http.Error(w, "unsupported provider", http.StatusBadRequest)
 		return
 	}
 
 	q := r.URL.Query()
-	q.Set("provider", provider)
+	q.Set("provider", oauthProvider)
 	r.URL.RawQuery = q.Encode()
 
 	gothic.BeginAuthHandler(w, r)
 }
 
 func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
-	provider := r.PathValue("provider")
-	if provider != "google" && provider != "github" {
+	oauthProvider := r.PathValue("provider")
+	if oauthProvider != "google" && oauthProvider != "github" {
 		http.Error(w, "unsupported provider", http.StatusBadRequest)
 		return
 	}
 
 	q := r.URL.Query()
-	q.Set("provider", provider)
+	q.Set("provider", oauthProvider)
 	r.URL.RawQuery = q.Encode()
 
 	user, err := gothic.CompleteUserAuth(w, r)
 	if err != nil {
 		slog.ErrorContext(
 			r.Context(), "oauth callback failed",
-			slog.String("provider", provider),
+			slog.String("provider", oauthProvider),
 			slog.String("error", err.Error()),
 		)
 		http.Error(w, "authentication failed", http.StatusUnauthorized)
@@ -91,13 +95,13 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	if user.Email == "" {
 		slog.ErrorContext(
 			r.Context(), "oauth provider returned no email",
-			slog.String("provider", provider),
+			slog.String("provider", oauthProvider),
 		)
 		http.Error(w, "email required from provider", http.StatusUnauthorized)
 		return
 	}
 
-	dbUser, err := h.queries.UpsertUserByEmail(r.Context(), user.Email)
+	row, err := h.queries.UpsertUserByEmail(r.Context(), user.Email)
 	if err != nil {
 		slog.ErrorContext(
 			r.Context(), "failed to upsert user",
@@ -107,7 +111,16 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rawToken, err := h.sessionService.CreateSession(r.Context(), dbUser.ID, 7*24*time.Hour)
+	if row.IsNew {
+		if seedErr := provider.SeedHttpbinProvider(r.Context(), h.pool, h.queries); seedErr != nil {
+			slog.ErrorContext(
+				r.Context(), "failed to seed httpbin provider",
+				slog.String("error", seedErr.Error()),
+			)
+		}
+	}
+
+	rawToken, err := h.sessionService.CreateSession(r.Context(), row.ID, 7*24*time.Hour)
 	if err != nil {
 		slog.ErrorContext(
 			r.Context(), "failed to create session",

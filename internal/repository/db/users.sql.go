@@ -7,6 +7,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -127,12 +128,25 @@ INSERT INTO users (email)
 VALUES ($1)
 ON CONFLICT (email) DO UPDATE
   SET updated_at = NOW()
-RETURNING id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at
+RETURNING id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at, (created_at = updated_at) AS is_new
 `
 
-func (q *Queries) UpsertUserByEmail(ctx context.Context, email string) (User, error) {
+type UpsertUserByEmailRow struct {
+	ID                   uuid.UUID      `json:"id"`
+	Email                string         `json:"email"`
+	DepositMemo          pgtype.Text    `json:"deposit_memo"`
+	PayoutStellarAddress pgtype.Text    `json:"payout_stellar_address"`
+	CreatedAt            time.Time      `json:"created_at"`
+	UpdatedAt            time.Time      `json:"updated_at"`
+	Balance              pgtype.Numeric `json:"balance"`
+	Currency             Currency       `json:"currency"`
+	AccountUpdatedAt     time.Time      `json:"account_updated_at"`
+	IsNew                bool           `json:"is_new"`
+}
+
+func (q *Queries) UpsertUserByEmail(ctx context.Context, email string) (UpsertUserByEmailRow, error) {
 	row := q.db.QueryRow(ctx, upsertUserByEmail, email)
-	var i User
+	var i UpsertUserByEmailRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
@@ -143,6 +157,7 @@ func (q *Queries) UpsertUserByEmail(ctx context.Context, email string) (User, er
 		&i.Balance,
 		&i.Currency,
 		&i.AccountUpdatedAt,
+		&i.IsNew,
 	)
 	return i, err
 }
