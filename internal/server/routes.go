@@ -50,6 +50,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.Handle("GET /api/v1/settlements/summary", s.authMiddleware(http.HandlerFunc(s.settlementHandler.HandleSummary)))
 	mux.Handle("GET /api/v1/settlements/threshold", s.authMiddleware(http.HandlerFunc(s.settlementHandler.HandleThreshold)))
 	mux.Handle("GET /api/v1/me", s.authMiddleware(http.HandlerFunc(s.authHandler.DashboardMe)))
+	mux.Handle("POST /api/v1/onboarding/complete", s.authMiddleware(http.HandlerFunc(s.authHandler.CompleteOnboarding)))
 	mux.Handle("GET /api/v1/balance", s.authMiddleware(http.HandlerFunc(s.accountHandler.GetBalance)))
 	mux.Handle("GET /api/v1/me/payout/check", s.authMiddleware(http.HandlerFunc(s.accountHandler.CheckPayoutAddress)))
 	mux.Handle("PATCH /api/v1/me/payout", s.authMiddleware(http.HandlerFunc(s.accountHandler.UpdatePayoutAddress)))

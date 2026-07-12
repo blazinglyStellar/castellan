@@ -302,6 +302,14 @@ export function getAccountEntry(id: string): Promise<EntryResponse> {
 
 // ── Deposit Intent ──
 
+// ── Onboarding ──
+
+export function completeOnboarding(): Promise<void> {
+  return api.post<void>("/api/v1/onboarding/complete")
+}
+
+// ── Deposit Intent ──
+
 export function getDepositIntent(): Promise<IntentResponse> {
   return api.get<IntentResponse>("/api/v1/deposits/intent")
 }

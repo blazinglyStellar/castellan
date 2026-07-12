@@ -62,6 +62,7 @@ type DashboardMeResponse struct {
 	Role                 string `json:"role"`
 	DepositMemo          string `json:"deposit_memo"`
 	PayoutStellarAddress string `json:"payout_stellar_address,omitempty"`
+	OnboardingCompleted  bool   `json:"onboarding_completed"`
 }
 
 func (h *Handler) DashboardMe(w http.ResponseWriter, r *http.Request) {
@@ -113,6 +114,7 @@ func (h *Handler) DashboardMe(w http.ResponseWriter, r *http.Request) {
 		Role:                 role,
 		DepositMemo:          depositMemo,
 		PayoutStellarAddress: payoutAddr,
+		OnboardingCompleted:  user.OnboardingCompleted,
 	})
 }
 

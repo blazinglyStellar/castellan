@@ -24,3 +24,8 @@ SELECT * FROM users WHERE id = $1 LIMIT 1;
 
 -- name: SetUserPayoutAddress :one
 UPDATE users SET payout_stellar_address = $2, updated_at = NOW() WHERE id = $1 RETURNING *;
+
+-- name: CompleteOnboarding :one
+UPDATE users SET onboarding_completed = true, updated_at = NOW()
+WHERE id = $1
+RETURNING onboarding_completed;

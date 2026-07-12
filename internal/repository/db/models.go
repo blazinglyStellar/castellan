@@ -619,4 +619,5 @@ type User struct {
 	Balance              pgtype.Numeric `json:"balance"`
 	Currency             Currency       `json:"currency"`
 	AccountUpdatedAt     time.Time      `json:"account_updated_at"`
+	OnboardingCompleted  bool           `json:"onboarding_completed"`
 }

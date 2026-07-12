@@ -1,7 +1,10 @@
 "use client"
 
+import { useEffect } from "react"
+import { usePathname, useRouter } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar"
 import { TopBar } from "@/components/layout/top-bar"
+import { useAuth } from "@/lib/auth/auth-context"
 import { useSidebarStore } from "@/stores/sidebar"
 import { cn } from "@/lib/utils"
 
@@ -11,6 +14,18 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const { collapsed } = useSidebarStore()
+  const { user, isLoading } = useAuth()
+  const pathname = usePathname()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (isLoading) return
+    if (!user) return
+    if (user.onboarding_completed) return
+    if (pathname === "/onboarding") return
+
+    router.push("/onboarding")
+  }, [user, isLoading, pathname, router])
 
   return (
     <div className="relative flex min-h-screen">

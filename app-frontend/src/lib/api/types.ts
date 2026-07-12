@@ -12,6 +12,7 @@ export interface DashboardMeResponse {
   role: string
   deposit_memo: string
   payout_stellar_address?: string
+  onboarding_completed: boolean
 }
 
 // ── Balance & Account ──

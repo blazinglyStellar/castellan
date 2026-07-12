@@ -20,6 +20,7 @@ export interface User {
   role: UserRole
   deposit_memo: string
   payout_stellar_address?: string
+  onboarding_completed: boolean
 }
 
 interface AuthContextValue {

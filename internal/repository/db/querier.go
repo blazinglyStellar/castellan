@@ -12,6 +12,7 @@ import (
 )
 
 type Querier interface {
+	CompleteOnboarding(ctx context.Context, id uuid.UUID) (bool, error)
 	ConfirmDeposit(ctx context.Context, id uuid.UUID) (Deposit, error)
 	CountLedgerEntriesByAccount(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountLedgerEntriesByAccountAndType(ctx context.Context, arg CountLedgerEntriesByAccountAndTypeParams) (int64, error)

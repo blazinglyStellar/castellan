@@ -132,5 +132,9 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 
 	SetSessionCookie(w, rawToken, 7*24*time.Hour)
 
-	http.Redirect(w, r, h.dashboardURL+"/overview", http.StatusFound)
+	redirectPath := "/overview"
+	if row.IsNew {
+		redirectPath = "/onboarding"
+	}
+	http.Redirect(w, r, h.dashboardURL+redirectPath, http.StatusFound)
 }

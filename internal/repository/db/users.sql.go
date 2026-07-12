@@ -13,6 +13,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const completeOnboarding = `-- name: CompleteOnboarding :one
+UPDATE users SET onboarding_completed = true, updated_at = NOW()
+WHERE id = $1
+RETURNING onboarding_completed
+`
+
+func (q *Queries) CompleteOnboarding(ctx context.Context, id uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, completeOnboarding, id)
+	var onboarding_completed bool
+	err := row.Scan(&onboarding_completed)
+	return onboarding_completed, err
+}
+
 const ensureUserDepositMemo = `-- name: EnsureUserDepositMemo :one
 UPDATE users
 SET deposit_memo = COALESCE(deposit_memo, $2::VARCHAR(26))
@@ -33,7 +46,7 @@ func (q *Queries) EnsureUserDepositMemo(ctx context.Context, arg EnsureUserDepos
 }
 
 const getUserByDepositMemo = `-- name: GetUserByDepositMemo :one
-SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at FROM users
+SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at, onboarding_completed FROM users
 WHERE deposit_memo = $1
 LIMIT 1
 `
@@ -51,12 +64,13 @@ func (q *Queries) GetUserByDepositMemo(ctx context.Context, depositMemo pgtype.T
 		&i.Balance,
 		&i.Currency,
 		&i.AccountUpdatedAt,
+		&i.OnboardingCompleted,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at FROM users WHERE email = $1 LIMIT 1
+SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at, onboarding_completed FROM users WHERE email = $1 LIMIT 1
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -72,12 +86,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.Balance,
 		&i.Currency,
 		&i.AccountUpdatedAt,
+		&i.OnboardingCompleted,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at FROM users WHERE id = $1 LIMIT 1
+SELECT id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at, onboarding_completed FROM users WHERE id = $1 LIMIT 1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
@@ -93,12 +108,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.Balance,
 		&i.Currency,
 		&i.AccountUpdatedAt,
+		&i.OnboardingCompleted,
 	)
 	return i, err
 }
 
 const setUserPayoutAddress = `-- name: SetUserPayoutAddress :one
-UPDATE users SET payout_stellar_address = $2, updated_at = NOW() WHERE id = $1 RETURNING id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at
+UPDATE users SET payout_stellar_address = $2, updated_at = NOW() WHERE id = $1 RETURNING id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at, onboarding_completed
 `
 
 type SetUserPayoutAddressParams struct {
@@ -119,6 +135,7 @@ func (q *Queries) SetUserPayoutAddress(ctx context.Context, arg SetUserPayoutAdd
 		&i.Balance,
 		&i.Currency,
 		&i.AccountUpdatedAt,
+		&i.OnboardingCompleted,
 	)
 	return i, err
 }
@@ -128,7 +145,7 @@ INSERT INTO users (email)
 VALUES ($1)
 ON CONFLICT (email) DO UPDATE
   SET updated_at = NOW()
-RETURNING id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at, (created_at = updated_at) AS is_new
+RETURNING id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at, onboarding_completed, (created_at = updated_at) AS is_new
 `
 
 type UpsertUserByEmailRow struct {
@@ -141,6 +158,7 @@ type UpsertUserByEmailRow struct {
 	Balance              pgtype.Numeric `json:"balance"`
 	Currency             Currency       `json:"currency"`
 	AccountUpdatedAt     time.Time      `json:"account_updated_at"`
+	OnboardingCompleted  bool           `json:"onboarding_completed"`
 	IsNew                bool           `json:"is_new"`
 }
 
@@ -157,6 +175,7 @@ func (q *Queries) UpsertUserByEmail(ctx context.Context, email string) (UpsertUs
 		&i.Balance,
 		&i.Currency,
 		&i.AccountUpdatedAt,
+		&i.OnboardingCompleted,
 		&i.IsNew,
 	)
 	return i, err
