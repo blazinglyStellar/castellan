@@ -84,35 +84,6 @@ function maskKey(keyId: string): string {
   return `ca_****${suffix}`;
 }
 
-function KeyCell({ keyId }: { keyId: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(keyId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
-  return (
-    <span className="group flex items-center gap-1.5">
-      <span className="font-mono text-xs text-muted-foreground">
-        {maskKey(keyId)}
-      </span>
-      <button
-        onClick={handleCopy}
-        className="text-muted-foreground hover:text-foreground"
-        title="Copy key ID"
-      >
-        {copied ? (
-          <Check className="h-[18px] w-[18px] text-green-500" />
-        ) : (
-          <Copy className="h-[18px] w-[18px] text-muted-foreground hover:text-foreground" />
-        )}
-      </button>
-    </span>
-  );
-}
-
 const EXPIRATION_PRESETS = [
   { label: "30 days", days: 30 },
   { label: "90 days", days: 90 },
@@ -321,7 +292,11 @@ const COLUMNS: ColumnDef<ApiKey>[] = [
   {
     id: "key",
     header: "Key",
-    cell: ({ row }) => <KeyCell keyId={row.original.id} />,
+    cell: ({ row }) => (
+      <span className="font-mono text-xs text-muted-foreground">
+        {maskKey(row.original.id)}
+      </span>
+    ),
     enableSorting: false,
   },
   {

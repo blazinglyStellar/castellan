@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Search, Inbox, Users, Activity, Copy, Check } from "lucide-react"
+import { Search, Inbox, Users, Activity, Copy, Check, Terminal } from "lucide-react"
 
 import { useAuth } from "@/lib/auth/auth-context"
 import { getDiscoverProviders, getPublicProviderEndpoints } from "@/lib/api/endpoints"
@@ -18,6 +18,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { EmptyState } from "@/components/shared/empty-state"
 import { ErrorState } from "@/components/shared/error-state"
 
@@ -280,15 +286,32 @@ function EndpointDetailRow({
   endpoint: Endpoint
   baseUrl: string
 }) {
-  const [copied, setCopied] = useState(false)
+  const [copiedAction, setCopiedAction] = useState<"url" | "curl" | null>(null)
 
-  const handleCopy = useCallback(() => {
+  const apiBaseUrl =
+    process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080"
+
+  const handleCopyUrl = useCallback(() => {
     const fullUrl = `${baseUrl.replace(/\/+$/, "")}/${endpoint.route.replace(/^\//, "")}`
     navigator.clipboard.writeText(fullUrl).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setCopiedAction("url")
+      setTimeout(() => setCopiedAction(null), 2000)
     })
   }, [baseUrl, endpoint.route])
+
+  const handleCopyCurl = useCallback(() => {
+    const gatewayUrl = `${apiBaseUrl.replace(/\/+$/, "")}/api/gateway/${endpoint.provider_id}/${endpoint.route.replace(/^\//, "")}`
+    const method = endpoint.method.toUpperCase()
+    const authHeader = `-H "Authorization: Bearer <API-KEY>"`
+    const parts = [`curl -X ${method} "${gatewayUrl}"`, authHeader]
+    if (method === "POST" || method === "PUT" || method === "PATCH") {
+      parts.push(`-H "Content-Type: application/json"`, `-d '{}'`)
+    }
+    navigator.clipboard.writeText(parts.join(" \\\n  ")).then(() => {
+      setCopiedAction("curl")
+      setTimeout(() => setCopiedAction(null), 2000)
+    })
+  }, [apiBaseUrl, endpoint.provider_id, endpoint.route, endpoint.method])
 
   return (
     <div className="rounded-md border bg-muted/30 p-3">
@@ -306,17 +329,25 @@ function EndpointDetailRow({
             {endpoint.rate_limit}/min
           </span>
         )}
-        <button
-          onClick={handleCopy}
-          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          title={copied ? "Copied!" : "Copy URL"}
-        >
-          {copied ? (
-            <Check className="size-3.5 text-green-500" />
-          ) : (
-            <Copy className="size-3.5" />
-          )}
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+            {copiedAction ? (
+              <Check className="size-3.5 text-green-500" />
+            ) : (
+              <Copy className="size-3.5" />
+            )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={handleCopyUrl} className="cursor-pointer gap-2">
+              <Copy className="size-3.5" />
+              Copy URL
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleCopyCurl} className="cursor-pointer gap-2">
+              <Terminal className="size-3.5" />
+              Copy cURL
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {endpoint.description && (
         <p className="mt-1.5 text-xs text-muted-foreground">
