@@ -7,6 +7,7 @@ interface UseCursorPaginationOptions<T> {
   queryKey: string[]
   fetchFn: (params: CursorParams) => Promise<PaginatedResponse<T>>
   limit?: number
+  refetchInterval?: number
 }
 
 interface UseCursorPaginationReturn<T> {
@@ -23,6 +24,7 @@ export function useCursorPagination<T>({
   queryKey,
   fetchFn,
   limit = 50,
+  refetchInterval,
 }: UseCursorPaginationOptions<T>): UseCursorPaginationReturn<T> {
   const query = useInfiniteQuery<PaginatedResponse<T>>({
     queryKey: [...queryKey, { limit }],
@@ -30,6 +32,7 @@ export function useCursorPagination<T>({
       fetchFn({ cursor: pageParam as string | undefined, limit }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+    refetchInterval,
   })
 
   return {

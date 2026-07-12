@@ -1,5 +1,6 @@
 "use client"
 
+import { usePathname } from "next/navigation"
 import { LogOut, Bell, User } from "lucide-react"
 import { useAuth } from "@/lib/auth/auth-context"
 import {
@@ -35,8 +36,7 @@ function getPageTitle(pathname: string): string {
 
 export function TopBar({ className }: { className?: string }) {
   const { user, isLoading, logout } = useAuth()
-  const pathname =
-    typeof window !== "undefined" ? window.location.pathname : "/overview"
+  const pathname = usePathname()
   const title = getPageTitle(pathname)
 
   return (

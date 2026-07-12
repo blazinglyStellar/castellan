@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import {
   flexRender,
@@ -70,13 +70,20 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
 
 export function DepositHistoryTable() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [rawQuery, setRawQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(rawQuery), 300);
+    return () => clearTimeout(t);
+  }, [rawQuery]);
 
   const { items, isLoading, isLoadingMore, hasMore, loadMore, refresh, error } =
     useCursorPagination<Deposit>({
       queryKey: ["deposits"],
       fetchFn: (cp) => getDeposits(cp),
       limit: 50,
+      refetchInterval: 15_000,
     });
 
   const filtered = useMemo(() => {
@@ -84,8 +91,8 @@ export function DepositHistoryTable() {
     if (statusFilter !== "all") {
       result = result.filter((d) => d.status === statusFilter);
     }
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
+    if (debouncedQuery.trim()) {
+      const q = debouncedQuery.trim().toLowerCase();
       result = result.filter(
         (d) =>
           d.tx_hash.toLowerCase().includes(q) ||
@@ -94,7 +101,7 @@ export function DepositHistoryTable() {
       );
     }
     return result;
-  }, [items, statusFilter, searchQuery]);
+  }, [items, statusFilter, debouncedQuery]);
 
   const columns: ColumnDef<Deposit>[] = useMemo(
     () => [
@@ -156,6 +163,22 @@ export function DepositHistoryTable() {
           >
             {row.original.from_address}
           </span>
+        ),
+        enableSorting: false,
+      },
+      {
+        accessorKey: "tx_hash",
+        header: "Tx Hash",
+        cell: ({ row }) => (
+          <a
+            href={`${STELLAR_EXPLORER_URL}/${row.original.tx_hash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-xs text-muted-foreground hover:text-primary hover:underline"
+            title={row.original.tx_hash}
+          >
+            {row.original.tx_hash.slice(0, 8)}...
+          </a>
         ),
         enableSorting: false,
       },
@@ -254,8 +277,8 @@ export function DepositHistoryTable() {
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search tx hash..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={rawQuery}
+              onChange={(e) => setRawQuery(e.target.value)}
               className="h-8 w-44 pl-8 text-xs"
             />
           </div>
@@ -289,7 +312,8 @@ export function DepositHistoryTable() {
               size="sm"
               onClick={() => {
                 setStatusFilter("all");
-                setSearchQuery("");
+                setRawQuery("");
+                setDebouncedQuery("");
               }}
             >
               Clear filters

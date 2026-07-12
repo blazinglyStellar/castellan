@@ -135,14 +135,11 @@ function IntentDetails({ data }: { data: IntentResponse }) {
               </button>
               <Tooltip>
                 <TooltipTrigger>
-                  <button
-                    type="button"
-                    className="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-muted"
-                  >
+                  <span className="inline-flex flex-shrink-0 cursor-pointer rounded p-1 text-muted-foreground hover:bg-muted">
                     <Info className="h-3.5 w-3.5" />
-                  </button>
+                  </span>
                 </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-[220px] text-xs">
+                <TooltipContent side="top" className="max-w-lg text-xs">
                   This memo ensures your deposit is credited to the right
                   account. Always include it when sending.
                 </TooltipContent>
@@ -189,20 +186,18 @@ function IntentDetails({ data }: { data: IntentResponse }) {
             </Button>
           </div>
 
+          <div className="self-start">
           <Tooltip>
             <TooltipTrigger>
-              <button
-                type="button"
-                className="mt-1 flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-              >
+              <span className="inline-flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
                 <HelpCircle className="h-3 w-3" />
                 Need help?
-              </button>
+              </span>
             </TooltipTrigger>
             <TooltipContent
               side="bottom"
               align="start"
-              className="w-[300px] max-w-[calc(100vw-2rem)] p-4"
+              className="w-[300px] max-w-[90vw] break-words p-4"
               sideOffset={8}
             >
               <div className="space-y-3 text-xs">
@@ -210,8 +205,8 @@ function IntentDetails({ data }: { data: IntentResponse }) {
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     SEP-7 URI
                   </span>
-                  <div className="mt-1 flex items-center gap-1.5">
-                    <p className="flex-1 truncate font-mono text-[11px]">
+                  <div className="mt-1 flex items-start gap-1.5">
+                    <p className="flex-1 break-all font-mono text-[11px]">
                       {data.sep7_uri}
                     </p>
                     <button
@@ -260,6 +255,7 @@ function IntentDetails({ data }: { data: IntentResponse }) {
               </div>
             </TooltipContent>
           </Tooltip>
+          </div>
         </div>
       </div>
     </TooltipProvider>
