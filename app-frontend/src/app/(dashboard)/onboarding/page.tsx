@@ -42,6 +42,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { MethodBadge } from "@/components/usage/method-badge"
+import { getStellarNetworkLabel } from "@/lib/stellar"
 
 const STEPS = [
   {
@@ -358,6 +359,17 @@ function DepositStep({
         <strong>Lobstr Wallet</strong> or any Stellar wallet that supports SEP-7
         QR codes.
       </p>
+
+      <div className="mb-6 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium">
+        <span
+          className={`size-1.5 rounded-full ${
+            getStellarNetworkLabel() === "Mainnet"
+              ? "bg-emerald-500"
+              : "bg-amber-500"
+          }`}
+        />
+        {getStellarNetworkLabel()}
+      </div>
 
       <div className="mb-8 w-full max-w-md">
         {depositData ? (
@@ -717,8 +729,7 @@ function FinishStep({
       </div>
 
       <p className="mb-8 text-sm text-muted-foreground">
-        Now it&apos;s time to create your own provider and start publishing
-        your APIs to the world.
+        Congratulations! You&apos;re ready to start building with Castellan.
       </p>
 
       {error && (
@@ -732,7 +743,7 @@ function FinishStep({
           </>
         ) : (
           <>
-            Create your first provider
+            Go to Dashboard
             <ArrowRight className="ml-1.5 size-4" />
           </>
         )}
