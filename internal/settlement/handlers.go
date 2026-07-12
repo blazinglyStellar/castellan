@@ -72,11 +72,12 @@ type settlementThresholdResponse struct {
 }
 
 type OwnerLister interface {
-	GetSettlementHistoryByOwner(ctx context.Context, ownerID uuid.UUID, cursorTs time.Time, cursorID uuid.UUID, limit int32, status string) ([]repository.SettlementBatch, map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow, error)
+	GetSettlementHistoryByOwner(ctx context.Context, ownerID uuid.UUID, cursorTs time.Time, cursorID uuid.UUID, limit int32, status string) ([]repository.SettlementBatch, map[uuid.UUID][]repository.ListSettlementEntriesByBatchForOwnerRow, error)
 }
 
 type OwnerSummarizer interface {
 	GetSettlementSummaryByOwner(ctx context.Context, ownerID uuid.UUID) (decimal.Decimal, error)
+	GetSettlementSummaryByOwnerInRange(ctx context.Context, ownerID uuid.UUID, startDate, endDate time.Time) (decimal.Decimal, error)
 	GetSettlementMonthlyHistoryByOwner(ctx context.Context, ownerID uuid.UUID, limit int32) ([]MonthlySettlement, error)
 }
 
@@ -151,11 +152,6 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 	for i := range count {
 		batch := batches[i]
 
-		totalAmount := "0"
-		if d, err := NumericToDecimal(batch.TotalAmount); err == nil {
-			totalAmount = d.String()
-		}
-
 		var completedAt *string
 		if batch.CompletedAt.Valid {
 			s := batch.CompletedAt.Time.UTC().Format(time.RFC3339)
@@ -164,11 +160,13 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 
 		entries := entriesMap[batch.ID]
 		entryItems := make([]settlementEntryItem, 0, len(entries))
+		entrySum := decimal.Zero
 
 		for _, entry := range entries {
 			amount := "0"
 			if d, err := NumericToDecimal(entry.Amount); err == nil {
 				amount = d.String()
+				entrySum = entrySum.Add(d)
 			}
 
 			entryItems = append(entryItems, settlementEntryItem{
@@ -183,6 +181,8 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
+		totalAmount := entrySum.String()
+
 		var txHash *string
 		if batch.TxHash.Valid {
 			s := batch.TxHash.String
@@ -194,7 +194,7 @@ func (h *Handler) ListSettlements(w http.ResponseWriter, r *http.Request) {
 			Status:      string(batch.Status),
 			TotalAmount: totalAmount,
 			Currency:    string(batch.Currency),
-			EntryCount:  batch.EntryCount,
+			EntryCount:  int32(len(entryItems)), // #nosec G115 — entry count fits in int32
 			TxHash:      txHash,
 			CreatedAt:   batch.CreatedAt.UTC().Format(time.RFC3339),
 			CompletedAt: completedAt,
@@ -230,7 +230,17 @@ func (h *Handler) HandleSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	totalSettled, err := h.summarizer.GetSettlementSummaryByOwner(r.Context(), ownerID)
+	startDate := parseTimeParam(r.URL.Query().Get("start_date"))
+	endDate := parseTimeParam(r.URL.Query().Get("end_date"))
+
+	hasDateFilter := !startDate.IsZero() || !endDate.IsZero()
+
+	var totalSettled decimal.Decimal
+	if hasDateFilter {
+		totalSettled, err = h.summarizer.GetSettlementSummaryByOwnerInRange(r.Context(), ownerID, startDate, endDate)
+	} else {
+		totalSettled, err = h.summarizer.GetSettlementSummaryByOwner(r.Context(), ownerID)
+	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to retrieve settlement summary"})
 
@@ -283,6 +293,17 @@ func parseCursor(s string) (time.Time, uuid.UUID) {
 		return time.Time{}, uuid.UUID{}
 	}
 	return t, id
+}
+
+func parseTimeParam(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

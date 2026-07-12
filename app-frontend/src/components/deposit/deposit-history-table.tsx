@@ -10,6 +10,8 @@ import {
   XCircle,
   ChevronUp,
   ChevronDown,
+  Copy,
+  Check,
 } from "lucide-react";
 
 import { ErrorState } from "@/components/shared/error-state";
@@ -19,6 +21,7 @@ import { useCursorPagination } from "@/lib/use-cursor-pagination";
 import { getDeposits } from "@/lib/api/endpoints";
 import type { Deposit } from "@/lib/api/types";
 import { formatShortDateTime, formatAmount, StatusBadge } from "@/lib/format";
+import { getStellarExplorerUrl } from "@/lib/stellar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,7 +40,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-const STELLAR_EXPLORER_URL = "https://stellar.expert/explorer/public/tx";
+const stellarExplorerUrl = getStellarExplorerUrl()
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Status" },
@@ -60,6 +63,14 @@ export function DepositHistoryTable() {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [copiedTxHash, setCopiedTxHash] = useState<string | null>(null);
+
+  function handleCopyTxHash(e: React.MouseEvent, hash: string) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(hash);
+    setCopiedTxHash(hash);
+    setTimeout(() => setCopiedTxHash(null), 2000);
+  }
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(rawQuery), 300);
@@ -276,19 +287,32 @@ export function DepositHistoryTable() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <a
-                          href={`${STELLAR_EXPLORER_URL}/${d.tx_hash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-mono text-xs text-muted-foreground hover:text-primary hover:underline"
-                          title={d.tx_hash}
-                        >
-                          {d.tx_hash.slice(0, 8)}...
-                        </a>
+                        <div className="flex items-center gap-1.5">
+                          <a
+                            href={`${stellarExplorerUrl}/${d.tx_hash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-mono text-xs text-muted-foreground hover:text-primary hover:underline"
+                            title={d.tx_hash}
+                          >
+                            {d.tx_hash.slice(0, 8)}...
+                          </a>
+                          <button
+                            onClick={(e) => handleCopyTxHash(e, d.tx_hash)}
+                            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                            title="Copy transaction hash"
+                          >
+                            {copiedTxHash === d.tx_hash ? (
+                              <Check className="size-3 text-green-500" />
+                            ) : (
+                              <Copy className="size-3" />
+                            )}
+                          </button>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <a
-                          href={`${STELLAR_EXPLORER_URL}/${d.tx_hash}`}
+                          href={`${stellarExplorerUrl}/${d.tx_hash}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}

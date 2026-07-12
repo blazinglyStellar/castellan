@@ -77,6 +77,14 @@ JOIN providers p ON p.id = se.provider_id
 WHERE se.batch_id = $1
 ORDER BY se.created_at DESC;
 
+-- name: ListSettlementEntriesByBatchForOwner :many
+SELECT DISTINCT ON (se.provider_id) se.*, p.name::text AS provider_name
+FROM settlement_entries se
+JOIN providers p ON p.id = se.provider_id
+WHERE se.batch_id = $1
+  AND p.owner_id = $2
+ORDER BY se.provider_id, se.created_at DESC;
+
 -- name: ListSettlementEntriesByBatch :many
 SELECT * FROM settlement_entries
 WHERE batch_id = $1

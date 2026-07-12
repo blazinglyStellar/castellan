@@ -27,14 +27,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 
 export default function ProvidersPage() {
   const { user, isLoading: isAccountLoading } = useAuth()
@@ -143,86 +135,91 @@ function ProvidersTable({ providers }: { providers: Provider[] }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Base URL</TableHead>
-              <TableHead>Endpoints</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {providers.map((provider) => (
-              <TableRow key={provider.id}>
-                <TableCell className="font-medium">
-                  {provider.name}
-                </TableCell>
-                <TableCell className="max-w-[240px] truncate font-mono text-xs text-muted-foreground">
-                  {provider.base_url}
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {provider.endpoint_count ?? "\u2014"}
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={provider.status} />
-                </TableCell>
-                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                  {timeAgo(provider.created_at)}
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <a href={`/providers/${provider.id}/endpoints`}>
+        <div className="overflow-x-auto">
+          <table className="w-full border-separate border-spacing-y-1 px-6 pb-2 text-left">
+            <thead>
+              <tr className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                <th className="px-4 py-2">Name</th>
+                <th className="px-4 py-2">Base URL</th>
+                <th className="px-4 py-2">Endpoints</th>
+                <th className="px-4 py-2">Status</th>
+                <th className="px-4 py-2">Created</th>
+                <th className="px-4 py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="text-sm">
+              {providers.map((provider) => (
+                <tr
+                  key={provider.id}
+                  className="rounded-lg bg-muted/30 transition-colors hover:bg-muted/60"
+                >
+                  <td className="px-4 py-3 font-medium">
+                    {provider.name}
+                  </td>
+                  <td className="max-w-[240px] truncate px-4 py-3 font-mono text-xs text-muted-foreground">
+                    {provider.base_url}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {provider.endpoint_count ?? "\u2014"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={provider.status} />
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                    {timeAgo(provider.created_at)}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <a href={`/providers/${provider.id}/endpoints`}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="View Endpoints"
+                        >
+                          <List className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </a>
                       <Button
                         variant="ghost"
                         size="icon"
-                        title="View Endpoints"
+                        title={
+                          provider.status === "active"
+                            ? "Deactivate"
+                            : "Activate"
+                        }
+                        onClick={() =>
+                          statusMutation.mutate({
+                            id: provider.id,
+                            status:
+                              provider.status === "active"
+                                ? "inactive"
+                                : "active",
+                          })
+                        }
+                        disabled={statusMutation.isPending}
                       >
-                        <List className="h-4 w-4 text-muted-foreground" />
+                        {provider.status === "active" ? (
+                          <PowerOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Power className="h-4 w-4 text-muted-foreground" />
+                        )}
                       </Button>
-                    </a>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title={
-                        provider.status === "active"
-                          ? "Deactivate"
-                          : "Activate"
-                      }
-                      onClick={() =>
-                        statusMutation.mutate({
-                          id: provider.id,
-                          status:
-                            provider.status === "active"
-                              ? "inactive"
-                              : "active",
-                        })
-                      }
-                      disabled={statusMutation.isPending}
-                    >
-                      {provider.status === "active" ? (
-                        <PowerOff className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <Power className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Delete"
-                      onClick={() => deleteMutation.mutate(provider.id)}
-                      disabled={deleteMutation.isPending}
-                    >
-                      <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Delete"
+                        onClick={() => deleteMutation.mutate(provider.id)}
+                        disabled={deleteMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </CardContent>
     </Card>
   )

@@ -1,7 +1,7 @@
 "use client"
 
 import { usePathname } from "next/navigation"
-import { LogOut, Bell, User } from "lucide-react"
+import { LogOut, User } from "lucide-react"
 import { useAuth } from "@/lib/auth/auth-context"
 import {
   DropdownMenu,
@@ -53,13 +53,6 @@ export function TopBar({ className }: { className?: string }) {
       </div>
 
       <div className="flex items-center gap-4">
-        <button className="relative p-2 text-muted-foreground transition-colors hover:text-foreground">
-          <Bell className="size-5" />
-          <span className="absolute right-2 top-2 size-2 rounded-full bg-secondary ring-2 ring-background" />
-        </button>
-
-        <div className="mx-2 h-6 w-px bg-border" />
-
         <DropdownMenu>
           <DropdownMenuTrigger className="flex cursor-pointer items-center gap-3 rounded-full py-1 pl-3 pr-1 transition-colors hover:bg-muted">
               {isLoading ? (

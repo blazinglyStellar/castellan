@@ -25,6 +25,7 @@ import {
 import { useCursorPagination } from "@/lib/use-cursor-pagination"
 import type { SettlementBatch, SettlementEntry } from "@/lib/api/types"
 import { formatAmount, formatShortDateTime, StatusBadge } from "@/lib/format"
+import { getStellarExplorerUrl } from "@/lib/stellar"
 import {
   Card,
   CardContent,
@@ -60,7 +61,7 @@ import {
   Tooltip,
 } from "recharts"
 
-const STELLAR_EXPLORER_URL = "https://stellar.expert/explorer/public/tx"
+const STELLAR_EXPLORER_URL = getStellarExplorerUrl()
 
 export default function ProviderSettlementsPage() {
   const { isLoading: isAccountLoading } = useAuth()
@@ -68,8 +69,6 @@ export default function ProviderSettlementsPage() {
   const [statusFilter, setStatusFilter] = useState(" ")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
-  const [chartMonthStart, setChartMonthStart] = useState("")
-  const [chartMonthEnd, setChartMonthEnd] = useState("")
 
   const resolvedStatus = statusFilter !== " " ? statusFilter : undefined
 
@@ -78,14 +77,21 @@ export default function ProviderSettlementsPage() {
     queryFn: getDashboardMe,
   })
 
+  const dateParams = useMemo(() => {
+    const p: Record<string, string> = {}
+    if (startDate) p.start_date = `${startDate}T00:00:00Z`
+    if (endDate) p.end_date = `${endDate}T23:59:59Z`
+    return Object.keys(p).length > 0 ? p : undefined
+  }, [startDate, endDate])
+
   const earningsQuery = useQuery({
-    queryKey: ["earnings"],
-    queryFn: () => getEarnings(),
+    queryKey: ["earnings", startDate, endDate],
+    queryFn: () => getEarnings(dateParams),
   })
 
   const summaryQuery = useQuery({
-    queryKey: ["settlement-summary"],
-    queryFn: getSettlementSummary,
+    queryKey: ["settlement-summary", startDate, endDate],
+    queryFn: () => getSettlementSummary(dateParams),
   })
 
   const thresholdQuery = useQuery({
@@ -132,8 +138,8 @@ export default function ProviderSettlementsPage() {
 
   const chartData = useMemo(() => {
     if (!summary?.monthly_history) return []
-    const start = chartMonthStart ? new Date(chartMonthStart) : null
-    const end = chartMonthEnd ? new Date(chartMonthEnd + "T23:59:59Z") : null
+    const start = startDate ? new Date(startDate) : null
+    const end = endDate ? new Date(endDate + "T23:59:59Z") : null
     return [...summary.monthly_history]
       .filter((m) => {
         const d = new Date(m.month)
@@ -149,7 +155,7 @@ export default function ProviderSettlementsPage() {
         }),
         amount: parseFloat(m.amount),
       }))
-  }, [summary, chartMonthStart, chartMonthEnd])
+  }, [summary, startDate, endDate])
 
   const handleCopyWallet = () => {
     if (payoutAddress) {
@@ -237,6 +243,31 @@ export default function ProviderSettlementsPage() {
         )}
       </div>
 
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-muted-foreground">Date Range:</span>
+        <input
+          type="date"
+          value={startDate}
+          onChange={(e) => setStartDate(e.target.value)}
+          className="h-8 rounded-lg border border-input bg-background px-2.5 text-sm text-foreground transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        />
+        <span className="text-xs text-muted-foreground">to</span>
+        <input
+          type="date"
+          value={endDate}
+          onChange={(e) => setEndDate(e.target.value)}
+          className="h-8 rounded-lg border border-input bg-background px-2.5 text-sm text-foreground transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        />
+        {(startDate || endDate) && (
+          <button
+            onClick={() => { setStartDate(""); setEndDate("") }}
+            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       <SummaryCards
         totalSettled={totalSettled}
         unsettled={unsettled}
@@ -251,45 +282,22 @@ export default function ProviderSettlementsPage() {
       />
 
       {chartData.length > 0 && (
-        <SettlementChart
-          data={chartData}
-          monthStart={chartMonthStart}
-          monthEnd={chartMonthEnd}
-          onMonthStartChange={setChartMonthStart}
-          onMonthEndChange={setChartMonthEnd}
-        />
+        <SettlementChart data={chartData} />
       )}
 
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Status:</span>
-          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? "")}>
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value=" ">All Statuses</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="failed">Failed</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-          />
-          <span className="text-xs text-muted-foreground">to</span>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-          />
-        </div>
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">Status:</span>
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? "")}>
+          <SelectTrigger className="w-40 bg-background data-placeholder:text-foreground">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value=" ">All Statuses</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="failed">Failed</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <SettlementTable
@@ -401,39 +409,14 @@ function ThresholdSection({
 
 function SettlementChart({
   data,
-  monthStart,
-  monthEnd,
-  onMonthStartChange,
-  onMonthEndChange,
 }: {
   data: { month: string; amount: number }[]
-  monthStart: string
-  monthEnd: string
-  onMonthStartChange: (v: string) => void
-  onMonthEndChange: (v: string) => void
 }) {
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="size-4 text-muted-foreground" />
-          <CardTitle className="text-sm font-medium">Settlement History</CardTitle>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={monthStart}
-            onChange={(e) => onMonthStartChange(e.target.value)}
-            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-          />
-          <span className="text-xs text-muted-foreground">to</span>
-          <input
-            type="date"
-            value={monthEnd}
-            onChange={(e) => onMonthEndChange(e.target.value)}
-            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-          />
-        </div>
+      <CardHeader className="flex flex-row items-center gap-2">
+        <BarChart3 className="size-4 text-muted-foreground" />
+        <CardTitle className="text-sm font-medium">Settlement History</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-64 w-full">
@@ -523,14 +506,14 @@ function SettlementTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-8" />
-              <TableHead>Batch ID</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Entries</TableHead>
-              <TableHead>TX Hash</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Completed</TableHead>
+              <TableHead className="w-8 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50" />
+              <TableHead className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Batch ID</TableHead>
+              <TableHead className="text-right text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Amount</TableHead>
+              <TableHead className="text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Status</TableHead>
+              <TableHead className="text-right text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Entries</TableHead>
+              <TableHead className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">TX Hash</TableHead>
+              <TableHead className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Created</TableHead>
+              <TableHead className="text-right text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Completed</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -567,7 +550,7 @@ function SettlementBatchRow({ batch }: { batch: SettlementBatch }) {
   return (
     <>
       <TableRow
-        className="cursor-pointer"
+        className="cursor-pointer hover:bg-muted/10 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         <TableCell className="w-8">
@@ -577,15 +560,17 @@ function SettlementBatchRow({ batch }: { batch: SettlementBatch }) {
             <ChevronRight className="size-4 text-muted-foreground" />
           )}
         </TableCell>
-        <TableCell className="font-mono text-xs">{batch.id}</TableCell>
-        <TableCell className="whitespace-nowrap font-mono text-xs">
+        <TableCell className="font-mono text-xs text-muted-foreground">{batch.id}</TableCell>
+        <TableCell className="whitespace-nowrap text-right font-mono text-xs tabular-nums">
           {batch.total_amount}{" "}
           <span className="text-muted-foreground">{batch.currency}</span>
         </TableCell>
-        <TableCell>
-          <StatusBadge status={batch.status} />
+        <TableCell className="text-center">
+          <div className="inline-flex justify-center">
+            <StatusBadge status={batch.status} />
+          </div>
         </TableCell>
-        <TableCell className="text-xs text-muted-foreground">
+        <TableCell className="text-right font-mono text-xs tabular-nums text-muted-foreground">
           {batch.entry_count}
         </TableCell>
         <TableCell className="max-w-[120px]">
@@ -607,7 +592,7 @@ function SettlementBatchRow({ batch }: { batch: SettlementBatch }) {
         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
           {formatShortDateTime(batch.created_at)}
         </TableCell>
-        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+        <TableCell className="whitespace-nowrap text-right text-xs text-muted-foreground">
           {batch.completed_at ? formatShortDateTime(batch.completed_at) : "\u2014"}
         </TableCell>
       </TableRow>
@@ -623,12 +608,12 @@ function SettlementBatchRow({ batch }: { batch: SettlementBatch }) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Entry ID</TableHead>
-                      <TableHead>Provider</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Wallet</TableHead>
-                      <TableHead>Created</TableHead>
+                      <TableHead className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Entry ID</TableHead>
+                      <TableHead className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Provider</TableHead>
+                      <TableHead className="text-right text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Amount</TableHead>
+                      <TableHead className="text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Status</TableHead>
+                      <TableHead className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Wallet</TableHead>
+                      <TableHead className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Created</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -654,17 +639,19 @@ function SettlementEntryRow({ entry }: { entry: SettlementEntry }) {
   }
 
   return (
-    <TableRow>
-      <TableCell className="font-mono text-xs">{entry.id}</TableCell>
+    <TableRow className="hover:bg-muted/10 transition-colors">
+      <TableCell className="font-mono text-xs text-muted-foreground">{entry.id}</TableCell>
       <TableCell className="font-mono text-xs text-muted-foreground">
         {entry.provider_id}
       </TableCell>
-      <TableCell className="whitespace-nowrap font-mono text-xs">
+      <TableCell className="whitespace-nowrap text-right font-mono text-xs tabular-nums">
         {entry.amount}{" "}
         <span className="text-muted-foreground">{entry.currency}</span>
       </TableCell>
-      <TableCell>
-        <StatusBadge status={entry.status} />
+      <TableCell className="text-center">
+        <div className="inline-flex justify-center">
+          <StatusBadge status={entry.status} />
+        </div>
       </TableCell>
       <TableCell className="max-w-[160px]">
         <div className="flex items-center gap-1">

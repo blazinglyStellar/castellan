@@ -109,8 +109,12 @@ function DesktopSidebar({ collapsed, toggle }: { collapsed: boolean; toggle: () 
   }, [])
 
   const isActive = (href: string) => {
-    if (href === "/overview") return pathname === href
-    return pathname.startsWith(href)
+    if (pathname === href) return true
+    if (!pathname.startsWith(href)) return false
+    const next = pathname[href.length]
+    if (next !== "/") return false
+    if (href === "/providers" && pathname.startsWith("/providers/settlements")) return false
+    return true
   }
 
   return (
@@ -215,8 +219,12 @@ export function MobileSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   }, [])
 
   const isActive = (href: string) => {
-    if (href === "/overview") return pathname === href
-    return pathname.startsWith(href)
+    if (pathname === href) return true
+    if (!pathname.startsWith(href)) return false
+    const next = pathname[href.length]
+    if (next !== "/") return false
+    if (href === "/providers" && pathname.startsWith("/providers/settlements")) return false
+    return true
   }
 
   return (

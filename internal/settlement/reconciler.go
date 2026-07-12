@@ -383,6 +383,19 @@ func (r *Reconciler) GetSettlementSummaryByOwner(ctx context.Context, ownerID uu
 	return NumericToDecimal(numeric)
 }
 
+func (r *Reconciler) GetSettlementSummaryByOwnerInRange(ctx context.Context, ownerID uuid.UUID, startDate, endDate time.Time) (decimal.Decimal, error) {
+	numeric, err := r.queries.GetSettlementSummaryByOwnerInRange(ctx, repository.GetSettlementSummaryByOwnerInRangeParams{
+		OwnerID: ownerID,
+		Column2: startDate,
+		Column3: endDate,
+	})
+	if err != nil {
+		return decimal.Zero, fmt.Errorf("get settlement summary in range: %w", err)
+	}
+
+	return NumericToDecimal(numeric)
+}
+
 func (r *Reconciler) GetSettlementMonthlyHistoryByOwner(ctx context.Context, ownerID uuid.UUID, limit int32) ([]MonthlySettlement, error) {
 	rows, err := r.queries.GetSettlementMonthlyHistoryByOwner(ctx, repository.GetSettlementMonthlyHistoryByOwnerParams{
 		OwnerID: ownerID,
@@ -415,7 +428,7 @@ func (r *Reconciler) GetSettlementHistoryByOwner(
 	cursorID uuid.UUID,
 	limit int32,
 	status string,
-) ([]repository.SettlementBatch, map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow, error) {
+) ([]repository.SettlementBatch, map[uuid.UUID][]repository.ListSettlementEntriesByBatchForOwnerRow, error) {
 	var batches []repository.SettlementBatch
 	var err error
 
@@ -439,9 +452,12 @@ func (r *Reconciler) GetSettlementHistoryByOwner(
 		return nil, nil, fmt.Errorf("list settlement batches by owner: %w", err)
 	}
 
-	entriesMap := make(map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow, len(batches))
+	entriesMap := make(map[uuid.UUID][]repository.ListSettlementEntriesByBatchForOwnerRow, len(batches))
 	for _, batch := range batches {
-		entries, err := r.queries.ListSettlementEntriesByBatchWithProvider(ctx, batch.ID)
+		entries, err := r.queries.ListSettlementEntriesByBatchForOwner(ctx, repository.ListSettlementEntriesByBatchForOwnerParams{
+			BatchID: batch.ID,
+			OwnerID: ownerID,
+		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("list entries for batch %s: %w", batch.ID, err)
 		}

@@ -36,14 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+
 
 export default function EndpointsPage() {
   const { isLoading: isAccountLoading } = useAuth()
@@ -143,81 +136,86 @@ function EndpointsTable({ endpoints }: { endpoints: Endpoint[] }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Method</TableHead>
-              <TableHead>Route</TableHead>
-              <TableHead>Price</TableHead>
-              <TableHead>Currency</TableHead>
-              <TableHead>Rate Limit</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {endpoints.map((ep) => (
-              <TableRow key={ep.id}>
-                <TableCell>
-                  <MethodBadge method={ep.method} />
-                </TableCell>
-                <TableCell className="max-w-[200px] truncate font-mono text-xs">
-                  {ep.route}
-                </TableCell>
-                <TableCell className="font-mono text-xs">
-                  {ep.price_amount}
-                </TableCell>
-                <TableCell className="font-mono text-xs">
-                  {ep.currency}
-                </TableCell>
-                <TableCell className="font-mono text-xs">
-                  {ep.rate_limit ?? "\u2014"}
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={ep.status} />
-                </TableCell>
-                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                  {timeAgo(ep.created_at)}
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title={
-                        ep.status === "active" ? "Deactivate" : "Activate"
-                      }
-                      onClick={() =>
-                        statusMutation.mutate({
-                          id: ep.id,
-                          status:
-                            ep.status === "active" ? "inactive" : "active",
-                        })
-                      }
-                      disabled={statusMutation.isPending}
-                    >
-                      {ep.status === "active" ? (
-                        <PowerOff className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <Power className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Delete"
-                      onClick={() => deleteMutation.mutate(ep.id)}
-                      disabled={deleteMutation.isPending}
-                    >
-                      <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <div className="overflow-x-auto">
+          <table className="w-full border-separate border-spacing-y-1 px-6 pb-2 text-left">
+            <thead>
+              <tr className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                <th className="px-4 py-2">Method</th>
+                <th className="px-4 py-2">Route</th>
+                <th className="px-4 py-2">Price</th>
+                <th className="px-4 py-2">Currency</th>
+                <th className="px-4 py-2">Rate Limit</th>
+                <th className="px-4 py-2">Status</th>
+                <th className="px-4 py-2">Created</th>
+                <th className="px-4 py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="text-sm">
+              {endpoints.map((ep) => (
+                <tr
+                  key={ep.id}
+                  className="rounded-lg bg-muted/30 transition-colors hover:bg-muted/60"
+                >
+                  <td className="px-4 py-3">
+                    <MethodBadge method={ep.method} />
+                  </td>
+                  <td className="max-w-[200px] truncate px-4 py-3 font-mono text-xs">
+                    {ep.route}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs">
+                    {ep.price_amount}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs">
+                    {ep.currency}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs">
+                    {ep.rate_limit ?? "\u2014"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={ep.status} />
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+                    {timeAgo(ep.created_at)}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title={
+                          ep.status === "active" ? "Deactivate" : "Activate"
+                        }
+                        onClick={() =>
+                          statusMutation.mutate({
+                            id: ep.id,
+                            status:
+                              ep.status === "active" ? "inactive" : "active",
+                          })
+                        }
+                        disabled={statusMutation.isPending}
+                      >
+                        {ep.status === "active" ? (
+                          <PowerOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Power className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Delete"
+                        onClick={() => deleteMutation.mutate(ep.id)}
+                        disabled={deleteMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </CardContent>
     </Card>
   )

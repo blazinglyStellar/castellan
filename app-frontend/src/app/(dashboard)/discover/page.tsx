@@ -15,7 +15,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
 import {
@@ -189,6 +188,7 @@ function ProviderSheet({
   onClose: () => void
 }) {
   const open = provider !== null
+  const [copiedBaseUrl, setCopiedBaseUrl] = useState(false)
 
   const {
     data: endpoints,
@@ -201,78 +201,121 @@ function ProviderSheet({
     staleTime: 60_000,
   })
 
+  const handleCopyBaseUrl = useCallback(() => {
+    if (!provider) return
+    navigator.clipboard.writeText(provider.base_url).then(() => {
+      setCopiedBaseUrl(true)
+      setTimeout(() => setCopiedBaseUrl(false), 2000)
+    })
+  }, [provider])
+
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <SheetContent className="w-full max-w-lg overflow-y-auto sm:max-w-lg">
+      <SheetContent className="w-full max-w-lg overflow-y-auto p-0 sm:max-w-lg">
         {provider && (
-          <>
-            <SheetHeader className="flex flex-row items-start justify-between gap-2 pr-8">
-              <div className="space-y-1">
-                <SheetTitle>{provider.name}</SheetTitle>
+          <div className="flex h-full flex-col">
+            <div className="border-b px-6 py-5">
+              <div className="space-y-1.5">
+                <SheetTitle className="text-lg">{provider.name}</SheetTitle>
                 <StatusBadge status={provider.status} />
               </div>
-            </SheetHeader>
-
-            <div className="mt-4 space-y-4">
               {provider.description && (
-                <p className="text-sm text-muted-foreground">
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
                   {provider.description}
                 </p>
               )}
+            </div>
 
-              <p className="truncate font-mono text-xs text-muted-foreground">
-                {provider.base_url}
-              </p>
+            <div className="border-b px-6 py-4">
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/20 px-3 py-2.5">
+                <code className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+                  {provider.base_url}
+                </code>
+                <button
+                  onClick={handleCopyBaseUrl}
+                  className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  {copiedBaseUrl ? (
+                    <Check className="size-3.5 text-green-500" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                </button>
+              </div>
 
               {(provider.total_calls !== undefined ||
                 provider.active_consumers !== undefined) && (
-                <div className="flex gap-4">
+                <div className="mt-4 flex gap-4">
                   {provider.total_calls !== undefined && (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Activity className="size-3" />
-                      {formatCompact(provider.total_calls)} calls
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
+                        <Activity className="size-4" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Total calls</p>
+                        <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
+                          {formatCompact(provider.total_calls)}
+                        </p>
+                      </div>
                     </div>
                   )}
                   {provider.active_consumers !== undefined && (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Users className="size-3" />
-                      {provider.active_consumers} active{" "}
-                      {provider.active_consumers === 1 ? "consumer" : "consumers"}
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
+                        <Users className="size-4" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          Active {provider.active_consumers === 1 ? "consumer" : "consumers"}
+                        </p>
+                        <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
+                          {provider.active_consumers}
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>
               )}
+            </div>
 
-              <div>
-                <h3 className="mb-2 text-sm font-medium">Endpoints</h3>
-                {isLoading ? (
-                  <div className="space-y-2">
-                    {Array.from({ length: 3 }).map((_, i) => (
-                      <Skeleton key={i} className="h-16 w-full rounded" />
-                    ))}
-                  </div>
-                ) : isError ? (
-                  <p className="text-center text-xs text-destructive">
-                    Failed to load endpoints
-                  </p>
-                ) : endpoints && endpoints.length > 0 ? (
-                  <div className="space-y-2">
-                    {endpoints.map((ep) => (
-                      <EndpointDetailRow
-                        key={ep.id}
-                        endpoint={ep}
-                        baseUrl={provider.base_url}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-center text-xs text-muted-foreground">
-                    No public endpoints available
-                  </p>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              <div className="mb-3 flex items-center gap-2">
+                <h3 className="text-sm font-medium text-foreground">Endpoints</h3>
+                {endpoints && endpoints.length > 0 && (
+                  <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+                    {endpoints.length}
+                  </span>
                 )}
               </div>
+              {isLoading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-[76px] w-full rounded-lg" />
+                  ))}
+                </div>
+              ) : isError ? (
+                <div className="flex flex-col items-center gap-2 py-10 text-center">
+                  <p className="text-xs text-destructive">Failed to load endpoints</p>
+                </div>
+              ) : endpoints && endpoints.length > 0 ? (
+                <div className="space-y-2">
+                  {endpoints.map((ep) => (
+                    <EndpointDetailRow
+                      key={ep.id}
+                      endpoint={ep}
+                      baseUrl={provider.base_url}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2 py-10 text-center">
+                  <p className="text-xs text-muted-foreground">
+                    No public endpoints available
+                  </p>
+                </div>
+              )}
             </div>
-          </>
+          </div>
         )}
       </SheetContent>
     </Sheet>
@@ -314,23 +357,23 @@ function EndpointDetailRow({
   }, [apiBaseUrl, endpoint.provider_id, endpoint.route, endpoint.method])
 
   return (
-    <div className="rounded-md border bg-muted/30 p-3">
-      <div className="flex items-center gap-2">
+    <div className="rounded-lg border bg-card p-4 transition-colors hover:bg-muted/20">
+      <div className="flex items-center gap-3">
         <MethodBadge method={endpoint.method} />
-        <code className="min-w-0 flex-1 truncate font-mono text-sm">
+        <code className="min-w-0 flex-1 truncate font-mono text-sm font-medium">
           {endpoint.route}
         </code>
-        <span className="shrink-0 font-mono text-xs text-muted-foreground">
+        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
           {endpoint.price_amount}{" "}
-          <span className="text-[10px]">{endpoint.currency}</span>
+          <span className="text-[10px] uppercase tracking-wider">{endpoint.currency}</span>
         </span>
         {endpoint.rate_limit && (
-          <span className="hidden shrink-0 font-mono text-[11px] text-muted-foreground sm:inline">
+          <span className="hidden shrink-0 rounded-full bg-muted px-2 py-0.5 font-mono text-[11px] tabular-nums text-muted-foreground sm:inline-flex">
             {endpoint.rate_limit}/min
           </span>
         )}
         <DropdownMenu>
-          <DropdownMenuTrigger className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+          <DropdownMenuTrigger className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
             {copiedAction ? (
               <Check className="size-3.5 text-green-500" />
             ) : (
@@ -350,7 +393,7 @@ function EndpointDetailRow({
         </DropdownMenu>
       </div>
       {endpoint.description && (
-        <p className="mt-1.5 text-xs text-muted-foreground">
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
           {endpoint.description}
         </p>
       )}

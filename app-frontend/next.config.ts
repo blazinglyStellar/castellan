@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  env: {
+    NEXT_PUBLIC_STELLAR_NETWORK: process.env.STELLAR_NETWORK || "testnet",
+  },
 };
 
 export default nextConfig;

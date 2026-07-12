@@ -101,8 +101,9 @@ export default function UnifiedLedgerPage() {
   })
 
   const earningsQuery = useQuery({
-    queryKey: ["earnings"],
-    queryFn: () => getEarnings(),
+    queryKey: ["earnings", startDate, endDate],
+    queryFn: () => getEarnings({ start_date: `${startDate}T00:00:00Z`, end_date: `${endDate}T23:59:59Z` }),
+    enabled: !!role,
   })
 
   const consumerUsageQuery = useQuery({
@@ -268,6 +269,8 @@ export default function UnifiedLedgerPage() {
           total={entriesTotal}
           onPageChange={setEntriesPage}
           onRetry={() => entriesRefresh()}
+          startDate={startDate}
+          endDate={endDate}
         />
       )}
 
@@ -282,6 +285,8 @@ export default function UnifiedLedgerPage() {
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
           onRetry={() => settlementsRefresh()}
+          startDate={startDate}
+          endDate={endDate}
         />
       )}
     </div>
@@ -537,11 +542,11 @@ function SortableHeadComponent({
 }) {
   const isActive = currentSortKey === sk
   return (
-    <TableHead className={className}>
+    <TableHead className={`text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50 ${className ?? ""}`}>
       <Button
         variant="ghost"
         size="sm"
-        className="-ml-3 h-8 gap-1 text-xs font-medium hover:bg-transparent"
+        className="-ml-3 h-8 gap-1 text-[10px] font-medium uppercase tracking-wider hover:bg-transparent"
         onClick={() => onToggle(sk)}
       >
         {label}
@@ -566,6 +571,8 @@ function AccountActivitySection({
   total,
   onPageChange,
   onRetry,
+  startDate,
+  endDate,
 }: {
   entries: EntryResponse[]
   isLoading: boolean
@@ -577,16 +584,12 @@ function AccountActivitySection({
   total: number
   onPageChange: (p: number) => void
   onRetry: () => void
+  startDate: string
+  endDate: string
 }) {
   const [sortKey, setSortKey] = useState<string>("created_at")
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
   const [activityStatusFilter, setActivityStatusFilter] = useState("")
-  const [activityStartDate, setActivityStartDate] = useState(
-    defaultDateRange().start,
-  )
-  const [activityEndDate, setActivityEndDate] = useState(
-    defaultDateRange().end,
-  )
 
   function toggleSort(key: string) {
     if (sortKey === key) {
@@ -629,13 +632,13 @@ function AccountActivitySection({
   }, [sortedEntries, activityStatusFilter])
 
   const filteredByDate = useMemo(() => {
-    const start = new Date(activityStartDate)
-    const end = new Date(activityEndDate + "T23:59:59Z")
+    const start = new Date(startDate)
+    const end = new Date(endDate + "T23:59:59Z")
     return filteredByStatus.filter((e) => {
       const d = new Date(e.created_at)
       return d >= start && d <= end
     })
-  }, [filteredByStatus, activityStartDate, activityEndDate])
+  }, [filteredByStatus, startDate, endDate])
 
   const entriesToShow = filteredByDate
 
@@ -692,26 +695,6 @@ function AccountActivitySection({
             <SelectItem value="revoked">Revoked</SelectItem>
           </SelectContent>
         </Select>
-        <div className="ml-auto flex items-end gap-3">
-          <div className="space-y-1">
-            <span className="text-xs text-muted-foreground">From</span>
-            <input
-              type="date"
-              value={activityStartDate}
-              onChange={(e) => setActivityStartDate(e.target.value)}
-              className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30"
-            />
-          </div>
-          <div className="space-y-1">
-            <span className="text-xs text-muted-foreground">To</span>
-            <input
-              type="date"
-              value={activityEndDate}
-              onChange={(e) => setActivityEndDate(e.target.value)}
-              className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30"
-            />
-          </div>
-        </div>
       </div>
 
       {isLoading ? (
@@ -733,28 +716,28 @@ function AccountActivitySection({
               <TableHeader>
                 <TableRow>
                   <SortableHeadComponent label="Type" sortKey="entry_type" currentSortKey={sortKey} onToggle={toggleSort} />
-                  <SortableHeadComponent label="Amount" sortKey="amount" currentSortKey={sortKey} onToggle={toggleSort} />
-                  <SortableHeadComponent label="Balance After" sortKey="balance_after" currentSortKey={sortKey} onToggle={toggleSort} />
-                  <TableHead className="text-xs font-medium text-muted-foreground">
+                  <SortableHeadComponent label="Amount" sortKey="amount" currentSortKey={sortKey} onToggle={toggleSort} className="text-right" />
+                  <SortableHeadComponent label="Balance After" sortKey="balance_after" currentSortKey={sortKey} onToggle={toggleSort} className="text-right" />
+                  <TableHead className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">
                     Description
                   </TableHead>
-                  <SortableHeadComponent label="Status" sortKey="status" currentSortKey={sortKey} onToggle={toggleSort} />
+                  <SortableHeadComponent label="Status" sortKey="status" currentSortKey={sortKey} onToggle={toggleSort} className="text-center" />
                   <SortableHeadComponent label="Date" sortKey="created_at" currentSortKey={sortKey} onToggle={toggleSort} />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {entriesToShow.map((entry) => (
-                  <TableRow key={entry.id}>
+                  {entriesToShow.map((entry) => (
+                  <TableRow key={entry.id} className="hover:bg-muted/10 transition-colors">
                     <TableCell>
                       <EntryTypeBadge type={entry.entry_type} />
                     </TableCell>
-                    <TableCell className="whitespace-nowrap font-mono text-xs">
+                    <TableCell className="whitespace-nowrap text-right font-mono text-xs tabular-nums">
                       {formatAmount(entry.amount)}{" "}
                       <span className="text-muted-foreground">
                         <XlmLogo className="inline-block h-2.5 w-auto" />
                       </span>
                     </TableCell>
-                    <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
+                    <TableCell className="whitespace-nowrap text-right font-mono text-xs tabular-nums text-muted-foreground">
                       {formatAmount(entry.balance_after)}{" "}
                       <span className="text-muted-foreground">
                         <XlmLogo className="inline-block h-2.5 w-auto" />
@@ -763,8 +746,10 @@ function AccountActivitySection({
                     <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">
                       {entry.description || "\u2014"}
                     </TableCell>
-                    <TableCell>
-                      <StatusBadge status={entry.status} />
+                    <TableCell className="text-center">
+                      <div className="inline-flex justify-center">
+                        <StatusBadge status={entry.status} />
+                      </div>
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                       {formatShortDate(entry.created_at)}
@@ -842,6 +827,8 @@ function SettlementsSection({
   statusFilter,
   onStatusFilterChange,
   onRetry,
+  startDate,
+  endDate,
 }: {
   settlements: SettlementBatch[]
   isLoading: boolean
@@ -852,7 +839,17 @@ function SettlementsSection({
   statusFilter: string
   onStatusFilterChange: (v: string) => void
   onRetry: () => void
+  startDate: string
+  endDate: string
 }) {
+  const filteredSettlements = useMemo(() => {
+    const start = new Date(startDate)
+    const end = new Date(endDate + "T23:59:59Z")
+    return settlements.filter((b) => {
+      const d = new Date(b.created_at)
+      return d >= start && d <= end
+    })
+  }, [settlements, startDate, endDate])
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
@@ -881,7 +878,7 @@ function SettlementsSection({
         <SettlementSkeleton />
       ) : error ? (
         <ErrorState message={error.message} onRetry={onRetry} />
-      ) : settlements.length === 0 ? (
+      ) : filteredSettlements.length === 0 ? (
         <EmptyState
           title="No settlements yet"
           description="Settlement batches will appear here once payouts are processed."
@@ -897,17 +894,17 @@ function SettlementsSection({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-8" />
-                  <TableHead>Batch ID</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Entries</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Completed</TableHead>
+                  <TableHead className="w-8 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50" />
+                  <TableHead className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Batch ID</TableHead>
+                  <TableHead className="text-right text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Amount</TableHead>
+                  <TableHead className="text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Status</TableHead>
+                  <TableHead className="text-right text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Entries</TableHead>
+                  <TableHead className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Created</TableHead>
+                  <TableHead className="text-right text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Completed</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {settlements.map((batch) => (
+                {filteredSettlements.map((batch) => (
                   <SettlementBatchRow key={batch.id} batch={batch} />
                 ))}
               </TableBody>
@@ -956,7 +953,7 @@ function SettlementBatchRow({ batch }: { batch: SettlementBatch }) {
   return (
     <>
       <TableRow
-        className="cursor-pointer"
+        className="cursor-pointer hover:bg-muted/10 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         <TableCell className="w-8">
@@ -966,21 +963,23 @@ function SettlementBatchRow({ batch }: { batch: SettlementBatch }) {
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           )}
         </TableCell>
-        <TableCell className="font-mono text-xs">{batch.id}</TableCell>
-        <TableCell className="whitespace-nowrap font-mono text-xs">
+        <TableCell className="font-mono text-xs text-muted-foreground">{batch.id}</TableCell>
+        <TableCell className="whitespace-nowrap text-right font-mono text-xs tabular-nums">
           {batch.total_amount}{" "}
           <span className="text-muted-foreground">{batch.currency}</span>
         </TableCell>
-        <TableCell>
-          <StatusBadge status={batch.status} />
+        <TableCell className="text-center">
+          <div className="inline-flex justify-center">
+            <StatusBadge status={batch.status} />
+          </div>
         </TableCell>
-        <TableCell className="text-xs text-muted-foreground">
+        <TableCell className="text-right font-mono text-xs tabular-nums text-muted-foreground">
           {batch.entry_count}
         </TableCell>
         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
           {timeAgo(batch.created_at)}
         </TableCell>
-        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+        <TableCell className="whitespace-nowrap text-right text-xs text-muted-foreground">
           {batch.completed_at ? timeAgo(batch.completed_at) : "\u2014"}
         </TableCell>
       </TableRow>
@@ -996,9 +995,9 @@ function SettlementBatchRow({ batch }: { batch: SettlementBatch }) {
                 <Table>
                     <TableHeader>
                     <TableRow>
-                      <TableHead>Provider</TableHead>
-                      <TableHead>Total Amount</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Provider</TableHead>
+                      <TableHead className="text-right text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Total Amount</TableHead>
+                      <TableHead className="text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1025,14 +1024,16 @@ function ProviderGroup({
   group: { key: string; name: string; entries: SettlementEntry[]; total: number; count: number; status: string }
 }) {
   return (
-    <TableRow>
+    <TableRow className="hover:bg-muted/10 transition-colors">
       <TableCell className="text-sm font-medium">{group.name}</TableCell>
-      <TableCell className="whitespace-nowrap font-mono text-xs">
+      <TableCell className="whitespace-nowrap text-right font-mono text-xs tabular-nums">
         {formatAmount(group.total.toFixed(7))}{" "}
         <span className="text-muted-foreground">{group.entries[0].currency}</span>
       </TableCell>
-      <TableCell>
-        <StatusBadge status={group.status} />
+      <TableCell className="text-center">
+        <div className="inline-flex justify-center">
+          <StatusBadge status={group.status} />
+        </div>
       </TableCell>
     </TableRow>
   )

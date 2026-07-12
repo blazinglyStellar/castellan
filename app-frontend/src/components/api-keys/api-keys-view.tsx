@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef, SortingState, ColumnFiltersState } from "@tanstack/react-table";
 import {
@@ -67,14 +67,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+
 import { cn } from "@/lib/utils";
 
 // ── Helpers ──
@@ -267,7 +260,7 @@ const COLUMNS: ColumnDef<ApiKey>[] = [
     accessorKey: "label",
     header: ({ column }) => (
       <button
-        className="flex items-center gap-1 font-medium"
+        className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-widest"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       >
         Label
@@ -275,14 +268,14 @@ const COLUMNS: ColumnDef<ApiKey>[] = [
           asc: <ArrowUp className="h-3 w-3" />,
           desc: <ArrowDown className="h-3 w-3" />,
         }[column.getIsSorted() as string] ?? (
-          <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+          <ArrowUpDown className="h-3 w-3 opacity-50" />
         )}
       </button>
     ),
     cell: ({ row }) => (
-      <span className="font-medium">
+      <span className="text-sm">
         {row.original.label || (
-          <span className="text-muted-foreground">Unnamed</span>
+          <span className="text-muted-foreground">\u2014\u2014</span>
         )}
       </span>
     ),
@@ -304,7 +297,7 @@ const COLUMNS: ColumnDef<ApiKey>[] = [
     accessorKey: "status",
     header: ({ column }) => (
       <button
-        className="flex items-center gap-1 font-medium"
+        className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-widest"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       >
         Status
@@ -312,7 +305,7 @@ const COLUMNS: ColumnDef<ApiKey>[] = [
           asc: <ArrowUp className="h-3 w-3" />,
           desc: <ArrowDown className="h-3 w-3" />,
         }[column.getIsSorted() as string] ?? (
-          <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+          <ArrowUpDown className="h-3 w-3 opacity-50" />
         )}
       </button>
     ),
@@ -325,7 +318,7 @@ const COLUMNS: ColumnDef<ApiKey>[] = [
     accessorKey: "created_at",
     header: ({ column }) => (
       <button
-        className="flex items-center gap-1 font-medium"
+        className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-widest"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       >
         Created
@@ -333,7 +326,7 @@ const COLUMNS: ColumnDef<ApiKey>[] = [
           asc: <ArrowUp className="h-3 w-3" />,
           desc: <ArrowDown className="h-3 w-3" />,
         }[column.getIsSorted() as string] ?? (
-          <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+          <ArrowUpDown className="h-3 w-3 opacity-50" />
         )}
       </button>
     ),
@@ -352,7 +345,7 @@ const COLUMNS: ColumnDef<ApiKey>[] = [
     },
     header: ({ column }) => (
       <button
-        className="flex items-center gap-1 font-medium"
+        className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-widest"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       >
         Expires
@@ -360,7 +353,7 @@ const COLUMNS: ColumnDef<ApiKey>[] = [
           asc: <ArrowUp className="h-3 w-3" />,
           desc: <ArrowDown className="h-3 w-3" />,
         }[column.getIsSorted() as string] ?? (
-          <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+          <ArrowUpDown className="h-3 w-3 opacity-50" />
         )}
       </button>
     ),
@@ -527,23 +520,25 @@ function KeysTable({ keys }: { keys: ApiKey[] }) {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center gap-2 pb-3">
-        <CardTitle className="text-sm font-medium">API Keys</CardTitle>
-        <span className="text-xs text-muted-foreground">
-          {table.getFilteredRowModel().rows.length} of {keys.length}
-        </span>
-      </CardHeader>
-      <CardContent className="p-0">
-        <div className="flex items-center gap-3 border-b px-4 py-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <CardTitle className="text-sm font-medium">
+          API Keys
+          {keys.length > 0 && (
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              ({table.getFilteredRowModel().rows.length} of {keys.length})
+            </span>
+          )}
+        </CardTitle>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Filter by label..."
               value={labelFilterValue}
               onChange={(e) =>
                 table.getColumn("label")?.setFilterValue(e.target.value)
               }
-              className="h-8 pl-8 text-xs"
+              className="h-8 w-44 pl-8 text-xs"
             />
             {labelFilterValue && (
               <button
@@ -562,7 +557,7 @@ function KeysTable({ keys }: { keys: ApiKey[] }) {
                 ?.setFilterValue(v === "all" ? "" : v)
             }
           >
-            <SelectTrigger className="h-8 w-[140px] text-xs">
+            <SelectTrigger className="h-8 w-32 text-xs">
               <SelectValue placeholder="All statuses" />
             </SelectTrigger>
             <SelectContent>
@@ -581,42 +576,46 @@ function KeysTable({ keys }: { keys: ApiKey[] }) {
             </SelectContent>
           </Select>
         </div>
-
-        <div className="relative w-full overflow-auto">
-          <Table>
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead key={header.id}>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full border-separate border-spacing-y-1 px-6 pb-2 text-left">
+            <thead>
+              <tr className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                {table.getHeaderGroups().map((headerGroup) =>
+                  headerGroup.headers.map((header) => (
+                    <th key={header.id} className="px-4 py-2">
                       {flexRender(
                         header.column.columnDef.header,
                         header.getContext(),
                       )}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
+                    </th>
+                  )),
+                )}
+              </tr>
+            </thead>
+            <tbody className="text-sm">
               {table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
+                  <tr
+                    key={row.id}
+                    className="rounded-lg bg-muted/30 transition-colors hover:bg-muted/60"
+                  >
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
+                      <td key={cell.id} className="px-4 py-3">
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext(),
                         )}
-                      </TableCell>
+                      </td>
                     ))}
-                  </TableRow>
+                  </tr>
                 ))
               ) : (
-                <TableRow>
-                  <TableCell
+                <tr>
+                  <td
                     colSpan={COLUMNS.length}
-                    className="h-24 text-center"
+                    className="px-4 py-8 text-center"
                   >
                     <div className="flex flex-col items-center gap-1">
                       <span className="text-sm text-muted-foreground">
@@ -631,11 +630,11 @@ function KeysTable({ keys }: { keys: ApiKey[] }) {
                         Clear filters
                       </Button>
                     </div>
-                  </TableCell>
-                </TableRow>
+                  </td>
+                </tr>
               )}
-            </TableBody>
-          </Table>
+            </tbody>
+          </table>
         </div>
       </CardContent>
     </Card>
@@ -659,7 +658,7 @@ function GenerateKeyDialog() {
   const mutation = useMutation({
     mutationFn: () => {
       const expiresAt = getExpiresAt(expPreset, customDate);
-      return createApiKey(label.trim() || "Unnamed", expiresAt ?? undefined);
+      return createApiKey(label.trim() || "\u2014\u2014", expiresAt ?? undefined);
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["api-keys"] });
@@ -759,7 +758,7 @@ function EditLabelDialog({
 
   const mutation = useMutation({
     mutationFn: () =>
-      updateApiKey(keyData.id, { label: label.trim() || "Unnamed" }),
+      updateApiKey(keyData.id, { label: label.trim() || "\u2014\u2014" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["api-keys"] });
       onClose();
@@ -890,7 +889,7 @@ function RevokeConfirmDialog({
           <DialogTitle>Revoke API Key</DialogTitle>
           <DialogDescription>
             Are you sure you want to revoke{" "}
-            <strong>{keyData.label || "Unnamed"}</strong>? This action cannot be
+            <strong>{keyData.label || "\u2014\u2014"}</strong>? This action cannot be
             undone. Any services using this key will lose access immediately.
           </DialogDescription>
         </DialogHeader>
