@@ -71,14 +71,14 @@ func seedHttpbinProviderData(ctx context.Context, pool *pgxpool.Pool, ownerID uu
 	var providerID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO providers (owner_id, name, base_url, description, status)
-		VALUES ($1, 'httpbin', 'https://httpbin.org', 'Public httpbin.org test service — make test API calls with zero setup. All endpoints priced at 0.001 XLM each.', 'active')
+		VALUES ($1, 'httpbin', 'https://httpbin.org', 'Public httpbin.org test service — make test API calls with zero setup. All endpoints priced at 0.1 XLM each.', 'active')
 		ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
 		RETURNING id
 	`, ownerID).Scan(&providerID); err != nil {
 		return fmt.Errorf("ensure httpbin provider: %w", err)
 	}
 
-	price := "0.001"
+	price := "0.1"
 	rateLimit := 60
 
 	for _, ep := range httpbinEndpoints {
