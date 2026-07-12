@@ -39,8 +39,8 @@ export function EarningsChart({ data }: EarningsChartProps) {
         <AreaChart data={chartData}>
           <defs>
             <linearGradient id="earnings" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+              <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0} />
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -60,8 +60,8 @@ export function EarningsChart({ data }: EarningsChartProps) {
           />
           <Tooltip
             contentStyle={{
-              background: "hsl(var(--popover))",
-              border: "1px solid hsl(var(--border))",
+              background: "var(--color-popover)",
+              border: "1px solid var(--color-border)",
               borderRadius: "var(--radius)",
               fontSize: 13,
             }}
@@ -70,7 +70,7 @@ export function EarningsChart({ data }: EarningsChartProps) {
           <Area
             type="monotone"
             dataKey="amount"
-            stroke="hsl(var(--primary))"
+            stroke="var(--color-primary)"
             fill="url(#earnings)"
             strokeWidth={2}
           />

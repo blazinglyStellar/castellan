@@ -60,8 +60,8 @@ export function UsageBarChart({ data, isProvider }: UsageBarChartProps) {
           />
           <Tooltip
             contentStyle={{
-              background: "hsl(var(--popover))",
-              border: "1px solid hsl(var(--border))",
+              background: "var(--color-popover)",
+              border: "1px solid var(--color-border)",
               borderRadius: "var(--radius)",
               fontSize: 13,
             }}
@@ -69,7 +69,7 @@ export function UsageBarChart({ data, isProvider }: UsageBarChartProps) {
           />
           <Bar
             dataKey="amount"
-            fill="hsl(var(--primary))"
+            fill="var(--color-primary)"
             radius={[4, 4, 0, 0]}
           />
         </BarChart>

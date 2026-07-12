@@ -24,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { EarningsChart } from "@/components/analytics/earnings-chart"
 import { EarningsBreakdown } from "@/components/analytics/earnings-breakdown"
+import { RevenueDistributionChart } from "@/components/analytics/revenue-distribution-chart"
 import { UsageVolumeChart } from "@/components/analytics/usage-volume-chart"
 import { UsageCostDonut } from "@/components/analytics/usage-cost-donut"
 import { ErrorRateChart } from "@/components/analytics/error-rate-chart"
@@ -240,9 +241,7 @@ export default function AnalyticsPage() {
                 </CardHeader>
                 <CardContent>
                   {earningsQuery.data ? (
-                    <p className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-                      Revenue distribution chart
-                    </p>
+                    <RevenueDistributionChart data={earningsQuery.data.by_endpoint} />
                   ) : (
                     <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
                       No data yet.

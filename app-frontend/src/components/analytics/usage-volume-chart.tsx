@@ -49,8 +49,8 @@ export function UsageVolumeChart({ events }: UsageVolumeChartProps) {
         <AreaChart data={chartData}>
           <defs>
             <linearGradient id="usage" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+              <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0} />
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -74,8 +74,8 @@ export function UsageVolumeChart({ events }: UsageVolumeChartProps) {
           />
           <Tooltip
             contentStyle={{
-              background: "hsl(var(--popover))",
-              border: "1px solid hsl(var(--border))",
+              background: "var(--color-popover)",
+              border: "1px solid var(--color-border)",
               borderRadius: "var(--radius)",
               fontSize: 13,
             }}
@@ -84,7 +84,7 @@ export function UsageVolumeChart({ events }: UsageVolumeChartProps) {
           <Area
             type="monotone"
             dataKey="cost"
-            stroke="hsl(var(--primary))"
+            stroke="var(--color-primary)"
             fill="url(#usage)"
             strokeWidth={2}
           />

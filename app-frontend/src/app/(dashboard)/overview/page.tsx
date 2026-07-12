@@ -186,8 +186,11 @@ export default function OverviewPage() {
       </div>
 
       <div className="grid grid-cols-12 gap-6">
-        <div className="col-span-12 lg:col-span-5">
+        <div className="col-span-12 lg:col-span-5 space-y-6">
           <BalanceCard balance={balance} />
+          {hasEarnings && earnings && (
+            <EarningsSection earnings={earnings} />
+          )}
         </div>
         <div className="col-span-12 lg:col-span-7 grid grid-cols-2 gap-6">
           <StatCard
@@ -242,9 +245,6 @@ export default function OverviewPage() {
         <ProviderRecentCallsCard calls={providerCalls} />
       )}
 
-      {hasEarnings && earnings && (
-        <EarningsSection earnings={earnings} />
-      )}
     </div>
   )
 }
@@ -292,20 +292,12 @@ function BalanceCard({ balance }: { balance: { balance: string; currency?: strin
           )}
         </div>
       </div>
-      <div className="mt-8 flex gap-3">
-        <a
-          href="/deposits"
-          className={buttonVariants({ variant: "default", size: "default", className: "flex-1 py-3 text-sm font-bold shadow-lg shadow-primary/20" })}
-        >
-          Deposit XLM
-        </a>
-        <a
-          href="/deposits"
-          className={buttonVariants({ variant: "outline", size: "default", className: "flex-1 py-3 text-sm font-bold" })}
-        >
-          View History
-        </a>
-      </div>
+      <a
+        href="/deposits"
+        className={buttonVariants({ variant: "default", size: "default", className: "w-full py-3 text-sm font-bold shadow-lg shadow-primary/20" })}
+      >
+        Deposit XLM
+      </a>
     </Card>
   )
 }
@@ -513,7 +505,7 @@ function ProviderRecentCallsCard({ calls }: { calls: UsageEvent[] }) {
 
 function EarningsSection({ earnings }: { earnings: Earnings }) {
   return (
-    <div className="grid gap-6 md:grid-cols-2">
+    <div className="space-y-4">
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
           <TrendingUp className="size-4 text-muted-foreground" />

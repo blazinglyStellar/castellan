@@ -86,13 +86,13 @@ export default function UnifiedLedgerPage() {
   const { user, isLoading: isAccountLoading } = useAuth()
   const role = user?.role
 
-  const [typeFilter, setTypeFilter] = useState(" ")
-  const [statusFilter, setStatusFilter] = useState(" ")
+  const [typeFilter, setTypeFilter] = useState("")
+  const [statusFilter, setStatusFilter] = useState("")
   const [startDate, setStartDate] = useState(defaultDateRange().start)
   const [endDate, setEndDate] = useState(defaultDateRange().end)
 
-  const resolvedType = typeFilter !== " " ? typeFilter : undefined
-  const resolvedStatus = statusFilter !== " " ? statusFilter : undefined
+  const resolvedType = typeFilter || undefined
+  const resolvedStatus = statusFilter || undefined
 
   const balanceQuery = useQuery({
     queryKey: ["balance"],
@@ -580,7 +580,7 @@ function AccountActivitySection({
 }) {
   const [sortKey, setSortKey] = useState<string>("created_at")
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
-  const [activityStatusFilter, setActivityStatusFilter] = useState(" ")
+  const [activityStatusFilter, setActivityStatusFilter] = useState("")
   const [activityStartDate, setActivityStartDate] = useState(
     defaultDateRange().start,
   )
@@ -624,7 +624,7 @@ function AccountActivitySection({
   }, [entries, sortKey, sortDir])
 
   const filteredByStatus = useMemo(() => {
-    if (activityStatusFilter === " ") return sortedEntries
+    if (!activityStatusFilter) return sortedEntries
     return sortedEntries.filter((e) => e.status === activityStatusFilter)
   }, [sortedEntries, activityStatusFilter])
 
@@ -663,11 +663,11 @@ function AccountActivitySection({
       <div className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">Type:</span>
         <Select value={typeFilter} onValueChange={(v) => onTypeFilterChange(v ?? "")}>
-          <SelectTrigger className="w-40">
-            <SelectValue />
+          <SelectTrigger className="w-40 bg-background data-placeholder:text-foreground">
+            <SelectValue placeholder="All Types" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value=" ">All Types</SelectItem>
+            <SelectItem value="">All Types</SelectItem>
             {ENTRY_TYPES.map((t) => (
               <SelectItem key={t.value} value={t.value}>
                 {t.label}
@@ -680,11 +680,11 @@ function AccountActivitySection({
           value={activityStatusFilter}
           onValueChange={(v) => setActivityStatusFilter(v ?? "")}
         >
-          <SelectTrigger className="w-40">
-            <SelectValue />
+          <SelectTrigger className="w-40 bg-background data-placeholder:text-foreground">
+            <SelectValue placeholder="All Statuses" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value=" ">All Statuses</SelectItem>
+            <SelectItem value="">All Statuses</SelectItem>
             <SelectItem value="completed">Completed</SelectItem>
             <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="failed">Failed</SelectItem>
@@ -865,11 +865,11 @@ function SettlementsSection({
       <div className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">Status:</span>
         <Select value={statusFilter} onValueChange={(v) => onStatusFilterChange(v ?? "")}>
-          <SelectTrigger className="w-40">
-            <SelectValue />
+          <SelectTrigger className="w-40 bg-background data-placeholder:text-foreground">
+            <SelectValue placeholder="All Statuses" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value=" ">All Statuses</SelectItem>
+            <SelectItem value="">All Statuses</SelectItem>
             <SelectItem value="completed">Completed</SelectItem>
             <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="failed">Failed</SelectItem>

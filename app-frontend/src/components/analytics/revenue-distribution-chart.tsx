@@ -3,6 +3,9 @@
 import { useMemo } from "react"
 import { Label, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts"
 
+import type { EndpointEarning } from "@/lib/api/types"
+import { formatAmount } from "@/lib/format"
+
 const COLORS = [
   "var(--color-chart-1)",
   "var(--color-chart-2)",
@@ -14,54 +17,42 @@ const COLORS = [
 
 const MIN_SHARE_PCT = 5
 
-interface UsageCostDonutProps {
-  events: { request_cost: string; route: string }[]
-}
+export function RevenueDistributionChart({ data }: { data: EndpointEarning[] }) {
+  const { chartData, totalRevenue } = useMemo(() => {
+    const raw = [...data]
+      .map((d) => ({ route: d.route, total: parseFloat(d.total) }))
+      .sort((a, b) => b.total - a.total)
 
-export function UsageCostDonut({ events }: UsageCostDonutProps) {
-  const byRoute = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const ev of events) {
-      map.set(ev.route, (map.get(ev.route) || 0) + parseFloat(ev.request_cost))
-    }
-    return map
-  }, [events])
-
-  const { chartData, totalCost } = useMemo(() => {
-    const raw = [...byRoute.entries()]
-      .map(([route, cost]) => ({ route, cost }))
-      .sort((a, b) => b.cost - a.cost)
-
-    const grandTotal = raw.reduce((s, r) => s + r.cost, 0)
+    const grandTotal = raw.reduce((s, r) => s + r.total, 0)
     if (grandTotal === 0) {
-      return { chartData: [], totalCost: 0 }
+      return { chartData: [], totalRevenue: 0 }
     }
 
     const keep: typeof raw = []
-    let othersCost = 0
+    let othersTotal = 0
     for (const r of raw) {
-      if ((r.cost / grandTotal) * 100 < MIN_SHARE_PCT) {
-        othersCost += r.cost
+      if ((r.total / grandTotal) * 100 < MIN_SHARE_PCT) {
+        othersTotal += r.total
       } else {
         keep.push(r)
       }
     }
 
-    const grouped = othersCost > 0 ? [...keep, { route: "Others", cost: othersCost }] : keep
+    const grouped = othersTotal > 0 ? [...keep, { route: "Others", total: othersTotal }] : keep
 
-    const data = grouped.map((r, i) => ({
+    const typed = grouped.map((r, i) => ({
       route: r.route,
-      cost: r.cost,
+      total: r.total,
       fill: COLORS[i % COLORS.length],
     }))
 
-    return { chartData: data, totalCost: grandTotal }
-  }, [byRoute])
+    return { chartData: typed, totalRevenue: grandTotal }
+  }, [data])
 
-  if (events.length === 0) {
+  if (data.length === 0) {
     return (
       <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-        No cost data for the selected period
+        No revenue data for the selected period
       </div>
     )
   }
@@ -79,13 +70,13 @@ export function UsageCostDonut({ events }: UsageCostDonutProps) {
                 fontSize: 13,
               }}
               formatter={(value) => {
-                if (typeof value === "number") return [`${value.toFixed(4)} XLM`]
+                if (typeof value === "number") return [`${formatAmount(value.toFixed(7))} XLM`]
                 return [String(value)]
               }}
             />
             <Pie
               data={chartData}
-              dataKey="cost"
+              dataKey="total"
               nameKey="route"
               innerRadius={55}
               strokeWidth={4}
@@ -100,7 +91,7 @@ export function UsageCostDonut({ events }: UsageCostDonutProps) {
                           dominantBaseline="middle"
                           className="fill-foreground text-2xl font-bold"
                         >
-                          {totalCost.toFixed(2)}
+                          {totalRevenue.toFixed(2)}
                         </text>
                       </g>
                     )
@@ -114,7 +105,7 @@ export function UsageCostDonut({ events }: UsageCostDonutProps) {
 
       <div className="flex min-w-0 flex-col gap-2 text-sm">
         {chartData.map((d) => {
-          const share = totalCost > 0 ? ((d.cost / totalCost) * 100).toFixed(1) : "0"
+          const share = totalRevenue > 0 ? ((d.total / totalRevenue) * 100).toFixed(1) : "0"
           return (
             <div key={d.route} className="flex items-center gap-2 whitespace-nowrap">
               <span
@@ -123,7 +114,7 @@ export function UsageCostDonut({ events }: UsageCostDonutProps) {
               />
               <span className="truncate text-muted-foreground max-w-40">{d.route}</span>
               <span className="font-medium tabular-nums">
-                {d.cost.toFixed(2)} XLM
+                {formatAmount(d.total.toFixed(7))} XLM
               </span>
               <span className="text-xs text-muted-foreground">({share}%)</span>
             </div>

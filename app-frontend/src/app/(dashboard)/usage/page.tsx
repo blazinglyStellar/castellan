@@ -14,9 +14,9 @@ export default function UsagePage() {
 
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
-  const [statusCode, setStatusCode] = useState(" ")
-  const [selectedProvider, setSelectedProvider] = useState(" ")
-  const [selectedEndpoint, setSelectedEndpoint] = useState(" ")
+  const [statusCode, setStatusCode] = useState("")
+  const [selectedProvider, setSelectedProvider] = useState("")
+  const [selectedEndpoint, setSelectedEndpoint] = useState("")
 
   const { items, isLoading, isLoadingMore, hasMore, loadMore, refresh, error } =
     useCursorPagination<UsageEvent>({
@@ -38,15 +38,9 @@ export default function UsagePage() {
           role: "consumer",
           start_date: sd,
           end_date: ed,
-          status_code: sc && sc !== " " ? parseInt(sc, 10) : undefined,
-          provider_id:
-            selectedProvider && selectedProvider !== " "
-              ? selectedProvider
-              : undefined,
-          endpoint_id:
-            selectedEndpoint && selectedEndpoint !== " "
-              ? selectedEndpoint
-              : undefined,
+          status_code: sc ? parseInt(sc, 10) : undefined,
+          provider_id: selectedProvider || undefined,
+          endpoint_id: selectedEndpoint || undefined,
         })
       },
       limit: 50,
@@ -68,7 +62,7 @@ export default function UsagePage() {
   const endpoints = useMemo(() => {
     const map = new Map<string, string>()
     const filtered =
-      selectedProvider !== " "
+      selectedProvider
         ? items.filter((ev) => ev.provider_id === selectedProvider)
         : items
     for (const ev of filtered) {
@@ -109,7 +103,7 @@ export default function UsagePage() {
         selectedEndpoint={selectedEndpoint}
         onProviderChange={(v) => {
           setSelectedProvider(v)
-          setSelectedEndpoint(" ")
+          setSelectedEndpoint("")
         }}
         onEndpointChange={setSelectedEndpoint}
         startDate={startDate}

@@ -23,7 +23,7 @@ interface RouteLatency {
   calls: number
 }
 
-const BAR_COLOR = "hsl(var(--chart-1))"
+const BAR_COLOR = "var(--color-chart-1)"
 
 export function LatencyChart({ events }: LatencyChartProps) {
   const withLatency = events.filter((e) => e.latency_ms != null)
@@ -104,8 +104,8 @@ export function LatencyChart({ events }: LatencyChartProps) {
           />
           <Tooltip
             contentStyle={{
-              background: "hsl(var(--popover))",
-              border: "1px solid hsl(var(--border))",
+              background: "var(--color-popover)",
+              border: "1px solid var(--color-border)",
               borderRadius: "var(--radius)",
               fontSize: 13,
             }}

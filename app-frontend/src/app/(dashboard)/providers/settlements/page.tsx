@@ -455,10 +455,10 @@ function SettlementChart({
                 tickFormatter={(v: number) => `${v}`}
               />
               <Tooltip
-                cursor={{ fill: "hsl(var(--muted))", opacity: 0.3 }}
+                cursor={{ fill: "var(--color-muted)", opacity: 0.3 }}
                 contentStyle={{
-                  background: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
+                  background: "var(--color-popover)",
+                  border: "1px solid var(--color-border)",
                   borderRadius: "var(--radius)",
                   fontSize: 13,
                 }}
@@ -468,7 +468,7 @@ function SettlementChart({
               />
               <Bar
                 dataKey="amount"
-                fill="hsl(var(--primary))"
+                fill="var(--color-primary)"
                 radius={[4, 4, 0, 0]}
                 maxBarSize={48}
               />

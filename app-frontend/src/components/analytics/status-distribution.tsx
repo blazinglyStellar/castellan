@@ -1,19 +1,6 @@
 "use client"
 
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-
 import type { UsageEvent } from "@/lib/api/types"
-
-interface StatusDistributionProps {
-  events: UsageEvent[]
-}
 
 interface RouteStatus {
   route: string
@@ -23,7 +10,7 @@ interface RouteStatus {
   s5xx: number
 }
 
-export function StatusDistribution({ events }: StatusDistributionProps) {
+export function StatusDistribution({ events }: { events: UsageEvent[] }) {
   const withStatus = events.filter((e) => e.status_code != null)
   if (withStatus.length === 0) {
     return (
@@ -54,33 +41,40 @@ export function StatusDistribution({ events }: StatusDistributionProps) {
   const rows = [...byRoute.values()].sort((a, b) => b.total - a.total)
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Endpoint</TableHead>
-          <TableHead className="text-right">2xx / 4xx / 5xx</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row) => (
-          <TableRow key={row.route}>
-            <TableCell className="font-mono text-xs">{row.route}</TableCell>
-            <TableCell className="text-right text-xs text-muted-foreground">
-              <span className="text-green-600 dark:text-green-400">
-                {row.s2xx}
-              </span>
-              {" / "}
-              <span className="text-yellow-600 dark:text-yellow-400">
-                {row.s4xx}
-              </span>
-              {" / "}
-              <span className="text-red-600 dark:text-red-400">
-                {row.s5xx}
-              </span>
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+    <div className="overflow-x-auto">
+      <table className="w-full border-separate border-spacing-y-1 px-6 pb-2 text-left">
+        <thead>
+          <tr className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+            <th className="px-4 py-2">Endpoint</th>
+            <th className="px-4 py-2 text-right">2xx / 4xx / 5xx</th>
+          </tr>
+        </thead>
+        <tbody className="text-sm">
+          {rows.map((row) => (
+            <tr
+              key={row.route}
+              className="rounded-lg bg-muted/30 transition-colors hover:bg-muted/60"
+            >
+              <td className="px-4 py-3 font-mono text-xs">
+                {row.route}
+              </td>
+              <td className="px-4 py-3 text-right text-xs tabular-nums">
+                <span className="text-green-600 dark:text-green-400">
+                  {row.s2xx}
+                </span>
+                {" / "}
+                <span className="text-yellow-600 dark:text-yellow-400">
+                  {row.s4xx}
+                </span>
+                {" / "}
+                <span className="text-red-600 dark:text-red-400">
+                  {row.s5xx}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }

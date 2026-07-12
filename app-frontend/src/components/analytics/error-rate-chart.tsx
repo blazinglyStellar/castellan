@@ -24,7 +24,7 @@ interface RouteErrorRate {
   total: number
 }
 
-const BAR_COLOR = "hsl(var(--destructive))"
+const BAR_COLOR = "var(--color-destructive)"
 
 export function ErrorRateChart({ events }: ErrorRateChartProps) {
   const withStatus = events.filter((e) => e.status_code != null)
@@ -43,6 +43,18 @@ export function ErrorRateChart({ events }: ErrorRateChartProps) {
     s.total += 1
     if (ev.status_code! >= 400) s.errors += 1
     routeStats.set(ev.route, s)
+  }
+
+  const totalErrors = [...routeStats.values()].reduce((s, r) => s + r.errors, 0)
+  if (totalErrors === 0) {
+    return (
+      <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+        <span className="flex items-center gap-2">
+          <span className="size-2 rounded-full bg-green-500" />
+          No errors recorded in this period
+        </span>
+      </div>
+    )
   }
 
   const sorted = [...routeStats.entries()]
@@ -109,8 +121,8 @@ export function ErrorRateChart({ events }: ErrorRateChartProps) {
           />
           <Tooltip
             contentStyle={{
-              background: "hsl(var(--popover))",
-              border: "1px solid hsl(var(--border))",
+              background: "var(--color-popover)",
+              border: "1px solid var(--color-border)",
               borderRadius: "var(--radius)",
               fontSize: 13,
             }}

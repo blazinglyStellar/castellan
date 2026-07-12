@@ -33,7 +33,7 @@ export function EarningsBreakdown({ data }: EarningsBreakdownProps) {
     .map((d) => ({ name: d.name, total: parseFloat(d.total) }))
     .sort((a, b) => b.total - a.total)
 
-  const color = "hsl(var(--primary))"
+  const color = "var(--color-primary)"
 
   return (
     <div className="h-64">
@@ -58,10 +58,10 @@ export function EarningsBreakdown({ data }: EarningsBreakdownProps) {
             width={140}
           />
           <Tooltip
-            cursor={{ fill: "hsl(var(--muted))" }}
+            cursor={{ fill: "var(--color-muted)" }}
             contentStyle={{
-              background: "hsl(var(--popover))",
-              border: "1px solid hsl(var(--border))",
+              background: "var(--color-popover)",
+              border: "1px solid var(--color-border)",
               borderRadius: "var(--radius)",
               fontSize: 13,
             }}

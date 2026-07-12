@@ -107,7 +107,12 @@ const statusCodeDotMap: Record<string, string> = {
 
 export function StatusCodeBadge({ code }: { code?: number | null }) {
   if (code == null) {
-    return <span className="text-xs text-muted-foreground">\u2014</span>
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-[11px] bg-muted text-muted-foreground">
+        <span className="size-1.5 rounded-full bg-muted-foreground/30" />
+        {"\u2014\u2014\u2014"}
+      </span>
+    )
   }
 
   const prefix = String(code)[0]
