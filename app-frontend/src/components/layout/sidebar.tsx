@@ -15,7 +15,9 @@ import {
   Shield,
   ChevronLeft,
   Menu,
+  LogOut,
 } from "lucide-react"
+import { useAuth } from "@/lib/auth/auth-context"
 import { useSidebarStore } from "@/stores/sidebar"
 import { cn } from "@/lib/utils"
 import {
@@ -96,6 +98,7 @@ function NavItemLink({
 }
 
 function DesktopSidebar({ collapsed, toggle }: { collapsed: boolean; toggle: () => void }) {
+  const { logout } = useAuth()
   const pathname = usePathname()
   const isActive = (href: string) => {
     if (pathname === href) return true
@@ -151,20 +154,30 @@ function DesktopSidebar({ collapsed, toggle }: { collapsed: boolean; toggle: () 
       </div>
 
       <div className="mt-auto border-t border-sidebar-border p-3">
-        {!collapsed && (
-          <NavItemLink
-            item={{ label: "Settings", href: "/settings", icon: Settings }}
-            collapsed={false}
-            isActive={pathname === "/settings"}
-          />
-        )}
+        <NavItemLink
+          item={{ label: "Settings", href: "/settings", icon: Settings }}
+          collapsed={collapsed}
+          isActive={pathname === "/settings"}
+        />
+        <button
+          onClick={logout}
+          className={cn(
+            "group mt-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+            collapsed ? "justify-center px-2" : "",
+            "text-sidebar-muted-foreground hover:bg-muted hover:text-destructive",
+          )}
+          title={collapsed ? "Log out" : undefined}
+        >
+          <LogOut className="size-[20px] shrink-0" />
+          {!collapsed && <span>Log out</span>}
+        </button>
 
-        <div className={cn("mt-2 flex", collapsed ? "flex-col items-center" : "")}>
+        <div className={cn("mt-2 flex", collapsed ? "flex-col items-center gap-1" : "gap-1")}>
           <button
             onClick={toggle}
             className={cn(
               "flex items-center justify-center rounded-lg text-sidebar-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-              collapsed ? "size-10" : "px-3 py-2",
+              collapsed ? "size-10" : "flex-1 px-3 py-2",
             )}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
@@ -182,6 +195,7 @@ function DesktopSidebar({ collapsed, toggle }: { collapsed: boolean; toggle: () 
 }
 
 export function MobileSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+  const { logout } = useAuth()
   const pathname = usePathname()
   const isActive = (href: string) => {
     if (pathname === href) return true
@@ -248,6 +262,13 @@ export function MobileSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           <Settings className="size-[20px] shrink-0" />
           <span>Settings</span>
         </a>
+        <button
+          onClick={logout}
+          className="mt-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-muted-foreground transition-all duration-200 hover:bg-muted hover:text-destructive"
+        >
+          <LogOut className="size-[20px] shrink-0" />
+          <span>Log out</span>
+        </button>
       </div>
     </div>
   )

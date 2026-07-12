@@ -94,6 +94,14 @@ export function TopBar({ className }: { className?: string }) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <button
+          onClick={logout}
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+          title="Log out"
+        >
+          <LogOut className="size-4" />
+          <span className="hidden sm:inline">Log out</span>
+        </button>
       </div>
     </header>
   )

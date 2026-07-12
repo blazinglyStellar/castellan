@@ -44,5 +44,6 @@ graphify-out/
 bin/
 api
 worker
+!app-frontend/src/lib/api/
 dashboard-v3/
 stitch*
