@@ -1,5 +1,6 @@
 import type {
   AccountResponse,
+  ApiConfigResponse,
   ApiKey,
   BalanceResponse,
   CreateApiKeyResponse,
@@ -301,6 +302,12 @@ export function getAccountEntry(id: string): Promise<EntryResponse> {
 }
 
 // ── Deposit Intent ──
+
+// ── Config ──
+
+export function getApiConfig(): Promise<ApiConfigResponse> {
+  return api.get<ApiConfigResponse>("/api/v1/config")
+}
 
 // ── Onboarding ──
 

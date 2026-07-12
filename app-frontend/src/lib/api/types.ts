@@ -262,6 +262,10 @@ export interface EntryParams {
   end_date?: string
 }
 
+export interface ApiConfigResponse {
+  api_base_url: string
+}
+
 export interface DiscoverResponse {
   data: Provider[]
 }

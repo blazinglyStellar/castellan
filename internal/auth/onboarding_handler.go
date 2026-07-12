@@ -3,6 +3,7 @@ package auth
 import (
 	"log/slog"
 	"net/http"
+	"os"
 
 	gatewaycontext "castellan/internal/gateway/context"
 
@@ -30,4 +31,12 @@ func (h *Handler) CompleteOnboarding(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) ConfigHandler(w http.ResponseWriter, r *http.Request) {
+	apiBase := os.Getenv("API_BASE_URL")
+	if apiBase == "" {
+		apiBase = "http://localhost:8080"
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"api_base_url": apiBase})
 }

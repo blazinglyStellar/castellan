@@ -24,7 +24,7 @@ export default function DashboardLayout({
     if (user.onboarding_completed) return
     if (pathname === "/onboarding") return
 
-    router.push("/onboarding")
+    router.replace("/onboarding")
   }, [user, isLoading, pathname, router])
 
   return (

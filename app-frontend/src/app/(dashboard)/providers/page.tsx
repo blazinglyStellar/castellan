@@ -254,11 +254,9 @@ function CreateProviderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger>
-        <Button size="sm">
-          <Plus className="mr-2 h-4 w-4" />
-          Add Provider
-        </Button>
+      <DialogTrigger render={<Button size="sm" />}>
+        <Plus className="mr-2 h-4 w-4" />
+        Add Provider
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

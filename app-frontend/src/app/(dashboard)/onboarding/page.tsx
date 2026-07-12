@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useQuery, useMutation } from "@tanstack/react-query"
 import {
@@ -21,6 +21,7 @@ import {
 
 import { useAuth } from "@/lib/auth/auth-context"
 import {
+  getApiConfig,
   getDepositIntent,
   getDiscoverProviders,
   getPublicProviderEndpoints,
@@ -29,12 +30,13 @@ import {
   getBalance,
 } from "@/lib/api/endpoints"
 import type {
+  ApiConfigResponse,
   Provider,
   Endpoint,
   CreateApiKeyResponse,
   IntentResponse,
 } from "@/lib/api/types"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -94,7 +96,7 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 }
 
 export default function OnboardingPage() {
-  const { user } = useAuth()
+  const { user, updateUser } = useAuth()
   const router = useRouter()
   const [step, setStep] = useState(0)
   const [apiKeyLabel, setApiKeyLabel] = useState("My First Key")
@@ -103,6 +105,10 @@ export default function OnboardingPage() {
   const [depositConfirmed, setDepositConfirmed] = useState(false)
   const [pollingDeposit, setPollingDeposit] = useState(false)
   const [pollingSeconds, setPollingSeconds] = useState(0)
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [createKeyError, setCreateKeyError] = useState("")
+  const [completeError, setCompleteError] = useState("")
+  const [discoverError, setDiscoverError] = useState(false)
 
   const httpbinName = "httpbin"
 
@@ -111,7 +117,7 @@ export default function OnboardingPage() {
     queryFn: getDepositIntent,
   })
 
-  const { data: discoverData } = useQuery({
+  const { data: discoverData, isLoading: discoverLoading } = useQuery({
     queryKey: ["onboarding-discover"],
     queryFn: getDiscoverProviders,
   })
@@ -119,6 +125,13 @@ export default function OnboardingPage() {
   const httpbinProvider = (discoverData?.data ?? []).find(
     (p) => p.name.toLowerCase() === httpbinName,
   )
+
+  useEffect(() => {
+    if (!discoverLoading && discoverData && !httpbinProvider) {
+      const timer = setTimeout(() => setDiscoverError(true), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [discoverLoading, discoverData, httpbinProvider])
 
   const { data: httpbinEndpoints } = useQuery({
     queryKey: ["onboarding-httpbin-endpoints", httpbinProvider?.id],
@@ -131,27 +144,31 @@ export default function OnboardingPage() {
 
   const createKeyMutation = useMutation({
     mutationFn: (label: string) => createApiKey(label),
-    onSuccess: (data) => setCreatedKey(data),
+    onSuccess: (data) => {
+      setCreatedKey(data)
+      setCreateKeyError("")
+    },
+    onError: () => setCreateKeyError("Failed to create API key. Please try again."),
   })
 
   const completeMutation = useMutation({
     mutationFn: completeOnboarding,
     onSuccess: () => {
-      router.push("/providers")
+      updateUser({ onboarding_completed: true })
+      router.replace("/overview")
     },
+    onError: () => setCompleteError("Something went wrong. Please try again."),
   })
 
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | null = null
     if (pollingDeposit) {
-      interval = setInterval(async () => {
+      pollingIntervalRef.current = setInterval(async () => {
         setPollingSeconds((s) => s + 1)
         try {
           const bal = await getBalance()
           if (bal.balance !== "0") {
             setDepositConfirmed(true)
             setPollingDeposit(false)
-            if (interval) clearInterval(interval)
           }
         } catch {
           // ignore polling errors
@@ -159,7 +176,10 @@ export default function OnboardingPage() {
       }, 1000)
     }
     return () => {
-      if (interval) clearInterval(interval)
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
+      }
     }
   }, [pollingDeposit])
 
@@ -206,7 +226,11 @@ export default function OnboardingPage() {
             keyCopied={keyCopied}
             onCopy={handleCopyKey}
             creating={createKeyMutation.isPending}
-            onCreate={() => createKeyMutation.mutate(apiKeyLabel)}
+            error={createKeyError}
+            onCreate={() => {
+              setCreateKeyError("")
+              createKeyMutation.mutate(apiKeyLabel)
+            }}
             onNext={() => setStep(3)}
           />
         )
@@ -215,6 +239,7 @@ export default function OnboardingPage() {
           <DiscoverStep
             provider={httpbinProvider}
             endpoints={httpbinEndpoints ?? []}
+            error={discoverError}
             onNext={() => setStep(4)}
           />
         )
@@ -223,6 +248,7 @@ export default function OnboardingPage() {
           <FinishStep
             onFinish={() => completeMutation.mutate()}
             completing={completeMutation.isPending}
+            error={completeError}
           />
         )
       default:
@@ -397,7 +423,7 @@ function DepositStep({
       ) : null}
 
       <div className="flex gap-3">
-        {!depositConfirmed && !pollingDeposit && (
+        {!depositConfirmed && pollingSeconds === 0 && (
           <Button onClick={onDeposit} variant="outline">
             I&apos;ve deposited
           </Button>
@@ -408,7 +434,7 @@ function DepositStep({
             <ArrowRight className="ml-1.5 size-4" />
           </Button>
         )}
-        {!depositConfirmed && !pollingDeposit && pollingSeconds === 0 && (
+        {!depositConfirmed && pollingSeconds === 0 && (
           <Button onClick={onSkip} variant="ghost">
             Skip for now
           </Button>
@@ -427,6 +453,7 @@ function ApiKeyStep({
   keyCopied,
   onCopy,
   creating,
+  error,
   onCreate,
   onNext,
 }: {
@@ -436,6 +463,7 @@ function ApiKeyStep({
   keyCopied: boolean
   onCopy: () => void
   creating: boolean
+  error: string
   onCreate: () => void
   onNext: () => void
 }) {
@@ -464,6 +492,9 @@ function ApiKeyStep({
               className="mt-1.5"
             />
           </div>
+          {error && (
+            <p className="text-sm text-red-500">{error}</p>
+          )}
           <Button
             onClick={onCreate}
             disabled={creating || !label.trim()}
@@ -481,7 +512,7 @@ function ApiKeyStep({
         </div>
       ) : (
         <div className="mb-8 w-full max-w-lg space-y-4">
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-800">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
             <Shield className="mb-1 inline-block size-4" />
             {" "}
             Copy this key now. You won&apos;t be able to see it again.
@@ -513,13 +544,34 @@ function ApiKeyStep({
 function DiscoverStep({
   provider,
   endpoints,
+  error,
   onNext,
 }: {
   provider: Provider | undefined
   endpoints: Endpoint[]
+  error: boolean
   onNext: () => void
 }) {
   const postEndpoint = endpoints.find((e) => e.method === "POST")
+  const { data: config } = useQuery<ApiConfigResponse>({
+    queryKey: ["api-config"],
+    queryFn: getApiConfig,
+    staleTime: Infinity,
+  })
+  const apiBase = config?.api_base_url || "http://localhost:8080"
+  const [curlCopied, setCurlCopied] = useState(false)
+
+  const handleCopyCurl = () => {
+    if (!provider || !postEndpoint) return
+    const cmd =
+      `curl -X POST "${apiBase}/api/gateway/${provider.name}${postEndpoint.route}" \\` +
+      `\n  -H "Content-Type: application/json" \\` +
+      `\n  -H "Authorization: Bearer <your-api-key>" \\` +
+      `\n  -d '{"hello": "world"}'`
+    navigator.clipboard.writeText(cmd)
+    setCurlCopied(true)
+    setTimeout(() => setCurlCopied(false), 2000)
+  }
 
   return (
     <div className="flex flex-col items-center text-center">
@@ -571,27 +623,48 @@ function DiscoverStep({
 
           {postEndpoint && (
             <div className="rounded-lg border bg-card p-4">
-              <h4 className="mb-2 flex items-center gap-2 text-sm font-medium">
-                <Terminal className="size-4" />
-                Try it out
-              </h4>
+              <div className="mb-2 flex items-center justify-between">
+                <h4 className="flex items-center gap-2 text-sm font-medium">
+                  <Terminal className="size-4" />
+                  Try it out
+                </h4>
+                <button
+                  type="button"
+                  onClick={handleCopyCurl}
+                  className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  {curlCopied ? (
+                    <Check className="size-4 text-green-500" />
+                  ) : (
+                    <Copy className="size-4" />
+                  )}
+                </button>
+              </div>
+              <p className="mb-2 text-xs text-muted-foreground">
+                Replace {"<your-api-key>"} with the key from the previous step.
+              </p>
               <div className="overflow-x-auto rounded-md bg-muted p-3">
                 <pre className="font-mono text-xs leading-relaxed">
-                  <span className="text-muted-foreground"># Replace {"<your-api-key>"} with the key you just created</span>
-                  {`\ncurl -X POST "`}{provider.base_url}{postEndpoint.route}{`" \\`}
+                  {`curl -X POST "`}{apiBase}/api/gateway/{provider.name}{postEndpoint.route}{`" \\`}
                   {`\n  -H "Content-Type: application/json" \\`}
-                  {`\n  -H "X-API-Key: `}<span className="text-amber-600">{"<your-api-key>"}</span>{`" \\`}
+                  {`\n  -H "X-API-Key: <your-api-key>" \\`}
                   {`\n  -d '{"hello": "world"}'`}
                 </pre>
               </div>
             </div>
           )}
 
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-left text-sm text-amber-800">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-left text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
             Make sure to replace{" "}
-            <code className="rounded bg-amber-100 px-1 font-mono text-xs">{"<your-api-key>"}</code>{" "}
+            <code className="rounded bg-amber-100 px-1 font-mono text-xs dark:bg-amber-900 dark:text-amber-300">{"<your-api-key>"}</code>{" "}
             with the actual API key you generated.
           </div>
+        </div>
+      ) : error ? (
+        <div className="mb-8 w-full max-w-lg rounded-lg border bg-card p-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            The demo httpbin provider isn&apos;t available. You can skip this step.
+          </p>
         </div>
       ) : (
         <Skeleton className="mb-8 h-48 w-full max-w-lg rounded-lg" />
@@ -610,9 +683,11 @@ function DiscoverStep({
 function FinishStep({
   onFinish,
   completing,
+  error,
 }: {
   onFinish: () => void
   completing: boolean
+  error: string
 }) {
   return (
     <div className="flex flex-col items-center text-center">
@@ -646,6 +721,9 @@ function FinishStep({
         your APIs to the world.
       </p>
 
+      {error && (
+        <p className="mb-4 text-sm text-red-500">{error}</p>
+      )}
       <Button onClick={onFinish} disabled={completing} size="lg">
         {completing ? (
           <>

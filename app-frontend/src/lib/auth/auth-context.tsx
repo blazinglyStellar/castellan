@@ -27,6 +27,8 @@ interface AuthContextValue {
   user: User | null
   isLoading: boolean
   isAuthenticated: boolean
+  refreshUser: () => Promise<void>
+  updateUser: (partial: Partial<User>) => void
   logout: () => Promise<void>
 }
 
@@ -66,6 +68,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("auth:unauthorized", handleUnauthorized)
   }, [fetchUser])
 
+  const updateUser = useCallback((partial: Partial<User>) => {
+    setUser((prev) => (prev ? { ...prev, ...partial } : prev))
+  }, [])
+
   const logout = useCallback(async () => {
     try {
       await post("/api/v1/auth/logout")
@@ -83,6 +89,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isLoading,
         isAuthenticated: !!user,
+        refreshUser: fetchUser,
+        updateUser,
         logout,
       }}
     >
