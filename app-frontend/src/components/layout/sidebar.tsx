@@ -14,14 +14,10 @@ import {
   Settings,
   Shield,
   ChevronLeft,
-  Moon,
-  Sun,
   Menu,
 } from "lucide-react"
-import { useTheme } from "next-themes"
 import { useSidebarStore } from "@/stores/sidebar"
 import { cn } from "@/lib/utils"
-import { useEffect, useState } from "react"
 import {
   Sheet,
   SheetContent,
@@ -101,13 +97,6 @@ function NavItemLink({
 
 function DesktopSidebar({ collapsed, toggle }: { collapsed: boolean; toggle: () => void }) {
   const pathname = usePathname()
-  const { theme, setTheme, resolvedTheme } = useTheme()
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
   const isActive = (href: string) => {
     if (pathname === href) return true
     if (!pathname.startsWith(href)) return false
@@ -170,24 +159,7 @@ function DesktopSidebar({ collapsed, toggle }: { collapsed: boolean; toggle: () 
           />
         )}
 
-        <div className={cn("mt-2 flex", collapsed ? "flex-col items-center gap-2" : "gap-1")}>
-          {mounted && (
-            <button
-              onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-              className={cn(
-                "flex items-center justify-center rounded-lg text-sidebar-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                collapsed ? "size-10" : "flex-1 px-3 py-2 text-sm font-medium",
-              )}
-              title="Toggle theme"
-            >
-              {resolvedTheme === "dark" ? (
-                <Sun className="size-[18px]" />
-              ) : (
-                <Moon className="size-[18px]" />
-              )}
-              {!collapsed && <span className="ml-2">Appearance</span>}
-            </button>
-          )}
+        <div className={cn("mt-2 flex", collapsed ? "flex-col items-center" : "")}>
           <button
             onClick={toggle}
             className={cn(
@@ -211,13 +183,6 @@ function DesktopSidebar({ collapsed, toggle }: { collapsed: boolean; toggle: () 
 
 export function MobileSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
-  const { theme, setTheme, resolvedTheme } = useTheme()
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
   const isActive = (href: string) => {
     if (pathname === href) return true
     if (!pathname.startsWith(href)) return false
@@ -283,17 +248,6 @@ export function MobileSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           <Settings className="size-[20px] shrink-0" />
           <span>Settings</span>
         </a>
-        <div className="mt-2 flex gap-1">
-          {mounted && (
-            <button
-              onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              {resolvedTheme === "dark" ? <Sun className="size-[18px]" /> : <Moon className="size-[18px]" />}
-              <span>Appearance</span>
-            </button>
-          )}
-        </div>
       </div>
     </div>
   )

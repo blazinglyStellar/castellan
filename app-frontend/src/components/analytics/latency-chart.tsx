@@ -108,6 +108,7 @@ export function LatencyChart({ events }: LatencyChartProps) {
               border: "1px solid var(--color-border)",
               borderRadius: "var(--radius)",
               fontSize: 13,
+              color: "var(--color-popover-foreground)",
             }}
             formatter={(value) => {
               if (typeof value === "number")

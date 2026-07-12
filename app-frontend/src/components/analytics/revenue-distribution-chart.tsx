@@ -68,6 +68,7 @@ export function RevenueDistributionChart({ data }: { data: EndpointEarning[] }) 
                 border: "1px solid var(--color-border)",
                 borderRadius: "var(--radius)",
                 fontSize: 13,
+                color: "var(--color-popover-foreground)",
               }}
               formatter={(value) => {
                 if (typeof value === "number") return [`${formatAmount(value.toFixed(7))} XLM`]

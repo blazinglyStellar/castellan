@@ -88,6 +88,28 @@
 
   --color-primary: #5b7aff;
   --color-primary-foreground: #ffffff;
+
+  --color-secondary: #d4145a;
+  --color-secondary-foreground: #ffffff;
+  --color-tertiary: #3db8d9;
+  --color-tertiary-foreground: #ffffff;
+  --color-ring: #80b1ff;
+
+  --color-destructive: #f87171;
+  --color-destructive-foreground: #1a0a0a;
+  --color-success: #34d399;
+  --color-success-foreground: #0a1a10;
+  --color-warning: #fbbf24;
+  --color-warning-foreground: #1a1400;
+
+  --color-chart-1: #5b7aff;
+  --color-chart-2: #3db8d9;
+  --color-chart-3: #ff4081;
+  --color-chart-4: #9c27b0;
+  --color-chart-5: #ffb74d;
+
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.2);
+  --shadow-modal: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.2);
 }
 
 @layer base {

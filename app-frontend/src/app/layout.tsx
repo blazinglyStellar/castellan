@@ -1,8 +1,8 @@
 import type { Metadata } from "next"
 import { Inter, JetBrains_Mono } from "next/font/google"
 import { ThemeProvider } from "next-themes"
-import { Toaster } from "sonner"
 import { QueryProvider } from "@/lib/query-provider"
+import { Toaster } from "@/components/theme-toaster"
 import { AuthProvider } from "@/lib/auth/auth-context"
 import "./globals.css"
 

@@ -64,6 +64,7 @@ export function UsageBarChart({ data, isProvider }: UsageBarChartProps) {
               border: "1px solid var(--color-border)",
               borderRadius: "var(--radius)",
               fontSize: 13,
+              color: "var(--color-popover-foreground)",
             }}
             formatter={(value) => [Number(value).toFixed(4), "Earnings"]}
           />
