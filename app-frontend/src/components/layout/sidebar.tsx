@@ -12,7 +12,6 @@ import {
   HandshakeIcon,
   Compass,
   Settings,
-  Shield,
   ChevronLeft,
   Menu,
   LogOut,
@@ -118,8 +117,8 @@ function DesktopSidebar({ collapsed, toggle }: { collapsed: boolean; toggle: () 
     >
       <div className="flex flex-col px-3 pt-6 pb-4">
         <div className={cn("flex items-center", collapsed ? "justify-center" : "mb-8 gap-3 px-2")}>
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary">
-            <Shield className="size-4 text-primary-foreground" />
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary">
+            <img src="/logo3.png" alt="Castellan" className="size-[2.6rem] object-contain" />
           </div>
           {!collapsed && (
             <div>
@@ -209,8 +208,8 @@ export function MobileSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-3 px-4 py-5">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary">
-          <Shield className="size-4 text-primary-foreground" />
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary">
+          <img src="/logo3.png" alt="Castellan" className="size-[2.6rem] object-contain" />
         </div>
         <h1 className="text-lg font-bold tracking-tight text-foreground">Castellan</h1>
       </div>

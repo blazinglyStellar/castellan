@@ -2,7 +2,8 @@
 
 import { Suspense } from "react"
 import { useSearchParams } from "next/navigation"
-import { Shield } from "lucide-react"
+
+import BackgroundPaths from "@/components/ui/background-paths"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080"
 
@@ -43,13 +44,12 @@ function OAuthButton({
 
 export default function LoginPage() {
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center bg-background transition-colors duration-300">
-
+    <BackgroundPaths>
       <main className="flex w-full max-w-md flex-col items-center justify-center px-6 py-12">
         <div className="w-full rounded-xl border border-border bg-card p-10 shadow-modal transition-all duration-300">
           <div className="mb-10 text-center">
-            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-primary">
-              <Shield className="size-6 text-primary-foreground" />
+            <div className="mx-auto mb-4 flex size-[6.25rem] items-center justify-center rounded-full bg-primary">
+              <img src="/logo3.png" alt="Castellan" className="size-[5.625rem] object-contain" />
             </div>
             <h1 className="text-3xl font-extrabold tracking-tight text-primary">
               Castellan
@@ -100,11 +100,6 @@ export default function LoginPage() {
           </div>
         </div>
       </main>
-
-      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden opacity-20 dark:opacity-10">
-        <div className="absolute -left-[10%] -top-[10%] size-[40%] rounded-full bg-primary/20 blur-[120px]" />
-        <div className="-right-[10%] -bottom-[10%] absolute size-[40%] rounded-full bg-tertiary/20 blur-[120px]" />
-      </div>
-    </div>
+    </BackgroundPaths>
   )
 }
