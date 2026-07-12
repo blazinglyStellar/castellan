@@ -51,6 +51,8 @@ func (s *Server) RegisterRoutes() http.Handler {
 	mux.Handle("GET /api/v1/settlements/threshold", s.authMiddleware(http.HandlerFunc(s.settlementHandler.HandleThreshold)))
 	mux.Handle("GET /api/v1/me", s.authMiddleware(http.HandlerFunc(s.authHandler.DashboardMe)))
 	mux.Handle("GET /api/v1/balance", s.authMiddleware(http.HandlerFunc(s.accountHandler.GetBalance)))
+	mux.Handle("GET /api/v1/me/payout/check", s.authMiddleware(http.HandlerFunc(s.accountHandler.CheckPayoutAddress)))
+	mux.Handle("PATCH /api/v1/me/payout", s.authMiddleware(http.HandlerFunc(s.accountHandler.UpdatePayoutAddress)))
 	mux.Handle("GET /api/v1/usage", s.authMiddleware(http.HandlerFunc(s.usageHandler.ListUsage)))
 	mux.Handle("GET /api/v1/earnings", s.authMiddleware(http.HandlerFunc(s.usageHandler.GetEarnings)))
 	mux.HandleFunc("GET /openapi.yaml", openapiHandler)

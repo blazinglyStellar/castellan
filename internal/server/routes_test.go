@@ -748,7 +748,7 @@ func newTestServerWithProviders() (*Server, uuid.UUID, *mockQuerier) {
 		sessionValidator: &testSessionValidator{},
 		providerHandler:  provider.NewProviderHandler(providerSvc),
 		endpointHandler:  provider.NewEndpointHandler(endpointSvc),
-		accountHandler:   accounts.NewHandler(accountSvc),
+		accountHandler:   accounts.NewHandler(accountSvc, ""),
 	}, userID, mq
 }
 
@@ -827,7 +827,7 @@ func newTestServerWithAccounts(upstreamURL string, consumerID uuid.UUID, initial
 		ledger:           mls,
 		keyValidator:     keyValidator,
 		sessionValidator: &testSessionValidator{},
-		accountHandler:   accounts.NewHandler(accountSvc),
+		accountHandler:   accounts.NewHandler(accountSvc, ""),
 	}, mq, mls
 }
 
@@ -1512,6 +1512,33 @@ func TestEndpointUpdateStatusRoute_Authenticated(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCheckPayoutAddressRoute_ReturnsValidJSON(t *testing.T) {
+	consumerID := uuid.New()
+	s, mq, _ := newTestServerWithAccounts("http://example.com", consumerID, decimal.NewFromFloat(50))
+	seedUser(t, mq, consumerID, decimal.NewFromFloat(50))
+
+	handler := s.RegisterRoutes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me/payout/check?address=GAXZHJXFVX3N4CVVN4O3BNZ5R34BJQFV2M3SJLO4ZIZN4HX5Q5YQ5ABC", nil)
+	req = authenticatedRequest(req, consumerID.String())
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response as JSON — got raw body: %s", rec.Body.String())
+	}
+
+	if _, ok := body["valid"]; !ok {
+		t.Fatalf("response missing 'valid' field. Body: %s", rec.Body.String())
 	}
 }
 

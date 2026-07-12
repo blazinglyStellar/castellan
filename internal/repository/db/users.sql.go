@@ -96,6 +96,32 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 	return i, err
 }
 
+const setUserPayoutAddress = `-- name: SetUserPayoutAddress :one
+UPDATE users SET payout_stellar_address = $2, updated_at = NOW() WHERE id = $1 RETURNING id, email, deposit_memo, payout_stellar_address, created_at, updated_at, balance, currency, account_updated_at
+`
+
+type SetUserPayoutAddressParams struct {
+	ID                   uuid.UUID   `json:"id"`
+	PayoutStellarAddress pgtype.Text `json:"payout_stellar_address"`
+}
+
+func (q *Queries) SetUserPayoutAddress(ctx context.Context, arg SetUserPayoutAddressParams) (User, error) {
+	row := q.db.QueryRow(ctx, setUserPayoutAddress, arg.ID, arg.PayoutStellarAddress)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.DepositMemo,
+		&i.PayoutStellarAddress,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Balance,
+		&i.Currency,
+		&i.AccountUpdatedAt,
+	)
+	return i, err
+}
+
 const upsertUserByEmail = `-- name: UpsertUserByEmail :one
 INSERT INTO users (email)
 VALUES ($1)

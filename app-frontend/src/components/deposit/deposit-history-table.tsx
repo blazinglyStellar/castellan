@@ -1,13 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { ColumnDef, SortingState } from "@tanstack/react-table";
-import {
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
+import { useEffect, useState, useMemo } from "react";
 import {
   ExternalLink,
   Search,
@@ -15,9 +8,8 @@ import {
   CheckCircle2,
   Clock,
   XCircle,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 
 import { ErrorState } from "@/components/shared/error-state";
@@ -38,14 +30,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   Tooltip,
   TooltipContent,
@@ -68,10 +52,14 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
   failed: <XCircle className="h-3.5 w-3.5 text-red-500" />,
 };
 
+type SortKey = "status" | "created_at";
+
 export function DepositHistoryTable() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [rawQuery, setRawQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(rawQuery), 300);
@@ -103,139 +91,51 @@ export function DepositHistoryTable() {
     return result;
   }, [items, statusFilter, debouncedQuery]);
 
-  const columns: ColumnDef<Deposit>[] = useMemo(
-    () => [
-      {
-        id: "statusIcon",
-        header: "",
-        cell: ({ row }) => (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger>
-                <span>{STATUS_ICONS[row.original.status] || null}</span>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs capitalize">
-                {row.original.status}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        ),
-        enableSorting: false,
-      },
-      {
-        accessorKey: "amount",
-        header: "Amount",
-        cell: ({ row }) => (
-          <span className="whitespace-nowrap font-mono text-xs">
-            {formatAmount(row.original.amount)}{" "}
-            <span className="text-muted-foreground">
-              {row.original.currency || "XLM"}
-            </span>
-          </span>
-        ),
-      },
-      {
-        accessorKey: "status",
-        header: ({ column }) => (
-          <button
-            className="flex items-center gap-1 font-medium"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            Status
-            {{
-              asc: <ArrowUp className="h-3 w-3" />,
-              desc: <ArrowDown className="h-3 w-3" />,
-            }[column.getIsSorted() as string] ?? (
-              <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
-            )}
-          </button>
-        ),
-        cell: ({ row }) => <StatusBadge status={row.original.status} />,
-        sortingFn: "text",
-      },
-      {
-        id: "from_address",
-        header: "From",
-        cell: ({ row }) => (
-          <span
-            className="block max-w-[120px] truncate font-mono text-xs text-muted-foreground"
-            title={row.original.from_address}
-          >
-            {row.original.from_address}
-          </span>
-        ),
-        enableSorting: false,
-      },
-      {
-        accessorKey: "tx_hash",
-        header: "Tx Hash",
-        cell: ({ row }) => (
-          <a
-            href={`${STELLAR_EXPLORER_URL}/${row.original.tx_hash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono text-xs text-muted-foreground hover:text-primary hover:underline"
-            title={row.original.tx_hash}
-          >
-            {row.original.tx_hash.slice(0, 8)}...
-          </a>
-        ),
-        enableSorting: false,
-      },
-      {
-        id: "explorer",
-        header: "",
-        cell: ({ row }) => (
-          <a
-            href={`${STELLAR_EXPLORER_URL}/${row.original.tx_hash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className={buttonVariants({ variant: "ghost", size: "xs" })}
-          >
-            View
-            <ExternalLink className="ml-1 h-3 w-3" />
-          </a>
-        ),
-        enableSorting: false,
-      },
-      {
-        accessorKey: "created_at",
-        header: ({ column }) => (
-          <button
-            className="flex items-center gap-1 font-medium"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            Created
-            {{
-              asc: <ArrowUp className="h-3 w-3" />,
-              desc: <ArrowDown className="h-3 w-3" />,
-            }[column.getIsSorted() as string] ?? (
-              <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
-            )}
-          </button>
-        ),
-        cell: ({ row }) => (
-          <span className="whitespace-nowrap text-xs text-muted-foreground">
-            {formatShortDateTime(row.original.created_at)}
-          </span>
-        ),
-        sortingFn: "datetime",
-      },
-    ],
-    [],
-  );
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered;
+    return [...filtered].sort((a, b) => {
+      const valA = a[sortKey];
+      const valB = b[sortKey];
+      const cmp = String(valA ?? "").localeCompare(String(valB ?? ""));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [filtered, sortKey, sortDir]);
 
-  const [sorting, setSorting] = useState<SortingState>([]);
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }
 
-  const table = useReactTable({
-    data: filtered,
-    columns,
-    state: { sorting },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-  });
+  function SortHeader({
+    sortable,
+    children,
+  }: {
+    sortable?: SortKey;
+    children: React.ReactNode;
+  }) {
+    if (!sortable) {
+      return <>{children}</>;
+    }
+    const active = sortKey === sortable;
+    return (
+      <button
+        className="flex items-center gap-1"
+        onClick={() => toggleSort(sortable)}
+      >
+        {children}
+        {active && sortDir === "asc" && (
+          <ChevronUp className="h-3 w-3" />
+        )}
+        {active && sortDir === "desc" && (
+          <ChevronDown className="h-3 w-3" />
+        )}
+      </button>
+    );
+  }
 
   if (isLoading) {
     return <LoadingSkeleton />;
@@ -301,7 +201,7 @@ export function DepositHistoryTable() {
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        {filtered.length === 0 ? (
+        {sorted.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 text-center">
             <Inbox className="h-6 w-6 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
@@ -321,37 +221,90 @@ export function DepositHistoryTable() {
           </div>
         ) : (
           <>
-            <div className="relative w-full overflow-auto">
-              <Table>
-                <TableHeader>
-                  {table.getHeaderGroups().map((headerGroup) => (
-                    <TableRow key={headerGroup.id}>
-                      {headerGroup.headers.map((header) => (
-                        <TableHead key={header.id}>
-                          {flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )}
-                        </TableHead>
-                      ))}
-                    </TableRow>
+            <div className="overflow-x-auto">
+              <table className="w-full border-separate border-spacing-y-1 px-6 pb-2 text-left">
+                <thead>
+                  <tr className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                    <th className="px-4 py-2 w-8" />
+                    <th className="px-4 py-2">Amount</th>
+                    <th className="px-4 py-2">
+                      <SortHeader sortable="status">Status</SortHeader>
+                    </th>
+                    <th className="px-4 py-2">From</th>
+                    <th className="px-4 py-2">Tx Hash</th>
+                    <th className="px-4 py-2" />
+                    <th className="px-4 py-2">
+                      <SortHeader sortable="created_at">Created</SortHeader>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {sorted.map((d) => (
+                    <tr
+                      key={d.id}
+                      className="rounded-lg bg-muted/30 transition-colors hover:bg-muted/60"
+                    >
+                      <td className="px-4 py-3">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <span className="flex items-center justify-center">
+                                {STATUS_ICONS[d.status] || null}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs capitalize">
+                              {d.status}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">
+                        {formatAmount(d.amount)}{" "}
+                        <span className="text-muted-foreground">
+                          {d.currency || "XLM"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={d.status} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className="block max-w-[120px] truncate font-mono text-xs text-muted-foreground"
+                          title={d.from_address}
+                        >
+                          {d.from_address}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <a
+                          href={`${STELLAR_EXPLORER_URL}/${d.tx_hash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-xs text-muted-foreground hover:text-primary hover:underline"
+                          title={d.tx_hash}
+                        >
+                          {d.tx_hash.slice(0, 8)}...
+                        </a>
+                      </td>
+                      <td className="px-4 py-3">
+                        <a
+                          href={`${STELLAR_EXPLORER_URL}/${d.tx_hash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className={buttonVariants({ variant: "ghost", size: "xs" })}
+                        >
+                          View
+                          <ExternalLink className="ml-1 h-3 w-3" />
+                        </a>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-xs text-muted-foreground">
+                        {formatShortDateTime(d.created_at)}
+                      </td>
+                    </tr>
                   ))}
-                </TableHeader>
-                <TableBody>
-                  {table.getRowModel().rows.map((row) => (
-                    <TableRow key={row.id}>
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
-                          )}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                </tbody>
+              </table>
             </div>
             {hasMore && (
               <div className="flex justify-center border-t py-4">
@@ -383,27 +336,32 @@ function LoadingSkeleton() {
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="space-y-0">
-          <div className="flex items-center gap-4 border-b px-4 py-3">
-            <Skeleton className="h-3 w-8" />
-            <Skeleton className="h-3 w-12" />
-            <Skeleton className="h-3 w-10" />
-            <Skeleton className="h-3 flex-1" />
-            <Skeleton className="h-3 w-14" />
-          </div>
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-4 border-b px-4 py-3"
-            >
-              <Skeleton className="h-4 w-4 rounded-full" />
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-4 w-16 rounded" />
-              <Skeleton className="h-3 flex-1" />
-              <Skeleton className="h-6 w-14 rounded-md" />
+        <div className="overflow-x-auto px-6 pb-2">
+          <div className="space-y-1">
+            <div className="flex items-center gap-4 px-4 py-2">
+              <Skeleton className="h-3 w-8" />
               <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-3 w-12" />
+              <Skeleton className="h-3 flex-1" />
+              <Skeleton className="h-3 w-14" />
+              <Skeleton className="h-6 w-14" />
+              <Skeleton className="h-3 w-20" />
             </div>
-          ))}
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-4 rounded-lg bg-muted/30 px-4 py-3"
+              >
+                <Skeleton className="h-4 w-4 rounded-full" />
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-4 w-16 rounded" />
+                <Skeleton className="h-3 flex-1" />
+                <Skeleton className="h-3 w-14" />
+                <Skeleton className="h-6 w-14 rounded-md" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+            ))}
+          </div>
         </div>
       </CardContent>
     </Card>

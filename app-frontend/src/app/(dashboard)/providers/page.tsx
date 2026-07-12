@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus, Trash2, Power, PowerOff, List, Server } from "lucide-react"
+import { Plus, Trash2, Power, PowerOff, List, Server, AlertTriangle } from "lucide-react"
 
 import { useAuth } from "@/lib/auth/auth-context"
 import {
@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/table"
 
 export default function ProvidersPage() {
-  const { isLoading: isAccountLoading } = useAuth()
+  const { user, isLoading: isAccountLoading } = useAuth()
   const [dialogOpen, setDialogOpen] = useState(false)
 
   const {
@@ -87,6 +87,19 @@ export default function ProvidersPage() {
         </div>
         <CreateProviderDialog open={dialogOpen} onOpenChange={setDialogOpen} />
       </div>
+
+      {!user?.payout_stellar_address && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+          <span>
+            You haven&apos;t set a payout address yet.{" "}
+            <a href="/settings" className="font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100">
+              Go to Settings
+            </a>{" "}
+            to add your Stellar wallet address so you can receive settlement payments.
+          </span>
+        </div>
+      )}
 
       {hasProviders ? (
         <ProvidersTable providers={providers} />

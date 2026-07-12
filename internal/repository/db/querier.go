@@ -88,6 +88,7 @@ type Querier interface {
 	MarkProviderLedgerEntriesSettled(ctx context.Context, arg MarkProviderLedgerEntriesSettledParams) ([]LedgerEntry, error)
 	RevokeKey(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	RevokeSessionToken(ctx context.Context, id uuid.UUID) (SessionToken, error)
+	SetUserPayoutAddress(ctx context.Context, arg SetUserPayoutAddressParams) (User, error)
 	UpdateDepositStatus(ctx context.Context, arg UpdateDepositStatusParams) (Deposit, error)
 	UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) (ApiEndpoint, error)
 	UpdateEndpointStatus(ctx context.Context, arg UpdateEndpointStatusParams) (ApiEndpoint, error)

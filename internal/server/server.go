@@ -227,7 +227,7 @@ func NewServer() (*http.Server, error) {
 		oauthHandler:      auth.NewOAuthHandler(queries, sessionSvc, dashboardURL),
 		providerHandler:   provider.NewProviderHandler(providerSvc),
 		endpointHandler:   provider.NewEndpointHandler(endpointSvc),
-		accountHandler:    accounts.NewHandler(accountSvc),
+		accountHandler:    accounts.NewHandler(accountSvc, stellarCfg.HorizonURL),
 		depositHandler:    deposit.NewHandler(depositSvc),
 		creditHandler:     creditHandler,
 		watcher:           watcher,
