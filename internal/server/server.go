@@ -139,9 +139,14 @@ func NewServer() (*http.Server, error) {
 		return queries.CreateUsageEvent(ctx, arg)
 	})
 
-	pricingResolver := middleware.EndpointPricingResolverFunc(func(ctx context.Context, providerID uuid.UUID, route, method string) (*middleware.EndpointResolution, error) {
+	pricingResolver := middleware.EndpointPricingResolverFunc(func(ctx context.Context, providerName string, route, method string) (*middleware.EndpointResolution, error) {
+		provider, err := queries.GetProviderByName(ctx, providerName)
+		if err != nil {
+			return nil, fmt.Errorf("resolve provider by name: %w", err)
+		}
+
 		endpoint, err := queries.GetEndpointByProviderRouteMethod(ctx, repository.GetEndpointByProviderRouteMethodParams{
-			ProviderID: providerID,
+			ProviderID: provider.ID,
 			Route:      route,
 			Method:     method,
 		})

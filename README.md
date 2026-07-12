@@ -363,9 +363,9 @@ expire on their own — they remain valid until explicitly revoked or
 rotated. A revoked key fails-closed immediately.
 
 ```bash
-# Replace {provider_uuid} with the provider's ID and {upstream_path}
-# with the route registered on that provider (e.g. /weather/current).
-curl -X POST http://localhost:8080/api/gateway/{provider_uuid}/{upstream_path} \
+# Replace {provider_name} with the provider's name (e.g. weather-api)
+# and {upstream_path} with the route registered on that provider (e.g. /weather/current).
+curl -X POST http://localhost:8080/api/gateway/{provider_name}/{upstream_path} \
   -H "Authorization: Bearer ca_REPLACE_ME" \
   -H "Content-Type: application/json" \
   -d '{}'
@@ -377,9 +377,9 @@ explicit TTL and an optional `scope` (e.g. `read:*`). When `expires_at`
 passes the token is rejected even if its status is still `active`.
 
 ```bash
-# Replace {provider_uuid} with the provider's ID and {upstream_path}
-# with the route registered on that provider (e.g. /weather/current).
-curl -X POST http://localhost:8080/api/gateway/{provider_uuid}/{upstream_path} \
+# Replace {provider_name} with the provider's name (e.g. weather-api)
+# and {upstream_path} with the route registered on that provider (e.g. /weather/current).
+curl -X POST http://localhost:8080/api/gateway/{provider_name}/{upstream_path} \
   -H "Authorization: Bearer st_REPLACE_ME" \
   -H "Content-Type: application/json" \
   -d '{}'

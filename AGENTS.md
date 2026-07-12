@@ -105,6 +105,7 @@ Middleware uses `func(http.Handler) http.Handler`. Function adapters (`BalanceCh
 - **README says "Chi router" and "zap logging"** — code uses std lib `ServeMux` and `log/slog`. Both are stale.
 - **README says `dashboard/`** — the directory is `dashboard-v3/`.
 - **CI workflows directory is empty.** `.github/workflows/` has no files; CI targets in Makefile may not match any running CI.
+- **Gateway URL uses provider name, not UUID.** Path format: `/api/gateway/{providerName}/{route}`. The pricing resolver calls `GetProviderByName` then `GetEndpointByProviderRouteMethod` with the resolved UUID. Old UUID-based URLs return 404.
 - **No Redis in docker-compose.redis** — never mind, it IS in docker-compose.yml. Redis is present.
 - **OAuth requires env vars** — `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SESSION_STORE_SECRET`, `DASHBOARD_URL`. Without these, the auth endpoints will fail.
 - **`STELLAR_HOT_WALLET_ADDRESS` is required** — `NewServer()` returns an error if unset.

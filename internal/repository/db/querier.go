@@ -40,6 +40,7 @@ type Querier interface {
 	GetLedgerEntryByReferenceID(ctx context.Context, referenceID pgtype.UUID) (LedgerEntry, error)
 	GetProviderBaseURL(ctx context.Context, id uuid.UUID) (string, error)
 	GetProviderByID(ctx context.Context, id uuid.UUID) (Provider, error)
+	GetProviderByName(ctx context.Context, name string) (GetProviderByNameRow, error)
 	GetProviderStats(ctx context.Context) ([]GetProviderStatsRow, error)
 	GetSessionTokenByHash(ctx context.Context, tokenHash string) (SessionToken, error)
 	GetSettlementBatchByID(ctx context.Context, id uuid.UUID) (SettlementBatch, error)

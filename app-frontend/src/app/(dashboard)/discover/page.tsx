@@ -304,6 +304,7 @@ function ProviderSheet({
                       key={ep.id}
                       endpoint={ep}
                       baseUrl={provider.base_url}
+                      providerName={provider.name}
                     />
                   ))}
                 </div>
@@ -325,9 +326,11 @@ function ProviderSheet({
 function EndpointDetailRow({
   endpoint,
   baseUrl,
+  providerName,
 }: {
   endpoint: Endpoint
   baseUrl: string
+  providerName: string
 }) {
   const [copiedAction, setCopiedAction] = useState<"url" | "curl" | null>(null)
 
@@ -343,7 +346,7 @@ function EndpointDetailRow({
   }, [baseUrl, endpoint.route])
 
   const handleCopyCurl = useCallback(() => {
-    const gatewayUrl = `${apiBaseUrl.replace(/\/+$/, "")}/api/gateway/${endpoint.provider_id}/${endpoint.route.replace(/^\//, "")}`
+    const gatewayUrl = `${apiBaseUrl.replace(/\/+$/, "")}/api/gateway/${providerName}/${endpoint.route.replace(/^\//, "")}`
     const method = endpoint.method.toUpperCase()
     const authHeader = `-H "Authorization: Bearer <API-KEY>"`
     const parts = [`curl -X ${method} "${gatewayUrl}"`, authHeader]
@@ -354,7 +357,7 @@ function EndpointDetailRow({
       setCopiedAction("curl")
       setTimeout(() => setCopiedAction(null), 2000)
     })
-  }, [apiBaseUrl, endpoint.provider_id, endpoint.route, endpoint.method])
+  }, [apiBaseUrl, providerName, endpoint.route, endpoint.method])
 
   return (
     <div className="rounded-lg border bg-card p-4 transition-colors hover:bg-muted/20">

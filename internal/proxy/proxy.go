@@ -31,7 +31,7 @@ const (
 	defaultIdleTimeout  = 90 * time.Second
 )
 
-var errMissingProvider = errors.New("missing provider ID in path")
+var errMissingProvider = errors.New("missing provider name in path")
 
 type timeoutConn struct {
 	net.Conn
@@ -65,9 +65,9 @@ func (c *timeoutConn) Write(b []byte) (int, error) {
 	return n, nil
 }
 
-// ProviderResolver resolves an upstream base URL for a given provider ID.
+// ProviderResolver resolves an upstream base URL for a given provider name.
 type ProviderResolver interface {
-	ResolveBaseURL(ctx context.Context, id string) (string, error)
+	ResolveBaseURL(ctx context.Context, name string) (string, error)
 }
 
 // Proxy is a reverse proxy that resolves upstream URLs, applies timeouts,
@@ -266,7 +266,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Proxy) director(outReq *http.Request) {
-	providerID, restPath, ok := ParseProviderPath(outReq.URL.Path)
+	providerName, restPath, ok := ParseProviderPath(outReq.URL.Path)
 	if !ok {
 		ctx := context.WithValue(outReq.Context(), keyDirectorErr, errMissingProvider)
 		*outReq = *outReq.WithContext(ctx)
@@ -274,12 +274,12 @@ func (p *Proxy) director(outReq *http.Request) {
 		return
 	}
 
-	baseURL, err := p.resolver.ResolveBaseURL(outReq.Context(), providerID)
+	baseURL, err := p.resolver.ResolveBaseURL(outReq.Context(), providerName)
 	if err != nil {
 		p.logger.WarnContext(
 			outReq.Context(),
 			"provider resolution failed",
-			slog.String("provider_id", providerID),
+			slog.String("provider_name", providerName),
 			slog.String("error", err.Error()),
 		)
 		ctx := context.WithValue(outReq.Context(), keyDirectorErr, err)
@@ -353,7 +353,7 @@ func (p *Proxy) errorHandler(w http.ResponseWriter, r *http.Request, err error) 
 	writeJSON(r.Context(), w, http.StatusBadGateway, map[string]string{"error": "upstream request failed"})
 }
 
-func ParseProviderPath(path string) (providerID, rest string, ok bool) {
+func ParseProviderPath(path string) (providerName, rest string, ok bool) {
 	const prefix = "/api/gateway/"
 	const splitParts = 2
 
@@ -367,7 +367,7 @@ func ParseProviderPath(path string) (providerID, rest string, ok bool) {
 		return "", "", false
 	}
 
-	providerID = parts[0]
+	providerName = parts[0]
 
 	if len(parts) > 1 {
 		rest = "/" + parts[1]
@@ -375,7 +375,7 @@ func ParseProviderPath(path string) (providerID, rest string, ok bool) {
 		rest = "/"
 	}
 
-	return providerID, rest, true
+	return providerName, rest, true
 }
 
 func writeJSON(ctx context.Context, w http.ResponseWriter, status int, v any) {

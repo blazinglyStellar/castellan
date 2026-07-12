@@ -83,7 +83,7 @@ PORT=8080 go run cmd/api/main.go
 
 ```bash
 PROV=$(psql -t -A "postgresql://postgres:postgres@localhost:5432/castellan?sslmode=disable" \
-  -c "SELECT id FROM providers WHERE name = 'httpbin';")
+  -c "SELECT name FROM providers WHERE name = 'httpbin';")
 
 # Happy path
 curl -v -X POST "http://localhost:8080/api/gateway/${PROV}/post" \
@@ -99,8 +99,8 @@ curl -v "http://localhost:8080/api/gateway/${PROV}/get?foo=bar" \
 curl -v "http://localhost:8080/api/gateway/${PROV}/status/500" \
   -H "Authorization: Bearer $RAW_KEY"
 
-# Invalid provider UUID
-curl -v "http://localhost:8080/api/gateway/00000000-0000-0000-0000-000000000000/post" \
+# Invalid provider name
+curl -v "http://localhost:8080/api/gateway/unknown-provider/post" \
   -H "Authorization: Bearer $RAW_KEY"
 ```
 

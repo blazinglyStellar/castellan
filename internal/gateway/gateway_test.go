@@ -307,7 +307,7 @@ func seedGatewayTestData(ctx context.Context, t *testing.T, baseURL, balance, pr
 	providerID := uuid.New()
 	_, err = testPG.Exec(ctx,
 		`INSERT INTO providers (id, owner_id, name, base_url, status) VALUES ($1, $2, $3, $4, 'active')`,
-		providerID, userID, "test-provider", baseURL)
+		providerID, userID, "weather-api", baseURL)
 	if err != nil {
 		t.Fatalf("seed provider: %v", err)
 	}
@@ -370,7 +370,7 @@ func (m *mockLedgerService) Release(_ context.Context, referenceID string) error
 func pricingMiddleware(conn *pgx.Conn) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			providerID, route, ok := parseGatewayPath(r.URL.Path)
+			providerName, route, ok := parseGatewayPath(r.URL.Path)
 			if !ok {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusBadRequest)
@@ -378,11 +378,21 @@ func pricingMiddleware(conn *pgx.Conn) func(http.Handler) http.Handler {
 				return
 			}
 
-			providerUUID, err := uuid.Parse(providerID)
+			var providerID uuid.UUID
+			err := conn.QueryRow(r.Context(),
+				`SELECT id FROM providers WHERE name = $1 AND status = 'active'`,
+				providerName,
+			).Scan(&providerID)
 			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadRequest)
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid provider name"})
+					return
+				}
 				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusBadRequest)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid provider id"})
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "provider lookup failed"})
 				return
 			}
 
@@ -394,7 +404,7 @@ func pricingMiddleware(conn *pgx.Conn) func(http.Handler) http.Handler {
 				`SELECT id, price_amount::text, currency::text, rate_limit FROM api_endpoints
 				 WHERE provider_id = $1 AND route = $2 AND status = 'active'
 				 LIMIT 1`,
-				providerUUID, route,
+				providerID, route,
 			).Scan(&endpointID, &priceAmount, &currency, &rateLimit)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
@@ -419,7 +429,7 @@ func pricingMiddleware(conn *pgx.Conn) func(http.Handler) http.Handler {
 
 			ctx := gatewaycontext.SetPricingInfo(r.Context(), gatewaycontext.PricingInfo{
 				EndpointID:  endpointID.String(),
-				ProviderID:  providerUUID.String(),
+				ProviderID:  providerID.String(),
 				PriceAmount: priceDec,
 				Currency:    gatewaycontext.Currency(currency),
 			})
@@ -436,7 +446,7 @@ func pricingMiddleware(conn *pgx.Conn) func(http.Handler) http.Handler {
 	}
 }
 
-func parseGatewayPath(path string) (providerID, rest string, ok bool) {
+func parseGatewayPath(path string) (providerName, rest string, ok bool) {
 	const prefix = "/api/gateway/"
 	const splitParts = 2
 
@@ -450,7 +460,7 @@ func parseGatewayPath(path string) (providerID, rest string, ok bool) {
 		return "", "", false
 	}
 
-	providerID = parts[0]
+	providerName = parts[0]
 
 	if len(parts) > 1 {
 		rest = "/" + parts[1]
@@ -458,7 +468,7 @@ func parseGatewayPath(path string) (providerID, rest string, ok bool) {
 		rest = "/"
 	}
 
-	return providerID, rest, true
+	return providerName, rest, true
 }
 
 func buildGatewayHandler(
@@ -527,7 +537,7 @@ func TestGatewayLifecycle(t *testing.T) {
 
 	body := strings.NewReader(`{"prompt":"hello"}`)
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		"/api/gateway/weather-api/v1/chat",
 		body)
 	req.Header.Set("Authorization", "Bearer "+testRawKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -583,7 +593,7 @@ func TestGatewayAuthFailure(t *testing.T) {
 	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
 
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		"/api/gateway/weather-api/v1/chat",
 		strings.NewReader(`{"prompt":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -638,7 +648,7 @@ func TestGatewayInsufficientBalance(t *testing.T) {
 	handler := buildGatewayHandler(testPG, ledger, proxy.DefaultConfig())
 
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		"/api/gateway/weather-api/v1/chat",
 		strings.NewReader(`{"prompt":"hello"}`))
 	req.Header.Set("Authorization", "Bearer "+insufficientRawKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -695,7 +705,7 @@ func TestGatewayUpstreamTimeout(t *testing.T) {
 	handler := buildGatewayHandler(testPG, ledger, proxyCfg)
 
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		"/api/gateway/weather-api/v1/chat",
 		strings.NewReader(`{"prompt":"hello"}`))
 	req.Header.Set("Authorization", "Bearer "+testRawKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -733,7 +743,7 @@ func TestGatewayMissingAuthHeader(t *testing.T) {
 	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
 
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		"/api/gateway/weather-api/v1/chat",
 		strings.NewReader(`{"prompt":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -764,7 +774,7 @@ func TestGatewayInvalidBearerToken(t *testing.T) {
 	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
 
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		"/api/gateway/weather-api/v1/chat",
 		strings.NewReader(`{"prompt":"hello"}`))
 	req.Header.Set("Authorization", "Bearer ca_nonexistent-key")
 	req.Header.Set("Content-Type", "application/json")
@@ -796,7 +806,7 @@ func TestGatewayWrongBearerPrefix(t *testing.T) {
 	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
 
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		"/api/gateway/weather-api/v1/chat",
 		strings.NewReader(`{"prompt":"hello"}`))
 	req.Header.Set("Authorization", "Bearer xyz_wrong-prefix")
 	req.Header.Set("Content-Type", "application/json")
@@ -853,7 +863,7 @@ func TestGatewayAPIKeyRevoked(t *testing.T) {
 	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
 
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		"/api/gateway/weather-api/v1/chat",
 		strings.NewReader(`{"prompt":"hello"}`))
 	req.Header.Set("Authorization", "Bearer "+revokedRawKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -900,7 +910,7 @@ func TestGatewayAPIKeyExpired(t *testing.T) {
 	providerID := uuid.New()
 	_, err = testPG.Exec(ctx,
 		`INSERT INTO providers (id, owner_id, name, base_url, status) VALUES ($1, $2, $3, $4, 'active')`,
-		providerID, userID, "expired-key-provider", "http://0.0.0.0:1")
+		providerID, userID, "weather-api", "http://0.0.0.0:1")
 	if err != nil {
 		t.Fatalf("seed provider: %v", err)
 	}
@@ -926,7 +936,7 @@ func TestGatewayAPIKeyExpired(t *testing.T) {
 	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
 
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/api/gateway/%s/v1/chat", providerID.String()),
+		"/api/gateway/weather-api/v1/chat",
 		strings.NewReader(`{"prompt":"hello"}`))
 	req.Header.Set("Authorization", "Bearer "+expiredRawKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -974,7 +984,7 @@ func TestGatewaySessionTokenValid(t *testing.T) {
 	handler := buildGatewayHandler(testPG, ledger, proxy.DefaultConfig())
 
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		"/api/gateway/weather-api/v1/chat",
 		strings.NewReader(`{"prompt":"hello"}`))
 	req.Header.Set("Authorization", "Bearer "+rawToken)
 	req.Header.Set("Content-Type", "application/json")
@@ -1036,7 +1046,7 @@ func TestGatewaySessionTokenRevoked(t *testing.T) {
 	handler := buildGatewayHandler(testPG, tracker, proxy.DefaultConfig())
 
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		"/api/gateway/weather-api/v1/chat",
 		strings.NewReader(`{"prompt":"hello"}`))
 	req.Header.Set("Authorization", "Bearer "+rawToken)
 	req.Header.Set("Content-Type", "application/json")
@@ -1085,7 +1095,7 @@ func TestGatewayRateLimit_WithinLimit(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		req := httptest.NewRequest(http.MethodPost,
-			fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+			"/api/gateway/weather-api/v1/chat",
 			strings.NewReader(`{"prompt":"hello"}`))
 		req.Header.Set("Authorization", "Bearer "+testRawKey)
 		req.Header.Set("Content-Type", "application/json")
@@ -1125,7 +1135,7 @@ func TestGatewayRateLimit_Exceeded(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		req := httptest.NewRequest(http.MethodPost,
-			fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+			"/api/gateway/weather-api/v1/chat",
 			strings.NewReader(`{"prompt":"hello"}`))
 		req.Header.Set("Authorization", "Bearer "+testRawKey)
 		req.Header.Set("Content-Type", "application/json")
@@ -1139,7 +1149,7 @@ func TestGatewayRateLimit_Exceeded(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+		"/api/gateway/weather-api/v1/chat",
 		strings.NewReader(`{"prompt":"hello"}`))
 	req.Header.Set("Authorization", "Bearer "+testRawKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -1189,7 +1199,7 @@ func TestGatewayRateLimit_UnlimitedEndpoint(t *testing.T) {
 
 	for i := 0; i < 20; i++ {
 		req := httptest.NewRequest(http.MethodPost,
-			fmt.Sprintf("/api/gateway/%s/v1/chat", seed.ProviderID.String()),
+			"/api/gateway/weather-api/v1/chat",
 			strings.NewReader(`{"prompt":"hello"}`))
 		req.Header.Set("Authorization", "Bearer "+testRawKey)
 		req.Header.Set("Content-Type", "application/json")
@@ -1244,7 +1254,7 @@ func TestGatewayRateLimit_ConsumerIsolation(t *testing.T) {
 
 	doRequest := func(key string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost,
-			fmt.Sprintf("/api/gateway/%s/v1/chat", seedA.ProviderID.String()),
+			"/api/gateway/weather-api/v1/chat",
 			strings.NewReader(`{"prompt":"hello"}`))
 		req.Header.Set("Authorization", "Bearer "+key)
 		req.Header.Set("Content-Type", "application/json")
