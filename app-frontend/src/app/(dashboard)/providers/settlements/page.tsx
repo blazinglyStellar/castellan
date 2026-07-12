@@ -66,11 +66,11 @@ const STELLAR_EXPLORER_URL = getStellarExplorerUrl()
 export default function ProviderSettlementsPage() {
   const { isLoading: isAccountLoading } = useAuth()
 
-  const [statusFilter, setStatusFilter] = useState(" ")
+  const [statusFilter, setStatusFilter] = useState("")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
 
-  const resolvedStatus = statusFilter !== " " ? statusFilter : undefined
+  const resolvedStatus = statusFilter !== "" ? statusFilter : undefined
 
   const meQuery = useQuery({
     queryKey: ["me"],
@@ -87,6 +87,7 @@ export default function ProviderSettlementsPage() {
   const earningsQuery = useQuery({
     queryKey: ["earnings", startDate, endDate],
     queryFn: () => getEarnings(dateParams),
+    refetchInterval: 30_000,
   })
 
   const summaryQuery = useQuery({
@@ -288,11 +289,11 @@ export default function ProviderSettlementsPage() {
       <div className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">Status:</span>
         <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? "")}>
-          <SelectTrigger className="w-40 bg-background data-placeholder:text-foreground">
-            <SelectValue />
+          <SelectTrigger className="w-40 bg-background text-foreground">
+            <SelectValue placeholder="All Statuses" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value=" ">All Statuses</SelectItem>
+            <SelectItem value="">All Statuses</SelectItem>
             <SelectItem value="completed">Completed</SelectItem>
             <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="failed">Failed</SelectItem>
@@ -377,12 +378,14 @@ function ThresholdSection({
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
-          <div
-            className={`h-full rounded-full transition-all ${
-              isReady ? "bg-emerald-500" : "bg-primary"
-            }`}
-            style={{ width: `${Math.max(progress, 2)}%` }}
-          />
+          {progress > 0 && (
+            <div
+              className={`h-full rounded-full transition-all ${
+                isReady ? "bg-emerald-500" : "bg-primary"
+              }`}
+              style={{ width: `${Math.max(progress, 1)}%` }}
+            />
+          )}
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="font-mono text-xs">
