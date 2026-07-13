@@ -409,6 +409,19 @@ curl -X POST http://localhost:8080/api/gateway/{provider_name}/{upstream_path} \
   -H "Content-Type: application/json" \
   -d '{}'
 ```
+┌──────────────┐     ┌─────────────────────────────────────────────────────┐
+│   Consumer   │────▶│                  Castellan Gateway                    │
+│  (API Key)   │     │  ┌─────────┐ ┌──────────┐ ┌──────────┐ ┌────────┐  │
+└──────────────┘     │  │  Auth   │ │ Pricing  │ │ Ledger   │ │ Proxy  │  │
+                     │  │ Layer   │ │ Engine   │ │ Service  │ │ Engine │  │
+                     │  └─────────┘ └──────────┘ └──────────┘ └────────┘  │
+                     └────────────────────┬────────────────────────────────┘
+                                          │
+                                          ▼
+                              ┌──────────────────────┐
+                              │   Provider API        │
+                              │   (upstream service)  │
+                              └──────────────────────┘
 
 **Session token (temporary, scoped).** Best for the dashboard, CLI
 tools, and any short-lived caller. Each token is created with an
