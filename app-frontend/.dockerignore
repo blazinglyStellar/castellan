@@ -1,0 +1,17 @@
+.dockerignore
+.dockerignore
+.git
+.gitignore
+.vercel
+.next
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+README.md
+*.md
+coverage
+.husky
+.eslintrc.json
+prettier.config.js
+tsconfig.json

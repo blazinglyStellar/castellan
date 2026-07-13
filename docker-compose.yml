@@ -1,15 +1,106 @@
 services:
-  psql_bp:
-    image: postgres:latest
+  postgres:
+    image: postgres:17
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${BLUEPRINT_DB_DATABASE}
-      POSTGRES_USER: ${BLUEPRINT_DB_USERNAME}
-      POSTGRES_PASSWORD: ${BLUEPRINT_DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "${BLUEPRINT_DB_PORT}:5432"
+      - "${DB_PORT}:5432"
     volumes:
-      - psql_volume_bp:/var/lib/postgresql/data
+      - psql_volume:/var/lib/postgresql/data
+    networks:
+      - castellan
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - castellan
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    command: ["/bin/castellan-api"]
+    ports:
+      - "${PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+    environment:
+      PORT: ${PORT:-8080}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_SCHEMA: ${DB_SCHEMA:-public}
+      DATABASE_URL: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
+      REDIS_URL: redis://redis:6379/0
+      STELLAR_HORIZON: ${STELLAR_HORIZON:-https://horizon-testnet.stellar.org}
+      STELLAR_NETWORK: ${STELLAR_NETWORK:-testnet}
+      STELLAR_HOT_WALLET_ADDRESS: ${STELLAR_HOT_WALLET_ADDRESS}
+      WALLET_SECRET_KEY: ${WALLET_SECRET_KEY}
+      STELLAR_DEPOSIT_MIN_AMOUNT: ${STELLAR_DEPOSIT_MIN_AMOUNT:-5}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+      MAX_BODY_SIZE: ${MAX_BODY_SIZE:-10485760}
+      UPSTREAM_CONNECT_TIMEOUT: ${UPSTREAM_CONNECT_TIMEOUT:-5s}
+      UPSTREAM_READ_TIMEOUT: ${UPSTREAM_READ_TIMEOUT:-30s}
+      UPSTREAM_WRITE_TIMEOUT: ${UPSTREAM_WRITE_TIMEOUT:-30s}
+      RETRY_MAX_RETRIES: ${RETRY_MAX_RETRIES:-3}
+      RETRY_BASE_DELAY: ${RETRY_BASE_DELAY:-200ms}
+      RETRY_MAX_DELAY: ${RETRY_MAX_DELAY:-3s}
+      SESSION_STORE_SECRET: ${SESSION_STORE_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      DASHBOARD_URL: ${DASHBOARD_URL}
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8080}
+      SETTLEMENT_MIN_THRESHOLD: ${SETTLEMENT_MIN_THRESHOLD:-5}
+    networks:
+      - castellan
+
+  settlement-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    command: ["/bin/castellan-worker"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_started
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_SCHEMA: ${DB_SCHEMA:-public}
+      DATABASE_URL: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
+      STELLAR_HORIZON: ${STELLAR_HORIZON:-https://horizon-testnet.stellar.org}
+      STELLAR_NETWORK: ${STELLAR_NETWORK:-testnet}
+      STELLAR_HOT_WALLET_ADDRESS: ${STELLAR_HOT_WALLET_ADDRESS}
+      WALLET_SECRET_KEY: ${WALLET_SECRET_KEY}
+      STELLAR_DEPOSIT_MIN_AMOUNT: ${STELLAR_DEPOSIT_MIN_AMOUNT:-5}
+      SETTLEMENT_INTERVAL: ${SETTLEMENT_INTERVAL:-5m}
+      SETTLEMENT_MIN_THRESHOLD: ${SETTLEMENT_MIN_THRESHOLD:-5}
+    networks:
+      - castellan
 
 volumes:
-  psql_volume_bp:
+  psql_volume:
+  redis_data:
+
+networks:
+  castellan:

@@ -1,0 +1,60 @@
+-- name: InsertLedgerEntry :one
+INSERT INTO ledger_entries (
+    user_id, entry_type, amount, balance_after, currency,
+    reference_id, reference_type, status, description
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9
+)
+RETURNING *;
+
+-- name: GetLedgerEntryByID :one
+SELECT * FROM ledger_entries
+WHERE id = $1
+LIMIT 1;
+
+-- name: GetLedgerEntryByReferenceID :one
+SELECT * FROM ledger_entries
+WHERE reference_id = $1
+LIMIT 1;
+
+-- name: ListLedgerEntriesByAccount :many
+SELECT * FROM ledger_entries
+WHERE user_id = $1
+ORDER BY created_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: ListLedgerEntriesByAccountAndType :many
+SELECT * FROM ledger_entries
+WHERE user_id = $1 AND entry_type = $2
+ORDER BY created_at DESC
+LIMIT $3 OFFSET $4;
+
+-- name: UpdateLedgerEntryStatus :one
+UPDATE ledger_entries
+SET status = $2
+WHERE id = $1
+RETURNING *;
+
+-- name: CountLedgerEntriesByAccount :one
+SELECT COUNT(*) FROM ledger_entries
+WHERE user_id = $1;
+
+-- name: CountLedgerEntriesByAccountAndType :one
+SELECT COUNT(*) FROM ledger_entries
+WHERE user_id = $1 AND entry_type = $2;
+
+-- name: GetLedgerEntryByIDAndOwner :one
+SELECT le.* FROM ledger_entries le
+WHERE le.id = $1 AND le.user_id = $2
+LIMIT 1;
+
+-- name: MarkProviderLedgerEntriesSettled :many
+UPDATE ledger_entries le
+SET reference_id = $2, reference_type = $3
+FROM usage_events ue
+WHERE le.user_id = ue.consumer_id
+  AND ue.provider_id = $1
+  AND ue.status = 'completed'
+  AND le.entry_type = 'deduction'
+  AND le.reference_id IS NULL
+RETURNING le.*;

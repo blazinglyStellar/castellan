@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-primary: #4361ee;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f72585;
+  --color-secondary-foreground: #ffffff;
+  --color-tertiary: #4cc9f0;
+  --color-tertiary-foreground: #ffffff;
+
+  --color-background: #f8fafc;
+  --color-foreground: #0f172a;
+
+  --color-card: #ffffff;
+  --color-card-foreground: #0f172a;
+
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+
+  --color-border: #e2e8f0;
+  --color-ring: #4361ee;
+  --color-input: #e2e8f0;
+  --color-input-hover: #cbd5e1;
+
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0f172a;
+
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-success: #10b981;
+  --color-success-foreground: #ffffff;
+  --color-warning: #f59e0b;
+  --color-warning-foreground: #ffffff;
+
+  --color-sidebar: #ffffff;
+  --color-sidebar-foreground: #0f172a;
+  --color-sidebar-muted: #f8fafc;
+  --color-sidebar-muted-foreground: #64748b;
+  --color-sidebar-border: #f1f5f9;
+  --color-sidebar-accent: #eef1ff;
+  --color-sidebar-accent-foreground: #4361ee;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --radius: 0.5rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+  --shadow-modal: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.03);
+
+  --color-chart-1: #4361ee;
+  --color-chart-2: #4cc9f0;
+  --color-chart-3: #f72585;
+  --color-chart-4: #7209b7;
+  --color-chart-5: #f59e0b;
+}
+
+.dark {
+  --color-background: #0f172a;
+  --color-foreground: #f1f5f9;
+
+  --color-card: #1e293b;
+  --color-card-foreground: #f1f5f9;
+
+  --color-muted: #1e293b;
+  --color-muted-foreground: #94a3b8;
+
+  --color-border: #334155;
+  --color-input: #334155;
+  --color-input-hover: #475569;
+
+  --color-popover: #1e293b;
+  --color-popover-foreground: #f1f5f9;
+
+  --color-sidebar: #1e293b;
+  --color-sidebar-foreground: #f1f5f9;
+  --color-sidebar-muted: #0f172a;
+  --color-sidebar-muted-foreground: #94a3b8;
+  --color-sidebar-border: #334155;
+  --color-sidebar-accent: #1e3a5f;
+  --color-sidebar-accent-foreground: #80b1ff;
+
+  --color-primary: #5b7aff;
+  --color-primary-foreground: #ffffff;
+
+  --color-secondary: #d4145a;
+  --color-secondary-foreground: #ffffff;
+  --color-tertiary: #3db8d9;
+  --color-tertiary-foreground: #ffffff;
+  --color-ring: #80b1ff;
+
+  --color-destructive: #f87171;
+  --color-destructive-foreground: #1a0a0a;
+  --color-success: #34d399;
+  --color-success-foreground: #0a1a10;
+  --color-warning: #fbbf24;
+  --color-warning-foreground: #1a1400;
+
+  --color-chart-1: #5b7aff;
+  --color-chart-2: #3db8d9;
+  --color-chart-3: #ff4081;
+  --color-chart-4: #9c27b0;
+  --color-chart-5: #ffb74d;
+
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.2);
+  --shadow-modal: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.2);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}

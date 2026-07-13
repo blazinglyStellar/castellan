@@ -46,12 +46,10 @@ jobs:
         run: go mod download
 
       - name: Run Integration Tests
-        # Pass database connection details via environment variables
         env:
           DB_HOST: localhost
           DB_PORT: 5432
           DB_USER: postgres
           DB_PASSWORD: postgres
           DB_NAME: castellan
-        # Runs only tests matching build tags or naming conventions
-        run: go test -v -tags=integration ./integration/...
+        run: go test -v -tags=integration ./internal/provider/... ./internal/database/... ./internal/gateway/... ./internal/ledger/... ./internal/settlement/...

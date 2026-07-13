@@ -3,6 +3,7 @@
 
 # Frontend (separate deployment)
 dashboard/
+dashboard-*/
 
 # Secrets
 .env
@@ -53,3 +54,4 @@ go.work.sum
 
 # Docker compose (not for image)
 docker-compose.yml
+app-frontend/

@@ -37,3 +37,13 @@ main
 
 # OS X generated file
 .DS_Store
+
+.opencode/
+.graphify/
+graphify-out/
+bin/
+api
+worker
+!app-frontend/src/lib/api/
+dashboard-v3/
+stitch*
