@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue
+    url: https://github.com/blazinglyStellar/castellan/security/advisories/new
+    about: Report a security vulnerability via GitHub Security Advisory.

@@ -4,6 +4,45 @@
 
 ---
 
+## Table of Contents
+
+- [Why Castellan?](#why-castellan)
+- [Request Lifecycle](#request-lifecycle)
+- [Architecture](#architecture)
+  - [Core Components](#core-components)
+- [Data Model](#data-model)
+  - [Core Tables](#core-tables)
+  - [Ledger Entry Types](#ledger-entry-types)
+- [Ledger & Prepaid Balances](#ledger--prepaid-balances)
+  - [Account endpoints](#account-endpoints)
+- [Deposits](#deposits)
+  - [Memo-based routing (⚠️ critical)](#memo-based-routing-️-critical)
+  - [Watcher architecture](#watcher-architecture)
+- [Settlement](#settlement)
+  - [Settlement cycle](#settlement-cycle)
+  - [Worker](#worker)
+  - [Configuration](#configuration)
+  - [Settlement history API](#settlement-history-api)
+- [Authentication](#authentication)
+  - [Credential types](#credential-types)
+  - [Credential management endpoints](#credential-management-endpoints)
+  - [Key lifecycle](#key-lifecycle)
+  - [Security notes](#security-notes)
+- [Provider Management API](#provider-management-api)
+  - [Provider endpoints](#provider-endpoints)
+  - [Provider lifecycle](#provider-lifecycle)
+  - [Ownership model](#ownership-model)
+- [Endpoint Management API](#endpoint-management-api)
+  - [Endpoint endpoints](#endpoint-endpoints)
+  - [Status lifecycle](#status-lifecycle)
+  - [Seed data](#seed-data)
+- [Features (Backlog)](#features-backlog)
+- [Stack](#stack)
+- [Getting Started](#getting-started)
+- [Project Structure](#project-structure)
+
+---
+
 ## Why Castellan?
 
 **The problem.** Most API monetization relies on monthly subscriptions, Stripe billing, or unsustainable free tiers. This model is rigid: consumers overpay for unused capacity, small APIs can't justify a billing system, and there is no infrastructure for machine-to-machine or AI-agent payments. API providers face overhead just to meter usage, manage subscriptions, and reconcile payments.
@@ -78,7 +117,7 @@ All stages produce structured JSON log lines with correlation IDs for observabil
 ### Core Components
 
 #### Gateway Service (Go)
-HTTP server using Chi router with middleware chain: auth → pricing → ledger → rate-limit → proxy → usage-commit. Uses `httputil.ReverseProxy` for efficient upstream forwarding with configurable timeouts, retry policies, and request size limits. Structured logging via zap with request ID correlation.
+HTTP server using `net/http` `ServeMux` with middleware chain: auth → pricing → ledger → rate-limit → proxy → usage-commit. Uses `httputil.ReverseProxy` for efficient upstream forwarding with configurable timeouts, retry policies, and request size limits. Structured logging via `log/slog` with request ID correlation.
 
 #### Pricing Engine
 Endpoint-based fixed per-request pricing. Each provider registers routes with a `price_amount` and `currency` (XLM or USDC). Pricing is resolved by matching `(provider_id, route, method)` and cached for low-latency lookups.
@@ -543,12 +582,12 @@ make seed
 
 | Layer | Technology |
 |---|---|
-| **Gateway** | Go 1.26, Chi router, httputil.ReverseProxy |
+| **Gateway** | Go 1.26, net/http ServeMux, httputil.ReverseProxy |
 | **Database** | PostgreSQL, pgx v5 via database/sql, sqlc (codegen), goose (migrations) |
 | **Cache** | Redis (rate limiting, temporary reservations) |
 | **Settlement** | Stellar network (XLM), SEP-7 URIs |
 | **Frontend** | Next.js 15 (App Router), Tailwind CSS, shadcn/ui, React Query |
-| **Logging** | zap structured JSON logging |
+| **Logging** | slog structured JSON logging |
 | **Infrastructure** | Docker Compose (Postgres, Redis, API, Settlement Worker) |
 
 ---
@@ -568,7 +607,7 @@ make itest # Run integration tests (requires Docker)
 go test -race -count=1 ./... # Run full suite with race detection
 
 # Frontend
-cd dashboard-v3
+cd app-frontend
 npm run dev
 ```
 
@@ -588,7 +627,7 @@ castellan/
 │   ├── server/           # HTTP server, routes, middleware
 │   └── repository/       # sqlc-generated query layer (db/ + query/)
 ├── migrations/           # Goose SQL migrations
-├── dashboard-v3/         # Next.js 15 web dashboard
+├── app-frontend/         # Next.js 15 web dashboard
 ├── docs/                 # PRD, MVP spec, architecture docs
 ├── docker-compose.yml    # Postgres + Redis + API + Settlement Worker for local dev
 └── sqlc.yaml             # sqlc codegen config

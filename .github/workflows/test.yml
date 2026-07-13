@@ -1,16 +1,11 @@
-name: Run tests and upload coverage
+name: Test
 
-on: 
+on:
   pull_request:
-  push:
-    branches:
-        - main
-        - master
-        - deploy
 
 env:
   GO_VERSION: stable
-  
+
 jobs:
   test:
     name: Run tests and collect coverage
@@ -24,16 +19,20 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }} # Dynamically uses the latest Go version
-          cache: true               # Speeds up subsequent runs by caching go modules
-
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
 
       - name: Install dependencies
         run: go mod download
 
       - name: Run tests
-        run: go test -race -count=1 -covermode=atomic ./... -coverprofile=coverage.txt
+        run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
 
-      - name: Upload results to Codecov
+      - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
-       
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
