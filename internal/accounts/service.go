@@ -196,6 +196,33 @@ func (s *Service) GetEntry(ctx context.Context, entryID, ownerID uuid.UUID) (*En
 	return toEntryResponse(entry)
 }
 
+func (s *Service) SetPayoutAddress(ctx context.Context, userID uuid.UUID, address string) (*User, error) {
+	user, err := s.queries.SetUserPayoutAddress(ctx, repository.SetUserPayoutAddressParams{
+		ID:                   userID,
+		PayoutStellarAddress: pgtype.Text{String: address, Valid: true},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("set payout address: %w", err)
+	}
+	return &User{
+		ID:                   user.ID,
+		Email:                user.Email,
+		DepositMemo:          user.DepositMemo.String,
+		PayoutStellarAddress: user.PayoutStellarAddress.String,
+		CreatedAt:            user.CreatedAt.Format(isoFormat),
+		UpdatedAt:            user.UpdatedAt.Format(isoFormat),
+	}, nil
+}
+
+type User struct {
+	ID                   uuid.UUID `json:"id"`
+	Email                string    `json:"email"`
+	DepositMemo          string    `json:"deposit_memo,omitempty"`
+	PayoutStellarAddress string    `json:"payout_stellar_address,omitempty"`
+	CreatedAt            string    `json:"created_at"`
+	UpdatedAt            string    `json:"updated_at"`
+}
+
 func numericToDecimal(n pgtype.Numeric) (decimal.Decimal, error) {
 	if !n.Valid {
 		return decimal.Zero, nil

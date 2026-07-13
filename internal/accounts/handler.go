@@ -5,10 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-
-	"github.com/google/uuid"
+	"strings"
 
 	gatewaycontext "castellan/internal/gateway/context"
+
+	"github.com/google/uuid"
+	"github.com/stellar/go-stellar-sdk/clients/horizonclient"
+	"github.com/stellar/go-stellar-sdk/keypair"
 )
 
 const errKey = "error"
@@ -19,11 +22,12 @@ const (
 )
 
 type Handler struct {
-	service *Service
+	service    *Service
+	horizonURL string
 }
 
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service *Service, horizonURL string) *Handler {
+	return &Handler{service: service, horizonURL: horizonURL}
 }
 
 func (h *Handler) resolveOwnerID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
@@ -161,6 +165,66 @@ func (h *Handler) GetEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, entry)
+}
+
+type updatePayoutAddressRequest struct {
+	PayoutStellarAddress string `json:"payout_stellar_address"`
+}
+
+func (h *Handler) CheckPayoutAddress(w http.ResponseWriter, r *http.Request) {
+	addr := strings.TrimSpace(r.URL.Query().Get("address"))
+	if addr == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "address query parameter is required"})
+		return
+	}
+
+	if _, err := keypair.Parse(addr); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "message": "invalid stellar address format"})
+		return
+	}
+
+	client := horizonclient.Client{
+		HorizonURL: h.horizonURL,
+		HTTP:       horizonclient.DefaultTestNetClient.HTTP,
+	}
+	if _, err := client.AccountDetail(horizonclient.AccountRequest{AccountID: addr}); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "message": "address not found on the stellar network"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"valid": true})
+}
+
+func (h *Handler) UpdatePayoutAddress(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := h.resolveOwnerID(w, r)
+	if !ok {
+		return
+	}
+
+	var req updatePayoutAddressRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid request body"})
+		return
+	}
+
+	addr := strings.TrimSpace(req.PayoutStellarAddress)
+	if addr == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "payout_stellar_address is required"})
+		return
+	}
+
+	if _, err := keypair.Parse(addr); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{errKey: "invalid stellar address"})
+		return
+	}
+
+	user, err := h.service.SetPayoutAddress(r.Context(), ownerID, addr)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{errKey: "failed to save payout address"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, user)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

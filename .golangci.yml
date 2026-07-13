@@ -8,6 +8,7 @@ formatters:
     generated: lax
     paths:
       - dashboard-v3/*
+      - app-frontend/*
       - third_party$
       - builtin$
       - examples$
@@ -79,6 +80,7 @@ linters:
     generated: lax
     paths:
       - dashboard-v3/
+      - app-frontend/
       - third_party$
       - builtin$
       - examples$

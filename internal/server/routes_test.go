@@ -109,6 +109,26 @@ func (m *mockQuerier) GetProviderByID(_ context.Context, id uuid.UUID) (reposito
 	return p, nil
 }
 
+func (m *mockQuerier) GetProviderByName(_ context.Context, name string) (repository.GetProviderByNameRow, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.providers {
+		if p.Name == name {
+			return repository.GetProviderByNameRow{
+				ID:          p.ID,
+				BaseUrl:     p.BaseUrl,
+				Name:        p.Name,
+				OwnerID:     p.OwnerID,
+				Status:      p.Status,
+				Description: p.Description,
+				CreatedAt:   p.CreatedAt,
+				UpdatedAt:   p.UpdatedAt,
+			}, nil
+		}
+	}
+	return repository.GetProviderByNameRow{}, pgx.ErrNoRows
+}
+
 func (m *mockQuerier) ListProvidersByOwner(_ context.Context, ownerID uuid.UUID) ([]repository.Provider, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -615,9 +635,19 @@ func TestGatewayChain_Success(t *testing.T) {
 
 	s, mq := newTestServer(upstream.URL, decimal.NewFromFloat(100))
 
-	providerID := uuid.New()
-	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
-		ProviderID: providerID,
+	providerName := "weather-api"
+	provider, err := mq.CreateProvider(context.Background(), repository.CreateProviderParams{
+		OwnerID: uuid.New(),
+		Name:    providerName,
+		BaseUrl: upstream.URL,
+		Status:  repository.ProviderStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID: provider.ID,
 		Route:      "/echo", Method: http.MethodPost,
 		PriceAmount: testPriceAmount(),
 		Currency:    repository.CurrencyXLM,
@@ -629,7 +659,7 @@ func TestGatewayChain_Success(t *testing.T) {
 
 	handler := s.RegisterRoutes()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/echo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/weather-api/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
 
 	rec := httptest.NewRecorder()
@@ -648,9 +678,19 @@ func TestGatewayChain_InsufficientBalance(t *testing.T) {
 
 	s, mq := newTestServer(upstream.URL, decimal.NewFromFloat(1))
 
-	providerID := uuid.New()
-	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
-		ProviderID: providerID,
+	providerName := "weather-api"
+	provider, err := mq.CreateProvider(context.Background(), repository.CreateProviderParams{
+		OwnerID: uuid.New(),
+		Name:    providerName,
+		BaseUrl: upstream.URL,
+		Status:  repository.ProviderStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID: provider.ID,
 		Route:      "/echo", Method: http.MethodPost,
 		PriceAmount: testPriceAmount(),
 		Currency:    repository.CurrencyXLM,
@@ -662,7 +702,7 @@ func TestGatewayChain_InsufficientBalance(t *testing.T) {
 
 	handler := s.RegisterRoutes()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/echo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/weather-api/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
 
 	rec := httptest.NewRecorder()
@@ -683,14 +723,13 @@ func TestGatewayChain_MissingConsumerContext(t *testing.T) {
 
 	handler := s.RegisterRoutes()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/unknown-provider/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	// AuthCheck passes (key is valid) but PricingResolver cannot find endpoint
-	// because no endpoint was seeded → 404
+	// AuthCheck passes (key is valid) but PricingResolver cannot find provider → 404
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
@@ -706,13 +745,13 @@ func TestGatewayChain_MissingPricingContext(t *testing.T) {
 
 	handler := s.RegisterRoutes()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/echo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/unknown-provider/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	// AuthCheck passes then PricingResolver cannot find the endpoint → 404
+	// AuthCheck passes then PricingResolver cannot find the provider → 404
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
@@ -748,14 +787,19 @@ func newTestServerWithProviders() (*Server, uuid.UUID, *mockQuerier) {
 		sessionValidator: &testSessionValidator{},
 		providerHandler:  provider.NewProviderHandler(providerSvc),
 		endpointHandler:  provider.NewEndpointHandler(endpointSvc),
-		accountHandler:   accounts.NewHandler(accountSvc),
+		accountHandler:   accounts.NewHandler(accountSvc, ""),
 	}, userID, mq
 }
 
 func newTestPricingResolver(mq *mockQuerier) middleware.EndpointPricingResolver {
-	return middleware.EndpointPricingResolverFunc(func(ctx context.Context, providerID uuid.UUID, route, method string) (*middleware.EndpointResolution, error) {
+	return middleware.EndpointPricingResolverFunc(func(ctx context.Context, providerName string, route, method string) (*middleware.EndpointResolution, error) {
+		provider, err := mq.GetProviderByName(ctx, providerName)
+		if err != nil {
+			return nil, err
+		}
+
 		endpoint, err := mq.GetEndpointByProviderRouteMethod(ctx, repository.GetEndpointByProviderRouteMethodParams{
-			ProviderID: providerID,
+			ProviderID: provider.ID,
 			Route:      route,
 			Method:     method,
 		})
@@ -827,7 +871,7 @@ func newTestServerWithAccounts(upstreamURL string, consumerID uuid.UUID, initial
 		ledger:           mls,
 		keyValidator:     keyValidator,
 		sessionValidator: &testSessionValidator{},
-		accountHandler:   accounts.NewHandler(accountSvc),
+		accountHandler:   accounts.NewHandler(accountSvc, ""),
 	}, mq, mls
 }
 
@@ -876,9 +920,18 @@ func TestGatewayLifecycle_BalanceDecreases(t *testing.T) {
 	s, mq, mls := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(100))
 	seedUser(t, mq, consumerID, decimal.NewFromFloat(100))
 
-	providerID := uuid.New()
-	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
-		ProviderID: providerID,
+	provider, err := mq.CreateProvider(context.Background(), repository.CreateProviderParams{
+		OwnerID: consumerID,
+		Name:    "weather-api",
+		BaseUrl: upstream.URL,
+		Status:  repository.ProviderStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID: provider.ID,
 		Route:      "/echo", Method: http.MethodPost,
 		PriceAmount: testPriceAmount(),
 		Currency:    repository.CurrencyXLM,
@@ -890,7 +943,7 @@ func TestGatewayLifecycle_BalanceDecreases(t *testing.T) {
 
 	handler := s.RegisterRoutes()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/echo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/weather-api/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
 
 	rec := httptest.NewRecorder()
@@ -916,9 +969,18 @@ func TestGatewayLifecycle_UpstreamFailure(t *testing.T) {
 	s, mq, mls := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(100))
 	seedUser(t, mq, consumerID, decimal.NewFromFloat(100))
 
-	providerID := uuid.New()
-	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
-		ProviderID: providerID,
+	provider, err := mq.CreateProvider(context.Background(), repository.CreateProviderParams{
+		OwnerID: consumerID,
+		Name:    "weather-api",
+		BaseUrl: upstream.URL,
+		Status:  repository.ProviderStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID: provider.ID,
 		Route:      "/echo", Method: http.MethodPost,
 		PriceAmount: testPriceAmount(),
 		Currency:    repository.CurrencyXLM,
@@ -930,7 +992,7 @@ func TestGatewayLifecycle_UpstreamFailure(t *testing.T) {
 
 	handler := s.RegisterRoutes()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/echo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/weather-api/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
 
 	rec := httptest.NewRecorder()
@@ -952,9 +1014,18 @@ func TestGatewayInsufficientBalance_NoEntries(t *testing.T) {
 	s, mq, _ := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(5))
 	seedUser(t, mq, consumerID, decimal.NewFromFloat(5))
 
-	providerID := uuid.New()
-	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
-		ProviderID: providerID,
+	provider, err := mq.CreateProvider(context.Background(), repository.CreateProviderParams{
+		OwnerID: consumerID,
+		Name:    "weather-api",
+		BaseUrl: upstream.URL,
+		Status:  repository.ProviderStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID: provider.ID,
 		Route:      "/echo", Method: http.MethodPost,
 		PriceAmount: testPriceAmount(),
 		Currency:    repository.CurrencyXLM,
@@ -966,7 +1037,7 @@ func TestGatewayInsufficientBalance_NoEntries(t *testing.T) {
 
 	handler := s.RegisterRoutes()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/echo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/gateway/weather-api/echo", nil)
 	req.Header.Set("Authorization", "Bearer ca_test-key")
 
 	rec := httptest.NewRecorder()
@@ -996,9 +1067,18 @@ func TestGatewayLifecycle_BalanceEndpoint(t *testing.T) {
 	s, mq, _ := newTestServerWithAccounts(upstream.URL, consumerID, decimal.NewFromFloat(100))
 	seedUser(t, mq, consumerID, decimal.NewFromFloat(100))
 
-	providerID := uuid.New()
-	_, err := mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
-		ProviderID: providerID,
+	provider, err := mq.CreateProvider(context.Background(), repository.CreateProviderParams{
+		OwnerID: consumerID,
+		Name:    "weather-api",
+		BaseUrl: upstream.URL,
+		Status:  repository.ProviderStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
+		ProviderID: provider.ID,
 		Route:      "/echo", Method: http.MethodPost,
 		PriceAmount: testPriceAmount(),
 		Currency:    repository.CurrencyXLM,
@@ -1010,7 +1090,7 @@ func TestGatewayLifecycle_BalanceEndpoint(t *testing.T) {
 
 	handler := s.RegisterRoutes()
 
-	gatewayReq := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/echo", nil)
+	gatewayReq := httptest.NewRequest(http.MethodPost, "/api/gateway/weather-api/echo", nil)
 	gatewayReq.Header.Set("Authorization", "Bearer ca_test-key")
 
 	rec1 := httptest.NewRecorder()
@@ -1512,6 +1592,33 @@ func TestEndpointUpdateStatusRoute_Authenticated(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCheckPayoutAddressRoute_ReturnsValidJSON(t *testing.T) {
+	consumerID := uuid.New()
+	s, mq, _ := newTestServerWithAccounts("http://example.com", consumerID, decimal.NewFromFloat(50))
+	seedUser(t, mq, consumerID, decimal.NewFromFloat(50))
+
+	handler := s.RegisterRoutes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me/payout/check?address=GAXZHJXFVX3N4CVVN4O3BNZ5R34BJQFV2M3SJLO4ZIZN4HX5Q5YQ5ABC", nil)
+	req = authenticatedRequest(req, consumerID.String())
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response as JSON — got raw body: %s", rec.Body.String())
+	}
+
+	if _, ok := body["valid"]; !ok {
+		t.Fatalf("response missing 'valid' field. Body: %s", rec.Body.String())
 	}
 }
 

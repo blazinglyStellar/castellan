@@ -6,4 +6,4 @@ reviews:
     - path: "**/*.go"
       instructions: "Review for Go idioms, error handling, race conditions, and performance."
 chat:
-  auto_reply: true
+  auto_reply: true  

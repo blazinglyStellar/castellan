@@ -1098,15 +1098,14 @@ paths:
   # ──────────────────────────────────────────────
   #   Gateway
   # ──────────────────────────────────────────────
-  /api/gateway/{providerId}/{endpoint*}:
+  /api/gateway/{providerName}/{endpoint*}:
     parameters:
-      - name: providerId
+      - name: providerName
         in: path
         required: true
         schema:
           type: string
-          format: uuid
-        description: Provider ID
+        description: Provider name (e.g. `weather-api`)
       - name: endpoint
         in: path
         required: true

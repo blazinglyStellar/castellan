@@ -12,6 +12,7 @@ import (
 )
 
 type Querier interface {
+	CompleteOnboarding(ctx context.Context, id uuid.UUID) (bool, error)
 	ConfirmDeposit(ctx context.Context, id uuid.UUID) (Deposit, error)
 	CountLedgerEntriesByAccount(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountLedgerEntriesByAccountAndType(ctx context.Context, arg CountLedgerEntriesByAccountAndTypeParams) (int64, error)
@@ -40,6 +41,7 @@ type Querier interface {
 	GetLedgerEntryByReferenceID(ctx context.Context, referenceID pgtype.UUID) (LedgerEntry, error)
 	GetProviderBaseURL(ctx context.Context, id uuid.UUID) (string, error)
 	GetProviderByID(ctx context.Context, id uuid.UUID) (Provider, error)
+	GetProviderByName(ctx context.Context, name string) (GetProviderByNameRow, error)
 	GetProviderStats(ctx context.Context) ([]GetProviderStatsRow, error)
 	GetSessionTokenByHash(ctx context.Context, tokenHash string) (SessionToken, error)
 	GetSettlementBatchByID(ctx context.Context, id uuid.UUID) (SettlementBatch, error)
@@ -47,6 +49,7 @@ type Querier interface {
 	GetSettlementEntryByID(ctx context.Context, id uuid.UUID) (SettlementEntry, error)
 	GetSettlementMonthlyHistoryByOwner(ctx context.Context, arg GetSettlementMonthlyHistoryByOwnerParams) ([]GetSettlementMonthlyHistoryByOwnerRow, error)
 	GetSettlementSummaryByOwner(ctx context.Context, ownerID uuid.UUID) (pgtype.Numeric, error)
+	GetSettlementSummaryByOwnerInRange(ctx context.Context, arg GetSettlementSummaryByOwnerInRangeParams) (pgtype.Numeric, error)
 	GetTotalEarningsByProvider(ctx context.Context, providerID uuid.UUID) (pgtype.Numeric, error)
 	GetTotalEarningsByProviderInRange(ctx context.Context, arg GetTotalEarningsByProviderInRangeParams) (pgtype.Numeric, error)
 	GetUnsettledEarningsByProvider(ctx context.Context, id uuid.UUID) (pgtype.Numeric, error)
@@ -78,6 +81,7 @@ type Querier interface {
 	ListSettlementBatchesByOwner(ctx context.Context, arg ListSettlementBatchesByOwnerParams) ([]SettlementBatch, error)
 	ListSettlementBatchesByOwnerFiltered(ctx context.Context, arg ListSettlementBatchesByOwnerFilteredParams) ([]SettlementBatch, error)
 	ListSettlementEntriesByBatch(ctx context.Context, batchID uuid.UUID) ([]SettlementEntry, error)
+	ListSettlementEntriesByBatchForOwner(ctx context.Context, arg ListSettlementEntriesByBatchForOwnerParams) ([]ListSettlementEntriesByBatchForOwnerRow, error)
 	ListSettlementEntriesByBatchWithProvider(ctx context.Context, batchID uuid.UUID) ([]ListSettlementEntriesByBatchWithProviderRow, error)
 	ListUsageEventsByConsumer(ctx context.Context, consumerID uuid.UUID) ([]UsageEvent, error)
 	ListUsageEventsByConsumerCursor(ctx context.Context, arg ListUsageEventsByConsumerCursorParams) ([]ListUsageEventsByConsumerCursorRow, error)
@@ -88,6 +92,7 @@ type Querier interface {
 	MarkProviderLedgerEntriesSettled(ctx context.Context, arg MarkProviderLedgerEntriesSettledParams) ([]LedgerEntry, error)
 	RevokeKey(ctx context.Context, id uuid.UUID) (ApiKey, error)
 	RevokeSessionToken(ctx context.Context, id uuid.UUID) (SessionToken, error)
+	SetUserPayoutAddress(ctx context.Context, arg SetUserPayoutAddressParams) (User, error)
 	UpdateDepositStatus(ctx context.Context, arg UpdateDepositStatusParams) (Deposit, error)
 	UpdateEndpoint(ctx context.Context, arg UpdateEndpointParams) (ApiEndpoint, error)
 	UpdateEndpointStatus(ctx context.Context, arg UpdateEndpointStatusParams) (ApiEndpoint, error)
@@ -100,7 +105,7 @@ type Querier interface {
 	UpdateSessionTokenStatus(ctx context.Context, arg UpdateSessionTokenStatusParams) (SessionToken, error)
 	UpdateSettlementBatchStatus(ctx context.Context, arg UpdateSettlementBatchStatusParams) (SettlementBatch, error)
 	UpdateSettlementEntryStatus(ctx context.Context, arg UpdateSettlementEntryStatusParams) (SettlementEntry, error)
-	UpsertUserByEmail(ctx context.Context, email string) (User, error)
+	UpsertUserByEmail(ctx context.Context, email string) (UpsertUserByEmailRow, error)
 	UpsertWatcherCursor(ctx context.Context, cursor string) error
 }
 

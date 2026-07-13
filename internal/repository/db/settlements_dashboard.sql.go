@@ -15,14 +15,18 @@ import (
 
 const getSettlementMonthlyHistoryByOwner = `-- name: GetSettlementMonthlyHistoryByOwner :many
 SELECT
-  DATE_TRUNC('month', sb.completed_at)::timestamptz AS month,
-  SUM(se.amount)::numeric AS amount
-FROM settlement_entries se
-JOIN settlement_batches sb ON sb.id = se.batch_id
-WHERE se.provider_id IN (SELECT id FROM providers WHERE owner_id = $1)
-  AND sb.status = 'completed'
-  AND sb.completed_at IS NOT NULL
-GROUP BY DATE_TRUNC('month', sb.completed_at)
+  DATE_TRUNC('month', sub.completed_at)::timestamptz AS month,
+  SUM(sub.amount)::numeric AS amount
+FROM (
+    SELECT DISTINCT ON (se.batch_id, se.provider_id) se.amount, sb.completed_at
+    FROM settlement_entries se
+    JOIN settlement_batches sb ON sb.id = se.batch_id
+    WHERE se.provider_id IN (SELECT id FROM providers WHERE owner_id = $1)
+      AND sb.status = 'completed'
+      AND sb.completed_at IS NOT NULL
+    ORDER BY se.batch_id, se.provider_id, se.created_at DESC
+) sub
+GROUP BY DATE_TRUNC('month', sub.completed_at)
 ORDER BY month DESC
 LIMIT $2
 `
@@ -58,15 +62,46 @@ func (q *Queries) GetSettlementMonthlyHistoryByOwner(ctx context.Context, arg Ge
 }
 
 const getSettlementSummaryByOwner = `-- name: GetSettlementSummaryByOwner :one
-SELECT COALESCE(SUM(se.amount), 0)::numeric AS total_settled
-FROM settlement_entries se
-JOIN settlement_batches sb ON sb.id = se.batch_id
-WHERE se.provider_id IN (SELECT id FROM providers WHERE owner_id = $1)
-  AND sb.status = 'completed'
+SELECT COALESCE(SUM(sub.amount), 0)::numeric AS total_settled
+FROM (
+    SELECT DISTINCT ON (se.batch_id, se.provider_id) se.amount
+    FROM settlement_entries se
+    JOIN settlement_batches sb ON sb.id = se.batch_id
+    WHERE se.provider_id IN (SELECT id FROM providers WHERE owner_id = $1)
+      AND sb.status = 'completed'
+    ORDER BY se.batch_id, se.provider_id, se.created_at DESC
+) sub
 `
 
 func (q *Queries) GetSettlementSummaryByOwner(ctx context.Context, ownerID uuid.UUID) (pgtype.Numeric, error) {
 	row := q.db.QueryRow(ctx, getSettlementSummaryByOwner, ownerID)
+	var total_settled pgtype.Numeric
+	err := row.Scan(&total_settled)
+	return total_settled, err
+}
+
+const getSettlementSummaryByOwnerInRange = `-- name: GetSettlementSummaryByOwnerInRange :one
+SELECT COALESCE(SUM(sub.amount), 0)::numeric AS total_settled
+FROM (
+    SELECT DISTINCT ON (se.batch_id, se.provider_id) se.amount
+    FROM settlement_entries se
+    JOIN settlement_batches sb ON sb.id = se.batch_id
+    WHERE se.provider_id IN (SELECT id FROM providers WHERE owner_id = $1)
+      AND sb.status = 'completed'
+      AND sb.created_at >= $2::timestamptz
+      AND sb.created_at <= $3::timestamptz
+    ORDER BY se.batch_id, se.provider_id, se.created_at DESC
+) sub
+`
+
+type GetSettlementSummaryByOwnerInRangeParams struct {
+	OwnerID uuid.UUID `json:"owner_id"`
+	Column2 time.Time `json:"column_2"`
+	Column3 time.Time `json:"column_3"`
+}
+
+func (q *Queries) GetSettlementSummaryByOwnerInRange(ctx context.Context, arg GetSettlementSummaryByOwnerInRangeParams) (pgtype.Numeric, error) {
+	row := q.db.QueryRow(ctx, getSettlementSummaryByOwnerInRange, arg.OwnerID, arg.Column2, arg.Column3)
 	var total_settled pgtype.Numeric
 	err := row.Scan(&total_settled)
 	return total_settled, err

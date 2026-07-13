@@ -109,36 +109,36 @@ PORT=8080 go run cmd/api/main.go
 ### 7. Test the full flow
 
 ```bash
-# Get the httpbin provider UUID
-psql "...castellan?sslmode=disable" -c "SELECT id FROM providers WHERE name = 'httpbin';"
+# Get the httpbin provider name
+psql "...castellan?sslmode=disable" -c "SELECT name FROM providers WHERE name = 'httpbin';"
 
 # Happy path -- POST through the gateway
-curl -v -X POST "http://localhost:8080/api/gateway/<PROVIDER_UUID>/post" \
+curl -v -X POST "http://localhost:8080/api/gateway/httpbin/post" \
   -H "Authorization: Bearer $RAW_KEY" \
   -H "Content-Type: application/json" \
   -d '{"hello":"castellan"}'
 
 # GET with query params
-curl -v "http://localhost:8080/api/gateway/<PROVIDER_UUID>/get?foo=bar" \
+curl -v "http://localhost:8080/api/gateway/httpbin/get?foo=bar" \
   -H "Authorization: Bearer $RAW_KEY"
 
 # Upstream 500 (should still bill? check behavior)
-curl -v "http://localhost:8080/api/gateway/<PROVIDER_UUID>/status/500" \
+curl -v "http://localhost:8080/api/gateway/httpbin/status/500" \
   -H "Authorization: Bearer $RAW_KEY"
 
-# Invalid provider UUID
-curl -v "http://localhost:8080/api/gateway/00000000-0000-0000-0000-000000000000/post" \
+# Invalid provider name
+curl -v "http://localhost:8080/api/gateway/unknown-provider/post" \
   -H "Authorization: Bearer $RAW_KEY"
 ```
 
 Expected behavior for happy path:
 1. AuthCheck -- validates bearer token, sets ConsumerInfo
-2. PricingResolver -- parses /api/gateway/{uuid}/post, looks up endpoint, sets price 0.05 XLM
+2. PricingResolver -- parses /api/gateway/{providerName}/post, looks up endpoint, sets price 0.05 XLM
 3. RateLimitCheck -- passes (rate limit not hit)
 4. BalanceCheck -- 1000 >= 0.05
 5. MaxBodySize -- passes
 6. Reservation -- reserves 0.05
-7. Proxy.director -- parses provider UUID, resolves base_url to https://httpbin.org, rewrites to /post
+7. Proxy.director -- parses provider name, resolves base_url to https://httpbin.org, rewrites to /post
 8. Proxy forwards to https://httpbin.org/post
 9. UsageCapture -- records usage, commits reservation, deducts 0.05 XLM
 10. httpbin response returned to client

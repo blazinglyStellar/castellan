@@ -9,7 +9,6 @@ import (
 
 	gatewaycontext "castellan/internal/gateway/context"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -22,19 +21,19 @@ type EndpointResolution struct {
 // EndpointPricingResolver resolves endpoint pricing from the request path and method,
 // returning pricing and rate-limit data to inject into the gateway request context.
 type EndpointPricingResolver interface {
-	ResolvePricing(ctx context.Context, providerID uuid.UUID, route, method string) (*EndpointResolution, error)
+	ResolvePricing(ctx context.Context, providerName string, route, method string) (*EndpointResolution, error)
 }
 
 // EndpointPricingResolverFunc is an adapter that lets a function serve as a EndpointPricingResolver.
-type EndpointPricingResolverFunc func(ctx context.Context, providerID uuid.UUID, route, method string) (*EndpointResolution, error)
+type EndpointPricingResolverFunc func(ctx context.Context, providerName string, route, method string) (*EndpointResolution, error)
 
 // ResolvePricing delegates to the underlying function.
-func (f EndpointPricingResolverFunc) ResolvePricing(ctx context.Context, providerID uuid.UUID, route, method string) (*EndpointResolution, error) {
-	return f(ctx, providerID, route, method)
+func (f EndpointPricingResolverFunc) ResolvePricing(ctx context.Context, providerName string, route, method string) (*EndpointResolution, error) {
+	return f(ctx, providerName, route, method)
 }
 
-// PricingResolver middleware extracts the provider ID and endpoint path from
-// POST /api/gateway/{providerID}/{endpoint...}, looks up the endpoint pricing
+// PricingResolver middleware extracts the provider name and endpoint path from
+// POST /api/gateway/{providerName}/{endpoint...}, looks up the endpoint pricing
 // from the api_endpoints table, and injects PricingInfo and RateLimitInfo into
 // the request context.
 //
@@ -42,19 +41,18 @@ func (f EndpointPricingResolverFunc) ResolvePricing(ctx context.Context, provide
 func PricingResolver(resolver EndpointPricingResolver, windowSeconds int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			providerID, endpointPath, ok := parseGatewayPath(r.URL.Path)
+			providerName, endpointPath, ok := parseGatewayPath(r.URL.Path)
 			if !ok {
 				writeJSON(r.Context(), w, http.StatusBadRequest, map[string]string{errKey: "invalid gateway path"})
 				return
 			}
 
-			providerUUID, err := uuid.Parse(providerID)
-			if err != nil {
-				writeJSON(r.Context(), w, http.StatusBadRequest, map[string]string{errKey: "invalid provider id"})
+			if providerName == "" {
+				writeJSON(r.Context(), w, http.StatusBadRequest, map[string]string{errKey: "invalid provider name"})
 				return
 			}
 
-			resolution, err := resolver.ResolvePricing(r.Context(), providerUUID, endpointPath, r.Method)
+			resolution, err := resolver.ResolvePricing(r.Context(), providerName, endpointPath, r.Method)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					writeJSON(r.Context(), w, http.StatusNotFound, map[string]string{errKey: "endpoint not found"})
@@ -63,7 +61,7 @@ func PricingResolver(resolver EndpointPricingResolver, windowSeconds int) func(h
 
 				slog.ErrorContext(r.Context(),
 					"pricing resolution failed",
-					slog.String("provider_id", providerID),
+					slog.String("provider_name", providerName),
 					slog.String("endpoint_path", endpointPath),
 					slog.String("method", r.Method),
 					slog.String("error", err.Error()),
@@ -76,7 +74,7 @@ func PricingResolver(resolver EndpointPricingResolver, windowSeconds int) func(h
 			if resolution == nil || resolution.PricingInfo == nil {
 				slog.ErrorContext(r.Context(),
 					"pricing resolver returned nil resolution without error",
-					slog.String("provider_id", providerID),
+					slog.String("provider_name", providerName),
 					slog.String("endpoint_path", endpointPath),
 				)
 				writeJSON(r.Context(), w, http.StatusInternalServerError, map[string]string{errKey: "pricing resolution failed"})
@@ -96,9 +94,9 @@ func PricingResolver(resolver EndpointPricingResolver, windowSeconds int) func(h
 	}
 }
 
-// parseGatewayPath extracts the provider ID and endpoint route from
-// /api/gateway/{providerID}/{endpoint...}.
-func parseGatewayPath(path string) (providerID, rest string, ok bool) {
+// parseGatewayPath extracts the provider name and endpoint route from
+// /api/gateway/{providerName}/{endpoint...}.
+func parseGatewayPath(path string) (providerName, rest string, ok bool) {
 	const prefix = "/api/gateway/"
 	const splitParts = 2
 
@@ -112,7 +110,7 @@ func parseGatewayPath(path string) (providerID, rest string, ok bool) {
 		return "", "", false
 	}
 
-	providerID = parts[0]
+	providerName = parts[0]
 
 	if len(parts) > 1 {
 		rest = "/" + parts[1]
@@ -120,5 +118,5 @@ func parseGatewayPath(path string) (providerID, rest string, ok bool) {
 		rest = "/"
 	}
 
-	return providerID, rest, true
+	return providerName, rest, true
 }

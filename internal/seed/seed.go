@@ -25,6 +25,16 @@ func Run(ctx context.Context, pool *pgxpool.Pool, queries repository.Querier) er
 		slog.String("user_id", providerOwnerID.String()),
 	)
 
+	if _, err := pool.Exec(ctx, `
+		UPDATE users SET payout_stellar_address = 'GC4PVDXJ7THAFS6435YQH6Q5SQEKFHI7ZL7Y7Z6Y6J' WHERE id = $1 AND payout_stellar_address IS NULL
+	`, providerOwnerID); err != nil {
+		return fmt.Errorf("seed payout address: %w", err)
+	}
+
+	if err := provider.SeedHttpbinProvider(ctx, pool, queries); err != nil {
+		return fmt.Errorf("seed httpbin provider: %w", err)
+	}
+
 	if err := provider.SeedProviders(ctx, queries, providerOwnerID); err != nil {
 		return fmt.Errorf("seed providers: %w", err)
 	}

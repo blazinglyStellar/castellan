@@ -306,6 +306,38 @@ paths:
                     example: logged out
         "401":
           $ref: "#/components/responses/Unauthorized"
+    get:
+      operationId: logoutRedirect
+      summary: Logout redirect
+      description: |
+        Redirects users who navigate to the logout URL directly in their
+        browser to the dashboard login page.
+      security: []
+      responses:
+        "302":
+          description: Redirect to dashboard login
+  /api/v1/onboarding/complete:
+    post:
+      operationId: completeOnboarding
+      summary: Mark onboarding as complete
+      description: |
+        Marks the current user's onboarding wizard as complete.
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      responses:
+        "200":
+          description: Onboarding completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /api/v1/me:
     get:
       operationId: dashboardMe
@@ -321,6 +353,80 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DashboardMeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/config:
+    get:
+      operationId: getConfig
+      summary: Get public configuration
+      description: |
+        Returns public configuration values (e.g. API base URL) for the
+        dashboard client. No authentication required.
+      security: []
+      responses:
+        "200":
+          description: Public configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_base_url:
+                    type: string
+                    example: http://localhost:8080
+                required: [api_base_url]
+  /api/v1/me/payout/check:
+    get:
+      operationId: checkPayoutAddress
+      summary: Check if the user has a payout address set
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      responses:
+        "200":
+          description: Payout check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  has_address:
+                    type: boolean
+                required: [has_address]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/me/payout:
+    patch:
+      operationId: updatePayoutAddress
+      summary: Set or update the user's Stellar payout address
+      security: [{ BearerAuth: [] }, { CookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                address:
+                  type: string
+                  description: Stellar public key
+                  example: GBWM...
+              required: [address]
+      responses:
+        "200":
+          description: Payout address updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: payout address updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
@@ -1098,15 +1204,14 @@ paths:
   # ──────────────────────────────────────────────
   #   Gateway
   # ──────────────────────────────────────────────
-  /api/gateway/{providerId}/{endpoint*}:
+  /api/gateway/{providerName}/{endpoint*}:
     parameters:
-      - name: providerId
+      - name: providerName
         in: path
         required: true
         schema:
           type: string
-          format: uuid
-        description: Provider ID
+        description: Provider name (e.g. `weather-api`)
       - name: endpoint
         in: path
         required: true
@@ -1129,53 +1234,15 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "402":
-          description: Insufficient balance
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: insufficient_balance
-                  balance:
-                    type: string
-                    example: "10.50"
-                  required:
-                    type: string
-                    example: "25.00"
-                required: [error, balance, required]
+          $ref: "#/components/responses/InsufficientBalance"
         "404":
           $ref: "#/components/responses/NotFound"
         "413":
-          description: Request body too large
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/RequestTooLarge"
         "429":
-          description: Rate limit exceeded
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: rate_limit_exceeded
-                  reset:
-                    type: string
-                    example: "1712345678"
-                  retry_after:
-                    type: integer
-                    example: 30
-                required: [error, reset, retry_after]
+          $ref: "#/components/responses/RateLimitExceeded"
         "503":
-          description: Reservation or upstream service unavailable
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/UpstreamError"
     post:
       operationId: proxyRequestPost
       summary: Proxy a POST request to an upstream provider endpoint

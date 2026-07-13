@@ -59,7 +59,7 @@ func NewStellarSubmitter(
 
 func (s *StellarSubmitter) SubmitPayouts(
 	ctx context.Context,
-	batchID uuid.UUID,
+	_ uuid.UUID,
 	payouts []ProviderPayout,
 ) ([]PayoutResult, error) {
 	kp, err := keypair.Parse(s.stellarCfg.WalletSecretKey)
@@ -77,36 +77,12 @@ func (s *StellarSubmitter) SubmitPayouts(
 	for _, payout := range payouts {
 		result := PayoutResult{ProviderID: payout.ProviderID}
 
-		amountNumeric, err := DecimalToNumeric(payout.Amount)
-		if err != nil {
-			result.Error = fmt.Sprintf("convert amount: %v", err)
-			result.Status = TransactionFailed
-			results = append(results, result)
-			continue
-		}
-
-		entry, err := s.queries.InsertSettlementEntry(ctx, repository.InsertSettlementEntryParams{
-			BatchID:       batchID,
-			ProviderID:    payout.ProviderID,
-			Amount:        amountNumeric,
-			Currency:      payout.Currency,
-			WalletAddress: payout.WalletAddress,
-			Status:        repository.SettlementEntryStatusPending,
-		})
-		if err != nil {
-			result.Error = fmt.Sprintf("insert settlement entry: %v", err)
-			result.Status = TransactionFailed
-			results = append(results, result)
-			continue
-		}
-
 		txHash, subErr := s.submitSinglePayout(ctx, fullKP, payout)
 		if subErr != nil {
 			if errors.Is(subErr, ErrTxSequenceConsumed) {
 				s.log.WarnContext(
 					ctx, "payout sequence consumed, marking as pending for recovery",
 					slog.String("provider_id", payout.ProviderID.String()),
-					slog.String("entry_id", entry.ID.String()),
 				)
 
 				result.Error = subErr.Error()
@@ -115,27 +91,10 @@ func (s *StellarSubmitter) SubmitPayouts(
 				continue
 			}
 
-			if updateErr := s.setEntryStatus(ctx, entry.ID, repository.SettlementEntryStatusFailed, ""); updateErr != nil {
-				s.log.ErrorContext(
-					ctx, "failed to mark entry as failed",
-					slog.String("entry_id", entry.ID.String()),
-					slog.String("error", updateErr.Error()),
-				)
-			}
-
 			result.Error = subErr.Error()
 			result.Status = TransactionFailed
 			results = append(results, result)
 			continue
-		}
-
-		if updateErr := s.setEntryStatus(ctx, entry.ID, repository.SettlementEntryStatusCompleted, txHash); updateErr != nil {
-			s.log.ErrorContext(
-				ctx, "failed to mark entry as completed",
-				slog.String("entry_id", entry.ID.String()),
-				slog.String("tx_hash", txHash),
-				slog.String("error", updateErr.Error()),
-			)
 		}
 
 		result.TxHash = txHash
@@ -349,41 +308,6 @@ func (s *StellarSubmitter) MonitorTransaction(
 	}
 
 	return TransactionFailed, nil
-}
-
-func (s *StellarSubmitter) setEntryStatus(
-	ctx context.Context,
-	entryID uuid.UUID,
-	status repository.SettlementEntryStatus,
-	txHash string,
-) error {
-	if s.pool == nil {
-		return nil
-	}
-
-	if txHash != "" {
-		_, err := s.pool.Exec(
-			ctx,
-			`UPDATE settlement_entries SET status = $1, tx_hash = $2 WHERE id = $3`,
-			status, txHash, entryID,
-		)
-		if err != nil {
-			return fmt.Errorf("update entry status and tx_hash: %w", err)
-		}
-
-		return nil
-	}
-
-	_, err := s.pool.Exec(
-		ctx,
-		`UPDATE settlement_entries SET status = $1 WHERE id = $2`,
-		status, entryID,
-	)
-	if err != nil {
-		return fmt.Errorf("update entry status: %w", err)
-	}
-
-	return nil
 }
 
 func jitteredDelay(attempt int) time.Duration {

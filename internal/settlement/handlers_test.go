@@ -17,7 +17,7 @@ import (
 
 type mockLister struct {
 	batches    []repository.SettlementBatch
-	entriesMap map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow
+	entriesMap map[uuid.UUID][]repository.ListSettlementEntriesByBatchForOwnerRow
 	err        error
 }
 
@@ -28,7 +28,7 @@ func (m *mockLister) GetSettlementHistoryByOwner(
 	_ uuid.UUID,
 	_ int32,
 	_ string,
-) ([]repository.SettlementBatch, map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow, error) {
+) ([]repository.SettlementBatch, map[uuid.UUID][]repository.ListSettlementEntriesByBatchForOwnerRow, error) {
 	if m.err != nil {
 		return nil, nil, m.err
 	}
@@ -75,7 +75,7 @@ func TestListSettlements_Success(t *testing.T) {
 		CompletedAt: pgtype.Timestamptz{Time: now.Add(time.Minute), Valid: true},
 	}
 
-	entry := repository.ListSettlementEntriesByBatchWithProviderRow{
+	entry := repository.ListSettlementEntriesByBatchForOwnerRow{
 		ID:            entryID,
 		BatchID:       batchID,
 		ProviderID:    providerID,
@@ -89,7 +89,7 @@ func TestListSettlements_Success(t *testing.T) {
 
 	mock := &mockLister{
 		batches:    []repository.SettlementBatch{batch},
-		entriesMap: map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow{batchID: {entry}},
+		entriesMap: map[uuid.UUID][]repository.ListSettlementEntriesByBatchForOwnerRow{batchID: {entry}},
 	}
 
 	h := &Handler{lister: mock}
@@ -116,8 +116,8 @@ func TestListSettlements_Success(t *testing.T) {
 	if batchResp.Status != string(repository.BatchStatusCompleted) {
 		t.Errorf("expected status completed, got %s", batchResp.Status)
 	}
-	if batchResp.TotalAmount != "150" {
-		t.Errorf("expected total_amount 150, got %s", batchResp.TotalAmount)
+	if batchResp.TotalAmount != "50" {
+		t.Errorf("expected total_amount 50 (sum of owner entries), got %s", batchResp.TotalAmount)
 	}
 	if batchResp.Currency != string(repository.CurrencyXLM) {
 		t.Errorf("expected currency XLM, got %s", batchResp.Currency)
@@ -154,7 +154,7 @@ func TestListSettlements_Success(t *testing.T) {
 func TestListSettlements_EmptyList(t *testing.T) {
 	mock := &mockLister{
 		batches:    []repository.SettlementBatch{},
-		entriesMap: map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow{},
+		entriesMap: map[uuid.UUID][]repository.ListSettlementEntriesByBatchForOwnerRow{},
 	}
 
 	h := &Handler{lister: mock}
@@ -213,7 +213,7 @@ func TestListSettlements_Unauthenticated(t *testing.T) {
 func TestListSettlements_DefaultPagination(t *testing.T) {
 	mock := &mockLister{
 		batches:    []repository.SettlementBatch{},
-		entriesMap: map[uuid.UUID][]repository.ListSettlementEntriesByBatchWithProviderRow{},
+		entriesMap: map[uuid.UUID][]repository.ListSettlementEntriesByBatchForOwnerRow{},
 	}
 
 	h := &Handler{lister: mock}

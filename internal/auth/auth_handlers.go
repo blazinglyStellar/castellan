@@ -3,6 +3,8 @@ package auth
 import (
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	gatewaycontext "castellan/internal/gateway/context"
@@ -60,6 +62,7 @@ type DashboardMeResponse struct {
 	Role                 string `json:"role"`
 	DepositMemo          string `json:"deposit_memo"`
 	PayoutStellarAddress string `json:"payout_stellar_address,omitempty"`
+	OnboardingCompleted  bool   `json:"onboarding_completed"`
 }
 
 func (h *Handler) DashboardMe(w http.ResponseWriter, r *http.Request) {
@@ -111,6 +114,7 @@ func (h *Handler) DashboardMe(w http.ResponseWriter, r *http.Request) {
 		Role:                 role,
 		DepositMemo:          depositMemo,
 		PayoutStellarAddress: payoutAddr,
+		OnboardingCompleted:  user.OnboardingCompleted,
 	})
 }
 
@@ -135,4 +139,26 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	ClearSessionCookie(w)
 
 	writeJSON(w, http.StatusOK, logoutResponse{Message: "logged out"})
+}
+
+func (h *Handler) LogoutRedirect(w http.ResponseWriter, r *http.Request) {
+	rawToken, err := ReadSessionCookie(r)
+	if err == nil {
+		if revokeErr := h.sessionService.RevokeSession(r.Context(), rawToken); revokeErr != nil {
+			slog.WarnContext(
+				r.Context(), "session revoke failed",
+				slog.String("error", revokeErr.Error()),
+			)
+		}
+	}
+
+	ClearSessionCookie(w)
+
+	redirectTarget := r.URL.Query().Get("redirect")
+	if redirectTarget == "" || !strings.HasPrefix(redirectTarget, "/") || strings.Contains(redirectTarget, "://") {
+		redirectTarget = "/login"
+	}
+
+	dashboardURL := os.Getenv("DASHBOARD_URL")
+	http.Redirect(w, r, dashboardURL+redirectTarget, http.StatusFound) // #nosec G710 — redirectTarget validated as relative path above
 }

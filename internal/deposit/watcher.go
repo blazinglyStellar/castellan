@@ -81,14 +81,15 @@ func (w *Watcher) poll(ctx context.Context) error {
 		return fmt.Errorf("get watcher cursor: %w", err)
 	}
 
-	if cursor.Cursor == "now" {
-		return nil
+	cursorStr := cursor.Cursor
+	if cursorStr == "now" {
+		cursorStr = ""
 	}
 
 	payments, err := w.horizon.Payments(horizonclient.OperationRequest{
 		ForAccount: w.cfg.HotWalletAddress,
 		Order:      horizonclient.OrderAsc,
-		Cursor:     cursor.Cursor,
+		Cursor:     cursorStr,
 		Limit:      horizonPaymentLimit,
 	})
 	if err != nil {

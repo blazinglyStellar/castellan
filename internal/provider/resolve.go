@@ -6,8 +6,6 @@ import (
 	"fmt"
 
 	"castellan/internal/repository/db"
-
-	"github.com/google/uuid"
 )
 
 // DBResolver resolves a provider's upstream base URL from the PostgreSQL database.
@@ -17,7 +15,7 @@ type DBResolver struct {
 
 // Resolver abstracts provider base URL resolution (for testability).
 type Resolver interface {
-	ResolveBaseURL(ctx context.Context, id string) (string, error)
+	ResolveBaseURL(ctx context.Context, name string) (string, error)
 }
 
 // NewDBResolver returns a DBResolver backed by the given sqlc Queries.
@@ -28,17 +26,12 @@ func NewDBResolver(queries *repository.Queries) (*DBResolver, error) {
 	return &DBResolver{queries: queries}, nil
 }
 
-// ResolveBaseURL looks up the provider's base URL by UUID, filtering for active status.
-func (r *DBResolver) ResolveBaseURL(ctx context.Context, id string) (string, error) {
-	providerUUID, err := uuid.Parse(id)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse uuid: %s", err.Error())
-	}
-
-	baseURL, err := r.queries.GetProviderBaseURL(ctx, providerUUID)
+// ResolveBaseURL looks up the provider's base URL by name, filtering for active status.
+func (r *DBResolver) ResolveBaseURL(ctx context.Context, name string) (string, error) {
+	provider, err := r.queries.GetProviderByName(ctx, name)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve provider: %w", err)
 	}
 
-	return baseURL, nil
+	return provider.BaseUrl, nil
 }

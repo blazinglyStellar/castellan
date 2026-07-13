@@ -19,19 +19,19 @@ type mockPricingResolver struct {
 	err        error
 }
 
-func (m *mockPricingResolver) ResolvePricing(_ context.Context, _ uuid.UUID, _, _ string) (*EndpointResolution, error) {
+func (m *mockPricingResolver) ResolvePricing(_ context.Context, _ string, _, _ string) (*EndpointResolution, error) {
 	return m.resolution, m.err
 }
 
 func TestPricingResolver_HappyPath(t *testing.T) {
-	providerID := uuid.New()
 	endpointID := uuid.New()
+	providerUUID := uuid.New()
 
 	mock := &mockPricingResolver{
 		resolution: &EndpointResolution{
 			PricingInfo: &gatewaycontext.PricingInfo{
 				EndpointID:  endpointID.String(),
-				ProviderID:  providerID.String(),
+				ProviderID:  providerUUID.String(),
 				PriceAmount: decimal.NewFromFloat(10),
 				Currency:    gatewaycontext.CurrencyXLM,
 			},
@@ -46,8 +46,8 @@ func TestPricingResolver_HappyPath(t *testing.T) {
 		if pricing.EndpointID != endpointID.String() {
 			t.Errorf("expected endpoint %s, got %s", endpointID.String(), pricing.EndpointID)
 		}
-		if pricing.ProviderID != providerID.String() {
-			t.Errorf("expected provider %s, got %s", providerID.String(), pricing.ProviderID)
+		if pricing.ProviderID != providerUUID.String() {
+			t.Errorf("expected provider %s, got %s", providerUUID.String(), pricing.ProviderID)
 		}
 		if !pricing.PriceAmount.Equal(decimal.NewFromFloat(10)) {
 			t.Errorf("expected price 10, got %s", pricing.PriceAmount)
@@ -68,7 +68,7 @@ func TestPricingResolver_HappyPath(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/v1/chat", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/gateway/weather-api/v1/chat", nil)
 
 	PricingResolver(mock, 60)(handler).ServeHTTP(recorder, request)
 
@@ -81,14 +81,14 @@ func TestPricingResolver_HappyPath(t *testing.T) {
 }
 
 func TestPricingResolver_NoRateLimit(t *testing.T) {
-	providerID := uuid.New()
 	endpointID := uuid.New()
+	providerUUID := uuid.New()
 
 	mock := &mockPricingResolver{
 		resolution: &EndpointResolution{
 			PricingInfo: &gatewaycontext.PricingInfo{
 				EndpointID:  endpointID.String(),
-				ProviderID:  providerID.String(),
+				ProviderID:  providerUUID.String(),
 				PriceAmount: decimal.NewFromFloat(10),
 				Currency:    gatewaycontext.CurrencyXLM,
 			},
@@ -105,7 +105,7 @@ func TestPricingResolver_NoRateLimit(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/gateway/"+providerID.String()+"/v1/chat", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/gateway/weather-api/v1/chat", nil)
 
 	PricingResolver(mock, 60)(handler).ServeHTTP(recorder, request)
 
@@ -142,18 +142,22 @@ func TestPricingResolver_InvalidPath(t *testing.T) {
 	}
 }
 
-func TestPricingResolver_InvalidProviderID(t *testing.T) {
+func TestPricingResolver_UnknownProvider(t *testing.T) {
+	mock := &mockPricingResolver{
+		err: pgx.ErrNoRows,
+	}
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Fatal("downstream handler should not be called")
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/gateway/not-a-uuid/echo", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/gateway/unknown-provider/echo", nil)
 
-	PricingResolver(&mockPricingResolver{}, 60)(handler).ServeHTTP(recorder, request)
+	PricingResolver(mock, 60)(handler).ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400; got %d", recorder.Code)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected 404; got %d", recorder.Code)
 	}
 }
 
@@ -167,7 +171,7 @@ func TestPricingResolver_EndpointNotFound(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/v1/chat", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/gateway/weather-api/v1/chat", nil)
 
 	PricingResolver(mock, 60)(handler).ServeHTTP(recorder, request)
 
@@ -186,7 +190,7 @@ func TestPricingResolver_ResolverError(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/v1/chat", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/gateway/weather-api/v1/chat", nil)
 
 	PricingResolver(mock, 60)(handler).ServeHTTP(recorder, request)
 
@@ -206,7 +210,7 @@ func TestPricingResolver_NilResolutionWithoutError(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/v1/chat", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/gateway/weather-api/v1/chat", nil)
 
 	PricingResolver(mock, 60)(handler).ServeHTTP(recorder, request)
 
@@ -229,7 +233,7 @@ func TestPricingResolver_NilPricingInfo(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/gateway/"+uuid.NewString()+"/v1/chat", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/gateway/weather-api/v1/chat", nil)
 
 	PricingResolver(mock, 60)(handler).ServeHTTP(recorder, request)
 
