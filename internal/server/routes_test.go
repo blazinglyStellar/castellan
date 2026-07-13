@@ -647,7 +647,7 @@ func TestGatewayChain_Success(t *testing.T) {
 	}
 
 	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
-		ProviderID:  provider.ID,
+		ProviderID: provider.ID,
 		Route:      "/echo", Method: http.MethodPost,
 		PriceAmount: testPriceAmount(),
 		Currency:    repository.CurrencyXLM,
@@ -690,7 +690,7 @@ func TestGatewayChain_InsufficientBalance(t *testing.T) {
 	}
 
 	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
-		ProviderID:  provider.ID,
+		ProviderID: provider.ID,
 		Route:      "/echo", Method: http.MethodPost,
 		PriceAmount: testPriceAmount(),
 		Currency:    repository.CurrencyXLM,
@@ -931,7 +931,7 @@ func TestGatewayLifecycle_BalanceDecreases(t *testing.T) {
 	}
 
 	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
-		ProviderID:  provider.ID,
+		ProviderID: provider.ID,
 		Route:      "/echo", Method: http.MethodPost,
 		PriceAmount: testPriceAmount(),
 		Currency:    repository.CurrencyXLM,
@@ -980,7 +980,7 @@ func TestGatewayLifecycle_UpstreamFailure(t *testing.T) {
 	}
 
 	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
-		ProviderID:  provider.ID,
+		ProviderID: provider.ID,
 		Route:      "/echo", Method: http.MethodPost,
 		PriceAmount: testPriceAmount(),
 		Currency:    repository.CurrencyXLM,
@@ -1025,7 +1025,7 @@ func TestGatewayInsufficientBalance_NoEntries(t *testing.T) {
 	}
 
 	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
-		ProviderID:  provider.ID,
+		ProviderID: provider.ID,
 		Route:      "/echo", Method: http.MethodPost,
 		PriceAmount: testPriceAmount(),
 		Currency:    repository.CurrencyXLM,
@@ -1078,7 +1078,7 @@ func TestGatewayLifecycle_BalanceEndpoint(t *testing.T) {
 	}
 
 	_, err = mq.CreateEndpoint(context.Background(), repository.CreateEndpointParams{
-		ProviderID:  provider.ID,
+		ProviderID: provider.ID,
 		Route:      "/echo", Method: http.MethodPost,
 		PriceAmount: testPriceAmount(),
 		Currency:    repository.CurrencyXLM,

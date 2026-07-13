@@ -33,7 +33,7 @@ func (h *Handler) CompleteOnboarding(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (h *Handler) ConfigHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ConfigHandler(w http.ResponseWriter, _ *http.Request) {
 	apiBase := os.Getenv("API_BASE_URL")
 	if apiBase == "" {
 		apiBase = "http://localhost:8080"
