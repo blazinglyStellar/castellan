@@ -14,4 +14,3 @@ coverage
 .husky
 .eslintrc.json
 prettier.config.js
-tsconfig.json
