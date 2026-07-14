@@ -11,7 +11,7 @@ services:
     networks:
       - castellan
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d castellan"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
