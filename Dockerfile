@@ -21,7 +21,11 @@ RUN apk add --no-cache wget
 
 FROM base AS api
 COPY --from=builder /bin/castellan-api /bin/castellan-api
+COPY --from=goose-builder /bin/goose /bin/goose
+COPY migrations /migrations
+COPY docker-entrypoint.sh /docker-entrypoint.sh
 EXPOSE 8080
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["/bin/castellan-api"]
 
 FROM base AS worker
