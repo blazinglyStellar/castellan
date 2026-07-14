@@ -3,6 +3,17 @@ name: Docker Build & Publish
 on:
   push:
     branches: [main]
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'migrations/**'
+      - 'Dockerfile'
+      - 'docker-entrypoint.sh'
+      - '.dockerignore'
+      - 'go.mod'
+      - 'go.sum'
+      - 'app-frontend/**'
+      - 'docker-compose*.yml'
   workflow_dispatch:
 
 env:
@@ -20,11 +31,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check paths
+        id: paths
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            go:
+              - 'cmd/**'
+              - 'internal/**'
+              - 'migrations/**'
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'go.mod'
+              - 'go.sum'
+              - 'docker-entrypoint.sh'
 
       - name: Set up Docker Buildx
+        if: steps.paths.outputs.go == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: steps.paths.outputs.go == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -32,6 +62,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
+        if: steps.paths.outputs.go == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -53,11 +84,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check paths
+        id: paths
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            go:
+              - 'cmd/**'
+              - 'internal/**'
+              - 'migrations/**'
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'go.mod'
+              - 'go.sum'
+              - 'docker-entrypoint.sh'
 
       - name: Set up Docker Buildx
+        if: steps.paths.outputs.go == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: steps.paths.outputs.go == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -65,6 +115,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
+        if: steps.paths.outputs.go == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -86,11 +137,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check paths
+        id: paths
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            frontend:
+              - 'app-frontend/src/**'
+              - 'app-frontend/public/**'
+              - 'app-frontend/Dockerfile'
+              - 'app-frontend/.dockerignore'
+              - 'app-frontend/package.json'
+              - 'app-frontend/package-lock.json'
+              - 'app-frontend/tsconfig.json'
+              - 'app-frontend/next.config.ts'
 
       - name: Set up Docker Buildx
+        if: steps.paths.outputs.frontend == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: steps.paths.outputs.frontend == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -98,6 +168,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
+        if: steps.paths.outputs.frontend == 'true'
         uses: docker/build-push-action@v6
         with:
           context: app-frontend

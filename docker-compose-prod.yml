@@ -29,27 +29,13 @@ services:
       timeout: 3s
       retries: 5
 
-  migration:
+  api:
     build:
       context: .
       dockerfile: Dockerfile
-      target: migration
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      GOOSE_DRIVER: postgres
-      GOOSE_DBSTRING: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
-    networks:
-      - castellan
-
-  api:
-    image: ghcr.io/blazinglystellar/castellan-api:latest
-    pull_policy: always
+      target: api
     restart: unless-stopped
     depends_on:
-      migration:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -62,6 +48,8 @@ services:
       DB_PORT: "5432"
       DATABASE_URL: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
       REDIS_URL: "redis://redis:6379/0"
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
     networks:
       - castellan
     healthcheck:
@@ -69,15 +57,13 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   settlement-worker:
     image: ghcr.io/blazinglystellar/castellan-worker:latest
     pull_policy: always
     restart: unless-stopped
     depends_on:
-      migration:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
