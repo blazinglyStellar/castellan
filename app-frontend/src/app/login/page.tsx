@@ -5,7 +5,13 @@ import { useSearchParams } from "next/navigation"
 
 import BackgroundPaths from "@/components/ui/background-paths"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080"
+const getApiBase = () => {
+  if (typeof window === "undefined") return "http://localhost:8080"
+  const { protocol, hostname, port } = window.location
+  if (port === "3000") return `${protocol}//${hostname}:8080`
+  return `${protocol}//${hostname}${port ? ":" + port : ""}`
+}
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || getApiBase()
 
 function OAuthButton({
   provider,
