@@ -79,8 +79,6 @@ services:
     image: ghcr.io/blazinglystellar/app-frontend:latest
     pull_policy: always
     restart: unless-stopped
-    ports:
-      - "3000:3000"
     depends_on:
       - api
     networks:
