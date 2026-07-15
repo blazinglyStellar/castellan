@@ -48,6 +48,7 @@ services:
       DB_PORT: "5432"
       DATABASE_URL: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
       REDIS_URL: "redis://redis:6379/0"
+      PORT: "8080"
       GOOSE_DRIVER: postgres
       GOOSE_DBSTRING: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
     networks:
