@@ -62,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetchUser()
 
     const handleUnauthorized = () => {
+      setAuthToken(null)
       if (PUBLIC_PATHS.includes(window.location.pathname)) {
         setUser(null)
         return
