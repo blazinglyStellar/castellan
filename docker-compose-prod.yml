@@ -71,18 +71,6 @@ services:
       REDIS_URL: "redis://redis:6379/0"
     networks:
       - castellan
-
-  frontend:
-    image: ghcr.io/blazinglystellar/app-frontend:latest
-    pull_policy: always
-    restart: unless-stopped
-    depends_on:
-      - api
-    ports:
-      - "3000"
-    networks:
-      - castellan
-
 volumes:
   psql_volume:
   redis_data:
