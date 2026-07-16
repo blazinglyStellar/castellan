@@ -386,11 +386,19 @@ function EndpointDetailRow({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={handleCopyUrl} className="cursor-pointer gap-2">
-              <Copy className="size-3.5" />
+              {copiedAction === "url" ? (
+                <Check className="size-3.5 text-green-500" />
+              ) : (
+                <Copy className="size-3.5" />
+              )}
               Copy URL
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleCopyCurl} className="cursor-pointer gap-2">
-              <Terminal className="size-3.5" />
+              {copiedAction === "curl" ? (
+                <Check className="size-3.5 text-green-500" />
+              ) : (
+                <Terminal className="size-3.5" />
+              )}
               Copy cURL
             </DropdownMenuItem>
           </DropdownMenuContent>

@@ -660,7 +660,7 @@ function DiscoverStep({
                 <pre className="font-mono text-xs leading-relaxed">
                   {`curl -X POST "`}{apiBase}/api/gateway/{provider.name}{postEndpoint.route}{`" \\`}
                   {`\n  -H "Content-Type: application/json" \\`}
-                  {`\n  -H "X-API-Key: <your-api-key>" \\`}
+                  {`\n  -H "Authorization: Bearer <your-api-key>" \\`}
                   {`\n  -d '{"hello": "world"}'`}
                 </pre>
               </div>
