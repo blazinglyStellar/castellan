@@ -28,32 +28,22 @@ export class UnauthorizedError extends ApiError {
   }
 }
 
-const SESSION_TOKEN_KEY = "SESS"
-
-function readAuthSessionToken(): string | null {
-  if (typeof window === "undefined") return null
-  return sessionStorage.getItem(SESSION_TOKEN_KEY)
-}
-
 async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${API_BASE}${path}`
 
-  const extraHeaders: Record<string, string> = {}
-  const sessionToken = readAuthSessionToken()
-  if (sessionToken) {
-    extraHeaders["Authorization"] = `Bearer ${sessionToken}`
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+  if (_authToken) {
+    headers["Authorization"] = `Bearer ${_authToken}`
   }
 
   const response = await fetch(url, {
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...extraHeaders,
-      ...(options.headers as Record<string, string>),
-    },
+    headers: { ...headers, ...(options.headers as Record<string, string> | undefined) },
     ...options,
   })
 
