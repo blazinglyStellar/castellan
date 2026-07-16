@@ -28,19 +28,11 @@ export class UnauthorizedError extends ApiError {
   }
 }
 
-const AUTH_SESSION_KEY = "auth_token"
+const SESSION_TOKEN_KEY = "SESS"
 
-export function getAuthToken(): string | null {
+function readAuthSessionToken(): string | null {
   if (typeof window === "undefined") return null
-  return sessionStorage.getItem(AUTH_SESSION_KEY)
-}
-
-export function setAuthToken(token: string): void {
-  sessionStorage.setItem(AUTH_SESSION_KEY, token)
-}
-
-export function clearAuthToken(): void {
-  sessionStorage.removeItem(AUTH_SESSION_KEY)
+  return sessionStorage.getItem(SESSION_TOKEN_KEY)
 }
 
 async function request<T>(
@@ -50,9 +42,9 @@ async function request<T>(
   const url = `${API_BASE}${path}`
 
   const extraHeaders: Record<string, string> = {}
-  const token = getAuthToken()
-  if (token) {
-    extraHeaders["Authorization"] = `Bearer ${token}`
+  const sessionToken = readAuthSessionToken()
+  if (sessionToken) {
+    extraHeaders["Authorization"] = `Bearer ${sessionToken}`
   }
 
   const response = await fetch(url, {
