@@ -50,19 +50,16 @@ async function request<T>(
 ): Promise<T> {
   const url = `${API_BASE}${path}`
 
-  const extraHeaders: Record<string, string> = {}
-  const token = getAuthToken()
-  if (token) {
-    extraHeaders["Authorization"] = `Bearer ${token}`
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+  if (_authToken) {
+    headers["Authorization"] = `Bearer ${_authToken}`
   }
 
   const response = await fetch(url, {
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...extraHeaders,
-      ...(options.headers as Record<string, string>),
-    },
+    headers: { ...headers, ...(options.headers as Record<string, string> | undefined) },
     ...options,
   })
 
