@@ -8,7 +8,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react"
-import { get, post, UnauthorizedError } from "@/lib/api/client"
+import { get, post, setAuthToken, UnauthorizedError } from "@/lib/api/client"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080"
 
@@ -52,9 +52,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const PUBLIC_PATHS = ["/login"]
 
   useEffect(() => {
+    const hash = window.location.hash
+    if (hash.startsWith("#session_token=")) {
+      const token = hash.slice("#session_token=".length)
+      setAuthToken(token)
+      history.replaceState(null, "", window.location.pathname + window.location.search)
+    }
+
     fetchUser()
 
     const handleUnauthorized = () => {
+      setAuthToken(null)
       if (PUBLIC_PATHS.includes(window.location.pathname)) {
         setUser(null)
         return
@@ -79,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // proceed with client-side logout regardless
     }
     setUser(null)
+    setAuthToken(null)
     document.cookie = "session_token=; path=/; max-age=0"
     window.location.href = "/login"
   }, [])

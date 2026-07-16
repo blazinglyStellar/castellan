@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -50,7 +51,7 @@ func InitGoth(_ string, apiBaseURL string) {
 	store.MaxAge(cookieStoreMaxAge)
 	store.Options.Path = "/"
 	store.Options.HttpOnly = true
-	store.Options.Secure = false   // TLS terminated at proxy — internal conn is HTTP
+	store.Options.Secure = false                  // TLS terminated at proxy — internal conn is HTTP
 	store.Options.SameSite = http.SameSiteLaxMode // OAuth callback is a top-level GET redirect — Lax allows it
 
 	gothic.Store = store
@@ -137,5 +138,5 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	if row.IsNew {
 		redirectPath = "/onboarding"
 	}
-	http.Redirect(w, r, h.dashboardURL+redirectPath, http.StatusFound)
+	http.Redirect(w, r, fmt.Sprintf("%s%s#session_token=%s", h.dashboardURL, redirectPath, rawToken), http.StatusFound)
 }
