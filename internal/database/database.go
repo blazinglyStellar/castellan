@@ -36,6 +36,12 @@ var (
 	dbInstance *service
 )
 
+func init() {
+	if schema == "" {
+		schema = "public"
+	}
+}
+
 const (
 	maxOpenConns       = 40
 	maxWaitCount       = 1000
