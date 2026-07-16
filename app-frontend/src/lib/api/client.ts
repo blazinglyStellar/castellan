@@ -1,13 +1,29 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080"
 
+export const SESSION_TOKEN_KEY = "sess"
+
 let _authToken: string | null = null
 
 export function setAuthToken(token: string | null) {
   _authToken = token
+  if (typeof window !== "undefined") {
+    if (token) {
+      sessionStorage.setItem(SESSION_TOKEN_KEY, token)
+    } else {
+      sessionStorage.removeItem(SESSION_TOKEN_KEY)
+    }
+  }
 }
 
 export function getAuthToken(): string | null {
-  return _authToken
+  if (_authToken) return _authToken
+  if (typeof window === "undefined") return null
+  const stored = sessionStorage.getItem(SESSION_TOKEN_KEY)
+  if (stored) {
+    _authToken = stored
+    return stored
+  }
+  return null
 }
 
 export class ApiError extends Error {
