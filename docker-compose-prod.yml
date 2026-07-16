@@ -41,18 +41,24 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "8081:8080"
+      - "8081:8081"
     env_file: .env
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
       DATABASE_URL: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
       REDIS_URL: "redis://redis:6379/0"
-      PORT: "8080"
+      PORT: "8081"
       GOOSE_DRIVER: postgres
       GOOSE_DBSTRING: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.castellan-api.rule=Host(`tnozabooaohax5j1dueeluwp.169.58.12.23.sslip.io`)"
+      - "traefik.http.routers.castellan-api.entrypoints=web"
+      - "traefik.http.services.castellan-api.loadbalancer.server.port=8081"
     networks:
       - castellan
+      - coolify
 
   settlement-worker:
     image: ghcr.io/blazinglystellar/castellan-worker:latest
@@ -77,3 +83,5 @@ volumes:
 
 networks:
   castellan:
+  coolify:
+    external: true
