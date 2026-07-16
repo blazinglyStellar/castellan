@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -11,7 +12,8 @@ const sessionCookieName = "session_token"
 var errCookieNotFound = errors.New("session cookie not found")
 
 func SetSessionCookie(w http.ResponseWriter, token string, ttl time.Duration) {
-	secure := false // TLS terminated at proxy — internal conn is HTTP
+	isProd := os.Getenv("APP_ENV") == "production"
+	secure := isProd // production: TLS terminated at proxy, Secure=true for SameSite=None
 
 	http.SetCookie(w, &http.Cookie{ // #nosec G124
 		Name:     sessionCookieName,
@@ -21,19 +23,21 @@ func SetSessionCookie(w http.ResponseWriter, token string, ttl time.Duration) {
 		MaxAge:   int(ttl.Seconds()),
 		HttpOnly: true,
 		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteNoneMode,
 	})
 }
 
 func ClearSessionCookie(w http.ResponseWriter) {
+	isProd := os.Getenv("APP_ENV") == "production"
+
 	http.SetCookie(w, &http.Cookie{ // #nosec G124
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   false, // TLS terminated at proxy
-		SameSite: http.SameSiteLaxMode,
+		Secure:   isProd,
+		SameSite: http.SameSiteNoneMode,
 	})
 }
 
