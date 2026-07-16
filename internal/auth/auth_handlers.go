@@ -13,6 +13,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const bearerPrefix = "Bearer "
+
 type Handler struct {
 	sessionService *SessionService
 	queries        repository.Querier
@@ -123,7 +125,7 @@ type logoutResponse struct {
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	rawToken, err := ReadSessionCookie(r)
+	rawToken, err := authorizationToken(r)
 	if err != nil {
 		writeJSON(w, http.StatusOK, logoutResponse{Message: "logged out"})
 		return
@@ -142,8 +144,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) LogoutRedirect(w http.ResponseWriter, r *http.Request) {
-	rawToken, err := ReadSessionCookie(r)
-	if err == nil {
+	if rawToken, err := authorizationToken(r); err == nil {
 		if revokeErr := h.sessionService.RevokeSession(r.Context(), rawToken); revokeErr != nil {
 			slog.WarnContext(
 				r.Context(), "session revoke failed",
@@ -161,4 +162,12 @@ func (h *Handler) LogoutRedirect(w http.ResponseWriter, r *http.Request) {
 
 	dashboardURL := os.Getenv("DASHBOARD_URL")
 	http.Redirect(w, r, dashboardURL+redirectTarget, http.StatusFound) // #nosec G710 — redirectTarget validated as relative path above
+}
+
+func authorizationToken(r *http.Request) (string, error) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" && strings.HasPrefix(authHeader, bearerPrefix) {
+		return strings.TrimPrefix(authHeader, bearerPrefix), nil
+	}
+	return ReadSessionCookie(r)
 }

@@ -1,5 +1,15 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080"
 
+let _authToken: string | null = null
+
+export function setAuthToken(token: string | null) {
+  _authToken = token
+}
+
+export function getAuthToken(): string | null {
+  return _authToken
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -24,12 +34,16 @@ async function request<T>(
 ): Promise<T> {
   const url = `${API_BASE}${path}`
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+  if (_authToken) {
+    headers["Authorization"] = `Bearer ${_authToken}`
+  }
+
   const response = await fetch(url, {
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers: { ...headers, ...(options.headers as Record<string, string> | undefined) },
     ...options,
   })
 
