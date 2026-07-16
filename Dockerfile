@@ -24,7 +24,7 @@ COPY --from=builder /bin/castellan-api /bin/castellan-api
 COPY --from=goose-builder /go/bin/goose /bin/goose
 COPY migrations /migrations
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-EXPOSE 8080
+EXPOSE 8081
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["/bin/castellan-api"]
 
