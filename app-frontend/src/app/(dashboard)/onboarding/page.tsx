@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useQuery, useMutation } from "@tanstack/react-query"
+import { copyToClipboard } from "@/lib/clipboard"
 import {
   Wallet,
   Copy,
@@ -194,7 +195,7 @@ export default function OnboardingPage() {
 
   function handleCopyKey() {
     if (createdKey?.key) {
-      navigator.clipboard.writeText(createdKey.key)
+      copyToClipboard(createdKey.key)
       setKeyCopied(true)
       setTimeout(() => setKeyCopied(false), 3000)
     }
@@ -580,7 +581,7 @@ function DiscoverStep({
       `\n  -H "Content-Type: application/json" \\` +
       `\n  -H "Authorization: Bearer <your-api-key>" \\` +
       `\n  -d '{"hello": "world"}'`
-    navigator.clipboard.writeText(cmd)
+    copyToClipboard(cmd)
     setCurlCopied(true)
     setTimeout(() => setCurlCopied(false), 2000)
   }

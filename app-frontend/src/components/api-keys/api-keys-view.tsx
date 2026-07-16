@@ -38,6 +38,7 @@ import {
   rotateApiKey,
 } from "@/lib/api/endpoints";
 import type { ApiKey, CreateApiKeyResponse } from "@/lib/api/types";
+import { copyToClipboard } from "@/lib/clipboard";
 import { timeAgo, StatusBadge } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -929,7 +930,7 @@ function ShowKeyModal({
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(keyValue);
+    await copyToClipboard(keyValue);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

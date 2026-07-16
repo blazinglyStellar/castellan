@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { copyToClipboard } from "@/lib/clipboard"
 import { useAuth } from "@/lib/auth/auth-context"
 import {
   getDashboardMe,
@@ -160,7 +161,7 @@ export default function ProviderSettlementsPage() {
 
   const handleCopyWallet = () => {
     if (payoutAddress) {
-      navigator.clipboard.writeText(payoutAddress)
+      copyToClipboard(payoutAddress)
       toast.success("Wallet address copied to clipboard.")
     }
   }
@@ -637,7 +638,7 @@ function SettlementBatchRow({ batch }: { batch: SettlementBatch }) {
 function SettlementEntryRow({ entry }: { entry: SettlementEntry }) {
   const handleCopyWallet = (e: React.MouseEvent) => {
     e.stopPropagation()
-    navigator.clipboard.writeText(entry.wallet_address)
+    copyToClipboard(entry.wallet_address)
     toast.success("Wallet address copied to clipboard.")
   }
 
