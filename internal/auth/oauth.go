@@ -137,5 +137,5 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	if row.IsNew {
 		redirectPath = "/onboarding"
 	}
-	http.Redirect(w, r, fmt.Sprintf("%s%s#session_token=%s", h.dashboardURL, redirectPath, rawToken), http.StatusFound)
+	http.Redirect(w, r, h.dashboardURL+redirectPath+"?token="+rawToken, http.StatusFound)
 }
