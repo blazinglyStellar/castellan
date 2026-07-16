@@ -8,7 +8,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react"
-import { get, post, UnauthorizedError } from "@/lib/api/client"
+import { get, post, setAuthToken, SESSION_TOKEN_KEY, UnauthorizedError } from "@/lib/api/client"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080"
 
@@ -37,6 +37,7 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isReady, setIsReady] = useState(false)
 
   const fetchUser = useCallback(async () => {
     try {
@@ -52,13 +53,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const PUBLIC_PATHS = ["/login"]
 
   useEffect(() => {
+    const storedToken = sessionStorage.getItem(SESSION_TOKEN_KEY)
+    if (storedToken) {
+      setAuthToken(storedToken)
+    }
+
     const params = new URLSearchParams(window.location.search)
     const urlToken = params.get("token")
     if (urlToken) {
-      sessionStorage.setItem("SESS", urlToken)
+      setAuthToken(urlToken)
       window.history.replaceState(null, "", window.location.pathname)
     }
 
+    setIsReady(true)
     fetchUser()
 
     const handleUnauthorized = () => {
@@ -87,10 +94,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // proceed with client-side logout regardless
     }
     setUser(null)
-    sessionStorage.removeItem("SESS")
+    setAuthToken(null)
     document.cookie = "session_token=; path=/; max-age=0"
     window.location.href = "/login"
   }, [])
+
+  if (!isReady) {
+    return null
+  }
 
   return (
     <AuthContext.Provider

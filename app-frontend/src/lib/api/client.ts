@@ -1,13 +1,29 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080"
 
+export const SESSION_TOKEN_KEY = "sess"
+
 let _authToken: string | null = null
 
 export function setAuthToken(token: string | null) {
   _authToken = token
+  if (typeof window !== "undefined") {
+    if (token) {
+      sessionStorage.setItem(SESSION_TOKEN_KEY, token)
+    } else {
+      sessionStorage.removeItem(SESSION_TOKEN_KEY)
+    }
+  }
 }
 
 export function getAuthToken(): string | null {
-  return _authToken
+  if (_authToken) return _authToken
+  if (typeof window === "undefined") return null
+  const stored = sessionStorage.getItem(SESSION_TOKEN_KEY)
+  if (stored) {
+    _authToken = stored
+    return stored
+  }
+  return null
 }
 
 export class ApiError extends Error {
@@ -28,13 +44,6 @@ export class UnauthorizedError extends ApiError {
   }
 }
 
-const SESSION_TOKEN_KEY = "SESS"
-
-function readAuthSessionToken(): string | null {
-  if (typeof window === "undefined") return null
-  return sessionStorage.getItem(SESSION_TOKEN_KEY)
-}
-
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -42,9 +51,9 @@ async function request<T>(
   const url = `${API_BASE}${path}`
 
   const extraHeaders: Record<string, string> = {}
-  const sessionToken = readAuthSessionToken()
-  if (sessionToken) {
-    extraHeaders["Authorization"] = `Bearer ${sessionToken}`
+  const token = getAuthToken()
+  if (token) {
+    extraHeaders["Authorization"] = `Bearer ${token}`
   }
 
   const response = await fetch(url, {
