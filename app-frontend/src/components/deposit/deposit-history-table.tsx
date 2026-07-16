@@ -18,6 +18,7 @@ import { ErrorState } from "@/components/shared/error-state";
 import { EmptyState } from "@/components/shared/empty-state";
 
 import { useCursorPagination } from "@/lib/use-cursor-pagination";
+import { copyToClipboard } from "@/lib/clipboard";
 import { getDeposits } from "@/lib/api/endpoints";
 import type { Deposit } from "@/lib/api/types";
 import { formatShortDateTime, formatAmount, StatusBadge } from "@/lib/format";
@@ -67,7 +68,7 @@ export function DepositHistoryTable() {
 
   function handleCopyTxHash(e: React.MouseEvent, hash: string) {
     e.stopPropagation();
-    navigator.clipboard.writeText(hash);
+    copyToClipboard(hash);
     setCopiedTxHash(hash);
     setTimeout(() => setCopiedTxHash(null), 2000);
   }

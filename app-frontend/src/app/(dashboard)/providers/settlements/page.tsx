@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import {
   Landmark,
   Clock,
+  Check,
   CheckCircle2,
   Copy,
   BarChart3,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { copyToClipboard } from "@/lib/clipboard"
 import { useAuth } from "@/lib/auth/auth-context"
 import {
   getDashboardMe,
@@ -69,6 +71,7 @@ export default function ProviderSettlementsPage() {
   const [statusFilter, setStatusFilter] = useState("")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
+  const [copiedAddress, setCopiedAddress] = useState(false)
 
   const resolvedStatus = statusFilter !== "" ? statusFilter : undefined
 
@@ -160,7 +163,9 @@ export default function ProviderSettlementsPage() {
 
   const handleCopyWallet = () => {
     if (payoutAddress) {
-      navigator.clipboard.writeText(payoutAddress)
+      copyToClipboard(payoutAddress)
+      setCopiedAddress(true)
+      setTimeout(() => setCopiedAddress(false), 2000)
       toast.success("Wallet address copied to clipboard.")
     }
   }
@@ -238,7 +243,11 @@ export default function ProviderSettlementsPage() {
               className="text-muted-foreground transition-colors hover:text-foreground"
               title="Copy wallet address"
             >
-              <Copy className="size-3.5" />
+              {copiedAddress ? (
+                <Check className="size-3.5 text-green-500" />
+              ) : (
+                <Copy className="size-3.5" />
+              )}
             </button>
           </div>
         )}
@@ -635,9 +644,13 @@ function SettlementBatchRow({ batch }: { batch: SettlementBatch }) {
 }
 
 function SettlementEntryRow({ entry }: { entry: SettlementEntry }) {
+  const [copiedAddress, setCopiedAddress] = useState(false)
+
   const handleCopyWallet = (e: React.MouseEvent) => {
     e.stopPropagation()
-    navigator.clipboard.writeText(entry.wallet_address)
+    copyToClipboard(entry.wallet_address)
+    setCopiedAddress(true)
+    setTimeout(() => setCopiedAddress(false), 2000)
     toast.success("Wallet address copied to clipboard.")
   }
 
@@ -666,7 +679,11 @@ function SettlementEntryRow({ entry }: { entry: SettlementEntry }) {
             className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
             title="Copy wallet address"
           >
-            <Copy className="size-3" />
+            {copiedAddress ? (
+              <Check className="size-3 text-green-500" />
+            ) : (
+              <Copy className="size-3" />
+            )}
           </button>
         </div>
       </TableCell>

@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Search, Inbox, Users, Activity, Copy, Check, Terminal } from "lucide-react"
 
+import { copyToClipboard } from "@/lib/clipboard"
 import { useAuth } from "@/lib/auth/auth-context"
 import { getDiscoverProviders, getPublicProviderEndpoints } from "@/lib/api/endpoints"
 import type { Provider, Endpoint } from "@/lib/api/types"
@@ -203,7 +204,7 @@ function ProviderSheet({
 
   const handleCopyBaseUrl = useCallback(() => {
     if (!provider) return
-    navigator.clipboard.writeText(provider.base_url).then(() => {
+    copyToClipboard(provider.base_url).then(() => {
       setCopiedBaseUrl(true)
       setTimeout(() => setCopiedBaseUrl(false), 2000)
     })
@@ -339,7 +340,7 @@ function EndpointDetailRow({
 
   const handleCopyUrl = useCallback(() => {
     const fullUrl = `${baseUrl.replace(/\/+$/, "")}/${endpoint.route.replace(/^\//, "")}`
-    navigator.clipboard.writeText(fullUrl).then(() => {
+    copyToClipboard(fullUrl).then(() => {
       setCopiedAction("url")
       setTimeout(() => setCopiedAction(null), 2000)
     })
@@ -353,7 +354,7 @@ function EndpointDetailRow({
     if (method === "POST" || method === "PUT" || method === "PATCH") {
       parts.push(`-H "Content-Type: application/json"`, `-d '{}'`)
     }
-    navigator.clipboard.writeText(parts.join(" \\\n  ")).then(() => {
+    copyToClipboard(parts.join(" \\\n  ")).then(() => {
       setCopiedAction("curl")
       setTimeout(() => setCopiedAction(null), 2000)
     })
@@ -385,11 +386,19 @@ function EndpointDetailRow({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={handleCopyUrl} className="cursor-pointer gap-2">
-              <Copy className="size-3.5" />
+              {copiedAction === "url" ? (
+                <Check className="size-3.5 text-green-500" />
+              ) : (
+                <Copy className="size-3.5" />
+              )}
               Copy URL
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleCopyCurl} className="cursor-pointer gap-2">
-              <Terminal className="size-3.5" />
+              {copiedAction === "curl" ? (
+                <Check className="size-3.5 text-green-500" />
+              ) : (
+                <Terminal className="size-3.5" />
+              )}
               Copy cURL
             </DropdownMenuItem>
           </DropdownMenuContent>
