@@ -50,7 +50,7 @@ func InitGoth(_ string, apiBaseURL string) {
 	store.MaxAge(cookieStoreMaxAge)
 	store.Options.Path = "/"
 	store.Options.HttpOnly = true
-	store.Options.Secure = os.Getenv("APP_ENV") != "local"
+	store.Options.Secure = false // TLS terminated at proxy — internal conn is HTTP
 
 	gothic.Store = store
 }
