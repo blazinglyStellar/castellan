@@ -50,7 +50,8 @@ func InitGoth(_ string, apiBaseURL string) {
 	store.MaxAge(cookieStoreMaxAge)
 	store.Options.Path = "/"
 	store.Options.HttpOnly = true
-	store.Options.Secure = false // TLS terminated at proxy — internal conn is HTTP
+	store.Options.Secure = false   // TLS terminated at proxy — internal conn is HTTP
+	store.Options.SameSite = http.SameSiteLaxMode // OAuth callback is a top-level GET redirect — Lax allows it
 
 	gothic.Store = store
 }
