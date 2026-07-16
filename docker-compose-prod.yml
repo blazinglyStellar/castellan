@@ -51,8 +51,14 @@ services:
       PORT: "8080"
       GOOSE_DRIVER: postgres
       GOOSE_DBSTRING: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.castellan-api.rule=Host(`tnozabooaohax5j1dueeluwp.169.58.12.23.sslip.io`)"
+      - "traefik.http.routers.castellan-api.entrypoints=web"
+      - "traefik.http.services.castellan-api.loadbalancer.server.port=8080"
     networks:
       - castellan
+      - traefik
 
   settlement-worker:
     image: ghcr.io/blazinglystellar/castellan-worker:latest
@@ -77,3 +83,5 @@ volumes:
 
 networks:
   castellan:
+  traefik:
+    external: true
