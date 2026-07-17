@@ -51,14 +51,14 @@ services:
       PORT: "8081"
       GOOSE_DRIVER: postgres
       GOOSE_DBSTRING: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.castellan-api.rule=Host(`tnozabooaohax5j1dueeluwp.169.58.12.23.sslip.io`)"
-      - "traefik.http.routers.castellan-api.entrypoints=web"
-      - "traefik.http.services.castellan-api.loadbalancer.server.port=8081"
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.castellan-api.rule=Host(`tnozabooaohax5j1dueeluwp.169.58.12.23.sslip.io`)"
+    #   - "traefik.http.routers.castellan-api.entrypoints=web"
+    #   - "traefik.http.services.castellan-api.loadbalancer.server.port=8081"
     networks:
       - castellan
-      - coolify
+      # - coolify
 
   settlement-worker:
     image: ghcr.io/blazinglystellar/castellan-worker:latest
@@ -77,6 +77,33 @@ services:
       REDIS_URL: "redis://redis:6379/0"
     networks:
       - castellan
+
+  frontend:
+    build:
+      context: ./app-frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://api:8081}
+        NEXT_PUBLIC_STELLAR_NETWORK: ${NEXT_PUBLIC_STELLAR_NETWORK:-testnet}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://api:8081}
+      NEXT_PUBLIC_STELLAR_NETWORK: ${NEXT_PUBLIC_STELLAR_NETWORK:-testnet}
+      PORT: "3000"
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.castellan-frontend.rule=Host(`tnozabooaohax5j1dueeluwp.169.58.12.23.sslip.io`) && PathPrefix(`/app`)"
+    #   - "traefik.http.routers.castellan-frontend.entrypoints=web"
+    #   - "traefik.http.services.castellan-frontend.loadbalancer.server.port=3000"
+    networks:
+      - castellan
+      # - coolify
+
 volumes:
   psql_volume:
   redis_data:
