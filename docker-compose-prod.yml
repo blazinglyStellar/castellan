@@ -61,8 +61,10 @@ services:
       # - coolify
 
   settlement-worker:
-    image: ghcr.io/blazinglystellar/castellan-worker:latest
-    pull_policy: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
     restart: unless-stopped
     depends_on:
       postgres:
