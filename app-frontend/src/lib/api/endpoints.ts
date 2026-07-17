@@ -26,6 +26,7 @@ import type {
   UsageListResponse,
   UsageParams,
 } from "./types"
+import { getAuthToken } from "./client"
 
 export class ApiError extends Error {
   status: number
@@ -53,12 +54,17 @@ class ApiClient {
     body?: unknown,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    }
+    const token = getAuthToken()
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`
+    }
     const options: RequestInit = {
       method,
       credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
     }
 
     if (body !== undefined) {
