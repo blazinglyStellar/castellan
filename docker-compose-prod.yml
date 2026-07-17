@@ -53,7 +53,7 @@ services:
       GOOSE_DBSTRING: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.castellan-api.rule=Host(`tnozabooaohax5j1dueeluwp.169.58.12.23.sslip.io`)"
+      - "traefik.http.routers.castellan-api.rule=Host(`b6ropy6hmtv4py0oacsksktb.169.58.12.23.sslip.io`)"
       - "traefik.http.routers.castellan-api.entrypoints=web"
       - "traefik.http.services.castellan-api.loadbalancer.server.port=8081"
     networks:
