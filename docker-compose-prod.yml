@@ -8,8 +8,6 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - psql_volume:/var/lib/postgresql/data
-    networks:
-      - castellan
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres}"]
       interval: 10s
@@ -21,8 +19,6 @@ services:
     restart: unless-stopped
     volumes:
       - redis_data:/data
-    networks:
-      - castellan
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -56,9 +52,6 @@ services:
       - "traefik.http.routers.castellan-api.rule=Host(`b6ropy6hmtv4py0oacsksktb.169.58.12.23.sslip.io`)"
       - "traefik.http.routers.castellan-api.entrypoints=web"
       - "traefik.http.services.castellan-api.loadbalancer.server.port=8081"
-    networks:
-      - castellan
-      - coolify
 
   settlement-worker:
     build:
@@ -77,8 +70,6 @@ services:
       DB_PORT: "5432"
       DATABASE_URL: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}?sslmode=disable"
       REDIS_URL: "redis://redis:6379/0"
-    networks:
-      - castellan
 
   frontend:
     build:
@@ -97,20 +88,7 @@ services:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://api:8081}
       NEXT_PUBLIC_STELLAR_NETWORK: ${NEXT_PUBLIC_STELLAR_NETWORK:-testnet}
       PORT: "3000"
-    # labels:
-    #   - "traefik.enable=true"
-    #   - "traefik.http.routers.castellan-frontend.rule=Host(`tnozabooaohax5j1dueeluwp.169.58.12.23.sslip.io`) && PathPrefix(`/app`)"
-    #   - "traefik.http.routers.castellan-frontend.entrypoints=web"
-    #   - "traefik.http.services.castellan-frontend.loadbalancer.server.port=3000"
-    networks:
-      - castellan
-      # - coolify
 
 volumes:
   psql_volume:
   redis_data:
-
-networks:
-  castellan:
-  coolify:
-    external: true
